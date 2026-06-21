@@ -1,0 +1,159 @@
+import pytest
+from urllib.parse import urlparse, parse_qs
+from aiohttp.test_utils import TestClient, TestServer
+
+from api_server import make_app
+from ctc.auth.crypto import derive_key
+from ctc.auth.registry import AuthRegistry
+from ctc.auth.sessions import SessionService
+from ctc.accounting.engine import AccountingEngine
+from ctc.store.auth_store import AuthStore
+from ctc.store.accounting_store import AccountingStore
+from ctc.store.db import connect, init_db
+from ctc.domain.types import Role
+
+
+class StubOAuth:
+    def authorize_url(self, state): return f"https://ghe/authorize?state={state}"
+    async def exchange_code(self, code): return "gho_TEST"
+    async def fetch_identity(self, token): return {"login": "octocat", "name": "Octo"}
+
+
+async def _giver_user(pat):
+    return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
+
+
+def _make(now=lambda: 1000):
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)  # large so clock-advancing tests keep the session
+    return make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                    oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
+                    secret="sek", app_origin="http://app", now=now)
+
+
+async def _login(cli):
+    r = await cli.get("/auth/login", allow_redirects=False)
+    state = parse_qs(urlparse(r.headers["Location"]).query)["state"][0]
+    await cli.get(f"/auth/callback?code=abc&state={state}", allow_redirects=False)
+
+
+@pytest.mark.asyncio
+async def test_create_list_donate_lifecycle_in_aiu():
+    # Build inline so we can seed a request owned by a DIFFERENT user (you can't
+    # fund your own request, so the donor and requester must differ).
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)
+    app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)                         # logged in as octocat (consumer by default)
+        # consumer creates a 100-AIU request — it's their own
+        body = await (await cli.post("/api/requests", json={"amountNeeded": 100, "reason": "ran out", "target": None})).json()
+        rid = body["id"]
+        assert body["requesterName"] == "Octo" and body["requesterRole"] == "noob"
+        assert body["amountNeeded"] == 100 and body["amountFunded"] == 0 and body["isOwn"] is True
+
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert [x["id"] for x in lst["requests"]] == [rid]
+        assert lst["counts"] == {"all": 1, "pro": 0, "noob": 1}
+
+        # a different user's open request (seeded directly)
+        foreign = eng.create_request("c1", "other_uid", Role.CONSUMER, 100, "help", None, 1000, 10**12)
+
+        # become a giver by adding a PAT (sets real quota = 4000 AIU)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})
+        # cannot fund your OWN request
+        assert (await cli.post(f"/api/requests/{rid}/donate", json={"amount": 100})).status == 422
+        # funds the foreign request → fulfilled
+        d = await (await cli.post(f"/api/requests/{foreign.id}/donate", json={"amount": 100})).json()
+        assert d["amountFunded"] == 100 and d["status"] == "fulfilled" and d["donorCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_donate_requires_session():
+    async with TestClient(TestServer(_make())) as cli:
+        r = await cli.post("/api/requests/x/donate", json={"amount": 5})
+        assert r.status == 401
+
+
+@pytest.mark.asyncio
+async def test_giver_without_pat_cannot_fund():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        rid = (await (await cli.post("/api/requests", json={"amountNeeded": 50, "reason": "x", "target": None})).json())["id"]
+        # no PAT -> no quota -> personal_remaining 0 -> 422
+        r = await cli.post(f"/api/requests/{rid}/donate", json={"amount": 10})
+        assert r.status == 422
+
+
+@pytest.mark.asyncio
+async def test_list_requires_session():
+    async with TestClient(TestServer(_make())) as cli:
+        assert (await cli.get("/api/requests")).status == 401
+
+
+@pytest.mark.asyncio
+async def test_request_expires_after_window():
+    # Timestamps are seconds; a request expires request_expiry_hours (24h) after creation.
+    clock = [1000]
+    async with TestClient(TestServer(_make(now=lambda: clock[0]))) as cli:
+        await _login(cli)
+        rid = (await (await cli.post("/api/requests",
+               json={"amountNeeded": 10, "reason": "x", "target": None})).json())["id"]
+        clock[0] += 24 * 3600 + 1            # past the expiry window
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        req = next(r for r in lst["requests"] if r["id"] == rid)
+        assert req["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_request_honors_chosen_expiry_hours():
+    async with TestClient(TestServer(_make(now=lambda: 1000))) as cli:
+        await _login(cli)
+        await cli.post("/api/requests",
+                       json={"amountNeeded": 10, "reason": "x", "target": None, "expiryHours": 6})
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert lst["requests"][0]["expiresAt"] == 1000 + 6 * 3600
+
+
+@pytest.mark.asyncio
+async def test_request_defaults_to_24h_when_expiry_omitted():
+    async with TestClient(TestServer(_make(now=lambda: 1000))) as cli:
+        await _login(cli)
+        await cli.post("/api/requests",
+                       json={"amountNeeded": 10, "reason": "x", "target": None})
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert lst["requests"][0]["expiresAt"] == 1000 + 24 * 3600
+
+
+@pytest.mark.asyncio
+async def test_request_expiry_capped_to_cycle_end():
+    # Cycle ends at 10**12; create 1h before end with a 24h request -> capped to cycle end.
+    end = 10**12
+    async with TestClient(TestServer(_make(now=lambda: end - 3600))) as cli:
+        await _login(cli)
+        await cli.post("/api/requests",
+                       json={"amountNeeded": 10, "reason": "x", "target": None, "expiryHours": 24})
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert lst["requests"][0]["expiresAt"] == end
+
+
+@pytest.mark.asyncio
+async def test_request_rejects_out_of_range_expiry():
+    async with TestClient(TestServer(_make(now=lambda: 1000))) as cli:
+        await _login(cli)
+        r0 = await cli.post("/api/requests",
+                            json={"amountNeeded": 10, "reason": "x", "target": None, "expiryHours": 0})
+        assert r0.status == 422
+        rbig = await cli.post("/api/requests",
+                              json={"amountNeeded": 10, "reason": "x", "target": None, "expiryHours": 200})
+        assert rbig.status == 422
+        body = await rbig.json()
+        assert "error" in body and "message" in body

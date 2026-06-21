@@ -1,0 +1,203 @@
+from __future__ import annotations
+
+import calendar
+import datetime
+import uuid
+
+from ..domain.config import config as _env_config
+from ..domain.rules import derive_status
+from ..domain.types import Bucket, Cycle, Event, Grant, GiverCycle, Request, RequestStatus, Role
+from ..store.accounting_store import AccountingStore
+from .errors import InsufficientCredit, InvalidConsumption, InvalidPledge, RequestClosed
+
+
+class AccountingEngine:
+    def __init__(self, store: AccountingStore, config=None):
+        self.store = store
+        self.conn = store.conn
+        self.config = config if config is not None else _env_config
+
+    # --- balance reads ---
+    def personal_remaining(self, cycle_id: str, giver_id: str) -> int:
+        gc = self.store.get_giver_cycle(cycle_id, giver_id)
+        if gc is None:
+            return 0
+        return (gc.quota - gc.pledge
+                - self.store.own_consumed(cycle_id, giver_id)
+                - self.store.granted_out(cycle_id, giver_id))
+
+    def pledge_remaining(self, cycle_id: str, giver_id: str) -> int:
+        gc = self.store.get_giver_cycle(cycle_id, giver_id)
+        if gc is None:
+            return 0
+        return max(0, gc.pledge - self.store.pool_consumed_from(cycle_id, giver_id))
+
+    def pool_available(self, cycle_id: str) -> int:
+        return sum(self.pledge_remaining(cycle_id, gc.giver_id)
+                   for gc in self.store.all_giver_cycles(cycle_id))
+
+    def allowance_remaining(self, cycle_id: str, consumer_id: str) -> int:
+        return max(0, self.config.free_allowance - self.store.pool_consumed_by(cycle_id, consumer_id))
+
+    def grant_remaining(self, cycle_id: str, grant_id: str) -> int:
+        g = self.store.get_grant(grant_id)
+        if g is None:
+            return 0
+        return g.amount - self.store.grant_consumed(cycle_id, grant_id)
+
+    def donated_live(self, cycle_id: str, giver_id: str) -> int:
+        return self.store.donated_live(cycle_id, giver_id)
+
+    def consumed_total(self, cycle_id: str, user_id: str) -> int:
+        return self.store.consumed_total(cycle_id, user_id)
+
+    def givers_with_pool_capacity(self, cycle_id: str) -> list[tuple[str, int]]:
+        out = []
+        for gc in self.store.all_giver_cycles(cycle_id):
+            rem = self.pledge_remaining(cycle_id, gc.giver_id)
+            if rem > 0:
+                out.append((gc.giver_id, rem))
+        return out
+
+    def active_grants(self, cycle_id: str, consumer_id: str) -> list[Grant]:
+        return [g for g in self.store.grants_for_recipient(cycle_id, consumer_id)
+                if self.grant_remaining(cycle_id, g.id) > 0]
+
+    def request_status(self, request_id: str, now: int) -> RequestStatus:
+        r = self.store.get_request(request_id)
+        if r is None:
+            raise InvalidConsumption("unknown request")
+        funded = self.store.request_funded(request_id)
+        return derive_status(funded, r.amount_needed, r.expires_at, now)
+
+    # --- cycle ---
+    def start_cycle(self, cycle_id: str, label: str, starts_at: int, ends_at: int) -> Cycle:
+        c = Cycle(cycle_id, label, starts_at, ends_at, "active")
+        self.store.add_cycle(c)
+        return c
+
+    def current_cycle(self) -> Cycle | None:
+        return self.store.active_cycle()
+
+    def ensure_active_cycle(self, now: int) -> Cycle:
+        """Guarantee an active cycle exists so the app is never blocked by a
+        missing period. If one is already active, return it unchanged. Otherwise
+        open the current calendar month's cycle (UTC). Idempotent — safe to call
+        on every startup. (Monthly *rollover* of an existing cycle is a separate
+        concern; this only fills the no-cycle gap.)"""
+        cur = self.current_cycle()
+        if cur is not None:
+            return cur
+        d = datetime.datetime.fromtimestamp(now, datetime.timezone.utc)
+        start = int(datetime.datetime(d.year, d.month, 1, tzinfo=datetime.timezone.utc).timestamp())
+        last = calendar.monthrange(d.year, d.month)[1]
+        end = int(datetime.datetime(d.year, d.month, last, 23, 59, 59,
+                                    tzinfo=datetime.timezone.utc).timestamp())
+        return self.start_cycle(f"cycle-{d.year:04d}-{d.month:02d}", d.strftime("%B %Y"), start, end)
+
+    # --- pledge / quota ---
+    def set_quota(self, cycle_id: str, giver_id: str, quota: int) -> None:
+        if quota < 0:
+            raise InvalidPledge("quota must be non-negative")
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            consumed = self.store.pool_consumed_from(cycle_id, giver_id)
+            if quota < consumed:
+                raise InvalidPledge(f"quota cannot be below already-consumed pledge ({consumed})")
+            gc = self.store.get_giver_cycle(cycle_id, giver_id)
+            pledge = min(gc.pledge, quota) if gc else 0
+            self.store.upsert_giver_cycle(GiverCycle(cycle_id, giver_id, quota, pledge))
+            self.conn.execute("COMMIT")
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    def set_pledge(self, cycle_id: str, giver_id: str, pledge: int) -> None:
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            gc = self.store.get_giver_cycle(cycle_id, giver_id)
+            quota = gc.quota if gc else 0
+            consumed = self.store.pool_consumed_from(cycle_id, giver_id)
+            if pledge < consumed or pledge > quota:
+                raise InvalidPledge(f"pledge must be between {consumed} and {quota}")
+            self.store.upsert_giver_cycle(GiverCycle(cycle_id, giver_id, quota, pledge))
+            self.conn.execute("COMMIT")
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    # --- marketplace ---
+    def create_request(self, cycle_id: str, requester_id: str, role: Role, amount_needed: int,
+                       reason: str, target: str | None, created_at: int, expires_at: int) -> Request:
+        r = Request(uuid.uuid4().hex, cycle_id, requester_id, role, amount_needed,
+                    reason, target, created_at, expires_at)
+        self.store.add_request(r)
+        return r
+
+    def fund_request(self, request_id: str, donor_id: str, amount: int, now: int) -> Grant:
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            r = self.store.get_request(request_id)
+            if r is None:
+                raise InvalidConsumption("unknown request")
+            if donor_id == r.requester_id:
+                raise InvalidConsumption("cannot fund your own request")
+            funded = self.store.request_funded(request_id)
+            status = derive_status(funded, r.amount_needed, r.expires_at, now)
+            if status in (RequestStatus.FULFILLED, RequestStatus.EXPIRED):
+                raise RequestClosed(f"request is {status.value}")
+            cap = min(amount, r.amount_needed - funded, self.personal_remaining(r.cycle_id, donor_id))
+            if cap <= 0:
+                raise InsufficientCredit("donor has no personal credit available")
+            g = Grant(uuid.uuid4().hex, r.cycle_id, request_id, donor_id, r.requester_id, cap, now)
+            self.store.add_grant(g)
+            self.conn.execute("COMMIT")
+            return g
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    def record_consumption(
+        self,
+        cycle_id: str,
+        consumer_id: str,
+        source_giver_id: str,
+        bucket: Bucket,
+        credits: int,
+        grant_id: str | None = None,
+        ts: int = 0,
+        allow_overshoot: bool = False,
+    ) -> Event:
+        if credits <= 0:
+            raise InvalidConsumption("credits must be positive")
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            if bucket == Bucket.OWN:
+                if consumer_id != source_giver_id:
+                    raise InvalidConsumption("own consumption must be self-sourced")
+                if not allow_overshoot and credits > self.personal_remaining(cycle_id, source_giver_id):
+                    raise InsufficientCredit("exceeds personal credit")
+            elif bucket == Bucket.POOL:
+                if not allow_overshoot and credits > self.pledge_remaining(cycle_id, source_giver_id):
+                    raise InsufficientCredit("exceeds giver pledge")
+                if not allow_overshoot and credits > self.allowance_remaining(cycle_id, consumer_id):
+                    raise InsufficientCredit("exceeds consumer allowance")
+            elif bucket == Bucket.GRANT:
+                g = self.store.get_grant(grant_id) if grant_id else None
+                if g is None:
+                    raise InvalidConsumption("unknown grant")
+                if g.donor_id != source_giver_id:
+                    raise InvalidConsumption("grant donor mismatch")
+                if not allow_overshoot and credits > self.grant_remaining(cycle_id, grant_id):
+                    raise InsufficientCredit("exceeds grant")
+            else:
+                raise InvalidConsumption(f"unknown bucket {bucket!r}")
+
+            event = Event(uuid.uuid4().hex, cycle_id, ts, consumer_id,
+                          source_giver_id, bucket, grant_id, credits)
+            self.store.add_event(event)
+            self.conn.execute("COMMIT")
+            return event
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise

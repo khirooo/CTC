@@ -1,0 +1,103 @@
+# Single-VM CTC deployment. Three services + a shared SQLite DB and cert volume.
+#
+#   1. one-time:   docker compose --profile tools run --rm gencert
+#   2. start:      docker compose up -d --build
+#
+# Config comes from .env (copy .env.example → .env and fill it in).
+
+services:
+  # The MITM proxy (data plane). VPN/internal-only — see PROXY_BIND in .env.
+  # Reads encrypted giver PATs from the shared DB (CTC_DB_PATH + CTC_SECRET_KEY),
+  # so no REAL_PAT here: givers upload their PAT via the website.
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "proxy.py"]
+    restart: unless-stopped
+    environment:
+      CTC_DB_PATH: /data/ctc.db
+      CTC_SECRET_KEY: ${CTC_SECRET_KEY}
+      GHE_DOMAIN: ${GHE_DOMAIN}
+      REAL_GHE_HOST: ${REAL_GHE_HOST}
+      CERT_FILE: /certs/cert.pem
+      KEY_FILE: /certs/key.pem
+      PORT: "8080"
+      # UPSTREAM_CA_BUNDLE: /certs/corp-ca.pem   # uncomment if GHE uses a corporate CA
+    # Bind to an internal/VPN interface only. Default 127.0.0.1 = localhost-only;
+    # set PROXY_BIND in .env to the VM's VPN-facing IP so teammates can reach it.
+    ports:
+      - "${PROXY_BIND:-127.0.0.1}:8080:8080"
+    volumes:
+      - ctcdata:/data
+      - ctccerts:/certs:ro
+
+  # The control plane (auth, tokens, dashboards). Internal only — Caddy fronts it.
+  controlplane:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "api_server.py"]
+    restart: unless-stopped
+    environment:
+      CTC_DB_PATH: /data/ctc.db
+      CONTROL_PLANE_PORT: "8090"
+      CTC_SECRET_KEY: ${CTC_SECRET_KEY}
+      CTC_APP_ORIGIN: https://${CTC_DOMAIN}
+      GHE_OAUTH_CLIENT_ID: ${GHE_OAUTH_CLIENT_ID}
+      GHE_OAUTH_CLIENT_SECRET: ${GHE_OAUTH_CLIENT_SECRET}
+      GHE_OAUTH_REDIRECT_URI: https://${CTC_DOMAIN}/auth/callback
+      GHE_OAUTH_BASE: ${GHE_OAUTH_BASE}
+      GHE_API_BASE: ${GHE_API_BASE}
+      CTC_ADMINS: ${CTC_ADMINS:-}
+      CTC_CA_CERT: /certs/cert.pem
+    volumes:
+      - ctcdata:/data
+      - ctccerts:/certs:ro
+
+  # Public edge: HTTPS, web app, CLI assets, and reverse-proxy to the control plane.
+  caddy:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        # Everything the web app + CLI assets need is derived from CTC_DOMAIN
+        # (a hostname OR a raw IP — same VM serves the site and the proxy).
+        VITE_API_BASE: https://${CTC_DOMAIN}/api
+        VITE_CTC_HOST: ${CTC_DOMAIN}
+        VITE_PROXY_HOST: ${CTC_DOMAIN}:8080
+        # The PAT-help "Generate a token" link points at the GHE web host.
+        VITE_GHE_HOST: https://${GHE_DOMAIN}
+        CTC_DOMAIN: ${CTC_DOMAIN}
+        # Baked into the served `ctc` so GH_HOST points at the real GHE host, not
+        # the example.ghe.com placeholder (else Copilot validation fetch-fails).
+        GHE_DOMAIN: ${GHE_DOMAIN}
+    restart: unless-stopped
+    depends_on:
+      - controlplane
+    environment:
+      CTC_DOMAIN: ${CTC_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ctccerts:/certs:ro
+      - caddydata:/data        # Caddy's Let's Encrypt certs (persist across restarts)
+
+  # One-shot helper: generate the proxy MITM cert into the shared cert volume.
+  # Run once before the first `up`:  docker compose --profile tools run --rm gencert
+  gencert:
+    image: alpine:3.20
+    profiles: ["tools"]
+    environment:
+      GHE_DOMAIN: ${GHE_DOMAIN}
+      CTC_DOMAIN: ${CTC_DOMAIN}
+    volumes:
+      - ctccerts:/certs
+      - ./scripts:/scripts:ro
+    command: ["sh", "-c", "apk add --no-cache openssl >/dev/null && sh /scripts/gen-cert.sh /certs"]
+
+volumes:
+  ctcdata:
+  ctccerts:
+  caddydata:

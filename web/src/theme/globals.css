@@ -1,0 +1,33 @@
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+::selection{background:rgba(232,89,12,.28);}
+:root{
+  --bg:#0a0c10; --surface:#111620; --surface-2:#171d28; --surface-3:#1f2734;
+  --border:#242d3b; --border-strong:#33415480;
+  --text:#e9edf3; --text-dim:#9aa6b8; --text-faint:#606c80;
+  --accent:#f2660f; --accent-press:#d9560a; --accent-soft:rgba(242,102,15,.13);
+  --give:#34c1a8; --give-soft:rgba(52,193,168,.13);
+  --reroute:#5b8def; --reroute-soft:rgba(91,141,239,.13);
+  --consume:#f2660f; --consume-soft:rgba(242,102,15,.13);
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.5);
+}
+input::placeholder{color:var(--text-faint);}
+
+/* Pledge slider handle for <CreditBar> slider mode (track is the bar itself). */
+.credit-slider{-webkit-appearance:none;appearance:none;background:transparent;}
+.credit-slider::-webkit-slider-runnable-track{background:transparent;height:24px;}
+.credit-slider::-moz-range-track{background:transparent;height:24px;}
+.credit-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab;margin-top:4px;box-shadow:0 1px 4px rgba(0,0,0,.45);}
+.credit-slider::-webkit-slider-thumb:active{cursor:grabbing;}
+.credit-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab;box-shadow:0 1px 4px rgba(0,0,0,.45);}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes rise{from{height:0}to{height:var(--fill)}}
+@keyframes flow{to{background-position:36px 0}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+body{
+  font-family:'Space Grotesk',system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+}

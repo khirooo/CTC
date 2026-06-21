@@ -1,0 +1,70 @@
+# Glossary
+
+Every CTC term in one line. No prior knowledge assumed. (Skim it, or come back
+when a word trips you up.)
+
+### People & roles
+
+- **Giver** — a teammate who *has* paid GitHub Copilot and shares their spare
+  capacity with others.
+- **Consumer** — a teammate who *doesn't* have paid Copilot and borrows from the
+  shared pool.
+- **Operator** — the person who runs the CTC servers (the proxy + the website).
+
+### The pieces
+
+- **Copilot CLI** — GitHub's official command-line Copilot tool. CTC never
+  modifies it; it just reroutes its traffic.
+- **Proxy** — the "middleman" program that sits between Copilot and GitHub,
+  swaps tokens, and records cost. (See [01](01-the-proxy.md).)
+- **Control plane** — the server + website where you log in, hand in your token,
+  and view dashboards. (See [03](03-identity-and-login.md), [05](05-the-web-app.md).)
+- **`ctc`** — the one-line command teammates run to launch Copilot through CTC
+  without manual setup. (See [02](02-the-cli-launcher.md).)
+- **Canary / sentinel** — the early-warning system that detects if a Copilot
+  update silently breaks CTC's cost tracking. (See [06](06-drift-detection.md).)
+
+### Tokens & security
+
+- **PAT (Personal Access Token)** — a long secret string that acts like a
+  password for a service. A giver's real Copilot PAT is the valuable thing CTC
+  protects; it's stored **encrypted** and never leaves the server.
+- **Proxy token** — a *throwaway, PAT-shaped* code CTC gives each user. It's what
+  you put into Copilot. It identifies you to CTC but is useless to GitHub on its
+  own. Revocable anytime.
+- **Session cookie** — the small signed token your browser holds after you log in
+  to the website, so the server knows it's still you.
+- **MITM (Man-In-The-Middle)** — intercepting and reading network traffic that's
+  normally private. CTC does this *to its own traffic, on purpose*, to do the
+  token swap. Your computer allows it because you install CTC's **certificate**.
+- **Certificate (cert)** — a file that tells your computer "trust this server."
+  CTC uses one so it can stand in the middle of the encrypted connection.
+
+### Money & measurement
+
+- **AIU (AI Unit)** — the unit GitHub uses to price Copilot usage. CTC counts
+  usage in AIU. A small request costs a tiny fraction of an AIU.
+- **nano-AIU** — one-billionth of an AIU. CTC stores everything internally in
+  these whole numbers (so there are no rounding errors), and only converts to
+  friendly "X.XX AIU" when showing it to you. **1 credit = 1 nano-AIU.**
+- **Quota** — how much total Copilot capacity a giver has this cycle (read from
+  GitHub when they hand in their PAT).
+- **Pledge** — the slice of their quota a giver volunteers into the shared pool.
+- **Pool** — the combined pledges of all givers; what consumers draw from.
+- **Allowance** — the per-consumer cap on how much they may take from the pool in
+  a cycle (default 300 AIU).
+- **Grant / donation** — a giver directly funding a specific person's request in
+  the marketplace (separate from the pool).
+- **Cycle** — a billing period (e.g. a month). Balances reset each cycle.
+
+### Concepts you'll see in the proxy docs
+
+- **CONNECT** — the first thing a browser/CLI sends to a proxy to say "open a
+  tunnel to host X." CTC decides per-tunnel whether to inspect it or pass it
+  through untouched.
+- **Billable request** — a Copilot call that actually costs money (a `POST` to
+  `/chat/completions` or `/v1/messages`). Only these are metered.
+- **Metering field** — the exact spot in GitHub's response that states the cost:
+  `copilot_usage.total_nano_aiu`. CTC reads this for every billable request.
+- **Bearer** — the required format for the authorization header (`Bearer <token>`).
+  Copilot's API rejects other formats.

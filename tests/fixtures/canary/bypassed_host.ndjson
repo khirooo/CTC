@@ -1,0 +1,2 @@
+{"method":"POST","path":"/chat/completions","upstream_host":"copilot-api.example.ghe.com","status":200,"response_content_type":"application/json","response_body":"{\"copilot_usage\":{\"total_nano_aiu\":5}}"}
+{"method":"POST","path":"/v2/chat","upstream_host":"copilot-proxy.example.ghe.com","status":200,"response_content_type":"application/json","response_body":"{}"}

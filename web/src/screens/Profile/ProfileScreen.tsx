@@ -1,0 +1,381 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useApp } from '@/store/AppContext';
+import { useAsync } from '@/store/useAsync';
+import { CtcApiError } from '@/api/http';
+import { aiu } from '@/domain/credit';
+import { config } from '@/domain/config';
+import { Card } from '@/components';
+import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar';
+import { CopyButton } from '@/components/CopyButton';
+import { PatHelp } from '@/components/PatHelp';
+
+function resetLine(resetDate: string | null | undefined): string | null {
+  if (!resetDate) return null;
+  const reset = new Date(resetDate + 'T00:00:00Z').getTime();
+  const days = Math.max(0, Math.ceil((reset - Date.now()) / 86_400_000));
+  const d = new Date(reset).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return days === 0 ? `Resets ${d} · resets today` : `Resets ${d} · in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+const monoLabel: React.CSSProperties = {
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 11,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  color: 'var(--text-faint)',
+};
+
+const card: React.CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 16,
+  padding: 24,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  background: 'var(--surface-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 10,
+  padding: '11px 13px',
+  color: 'var(--text)',
+  fontFamily: 'inherit',
+  fontSize: 14,
+  outline: 'none',
+};
+
+/**
+ * The single account screen — identity, credit cycle (with the giver pledge
+ * slider inline), PAT management, CLI setup, and sign out. Merged from the old
+ * Profile + Settings screens. Identity is the GHE login (immutable); there are
+ * no editable name/email fields.
+ */
+export function ProfileScreen() {
+  const { api, signOut } = useApp();
+  const navigate = useNavigate();
+  const settings = useAsync(() => api.getSettings(), []);
+  const profile = useAsync(() => api.getOwnProfile(), []);
+  const cli = useAsync(() => api.getCliCredentials(), []);
+
+  const [localPledged, setLocalPledged] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [patSaveError, setPatSaveError] = useState<string | null>(null);
+  const [patInput, setPatInput] = useState('');
+
+  if (settings.loading || !settings.data) {
+    return (
+      <div style={{ color: 'var(--text-faint)', fontFamily: "'JetBrains Mono', monospace", fontSize: 13, padding: 40, textAlign: 'center' }}>
+        Loading…
+      </div>
+    );
+  }
+
+  const data = settings.data;
+  const p = profile.data;
+  const isGiver = data.role === 'giver';
+  const login = data.login;
+  const initials = p?.user.initials ?? login.slice(0, 2).toUpperCase();
+  const pledgedValue = localPledged ?? data.pledgedSurplus ?? 0;
+  const reset = resetLine(p?.resetDate);
+
+  async function handlePledgedChange(val: number) {
+    setLocalPledged(val);
+  }
+
+  async function handlePledgedSave(val: number) {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.updateSettings({ pledgedSurplus: val });
+      settings.reload();
+      profile.reload();
+    } catch (e) {
+      setSaveError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePatSave() {
+    if (!patInput.trim()) return;
+    setSaving(true);
+    setPatSaveError(null);
+    try {
+      await api.updateSettings({ pat: patInput.trim() });
+      setPatInput('');
+      settings.reload();
+      profile.reload();
+    } catch (e) {
+      setPatSaveError(e instanceof CtcApiError ? e.message : 'Could not validate that license — check it and try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSignOut() {
+    await signOut();
+    navigate('/signin');
+  }
+
+  // Giver credit bar segments (striped = consumed/locked; solid = reserved/available)
+  const E = p?.entitlement ?? 0;
+  const giverSegs: BarSegment[] = [
+    { key: 'used', label: 'used', value: p?.used ?? 0, color: 'var(--text-dim)', pattern: 'striped' as const },
+    { key: 'donatedC', label: 'chipped in', value: p?.donatedConsumed ?? 0, color: 'var(--give)', pattern: 'striped' as const },
+    { key: 'donatedR', label: 'chipped in', value: Math.max(0, (p?.donated ?? 0) - (p?.donatedConsumed ?? 0)), color: 'var(--give)' },
+    { key: 'pledgedC', label: 'pledged', value: Math.min(pledgedValue, p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
+    { key: 'pledgedR', label: 'pledged', value: Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)), color: 'var(--accent)' },
+    { key: 'left', label: 'left', value: Math.max(0, E - (p?.used ?? 0) - (p?.donated ?? 0) - pledgedValue), color: 'var(--reroute)' },
+  ].filter((s) => s.value > 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 680, width: '100%', margin: '0 auto' }}>
+      {/* Identity — login is the immutable identity; no editable fields */}
+      <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 18 }}>
+        <div
+          style={{
+            width: 60, height: 60, borderRadius: 16,
+            background: 'var(--accent-soft)', color: 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 600, fontSize: 22, flex: 'none',
+          }}
+        >
+          {initials}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em', fontFamily: "'JetBrains Mono', monospace", overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {login}
+          </div>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text-dim)', marginTop: 3 }}>
+            {isGiver ? 'Host' : 'Guest'} account
+          </div>
+        </div>
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+            padding: '6px 12px', borderRadius: 8,
+            background: isGiver ? 'var(--give-soft)' : 'var(--consume-soft)',
+            color: isGiver ? 'var(--give)' : 'var(--consume)',
+          }}
+        >
+          {isGiver ? 'Host' : 'Guest'}
+        </span>
+      </div>
+
+      {/* Credit cycle — giver: interactive pledge bar; consumer: allowance bar */}
+      {isGiver && p && (
+        <div style={{ ...card, padding: '22px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+            <span style={monoLabel}>Credit cycle</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 18, color: 'var(--accent)' }}>
+              {p.unlimited ? '∞' : aiu(pledgedValue)}
+            </span>
+          </div>
+
+          {p.unlimited ? (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 20, color: 'var(--text)' }}>
+                Unlimited entitlement
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6 }}>
+                chipped in {aiu(p.donated ?? 0)} · pledged {aiu(pledgedValue)}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ marginTop: 14 }}>
+                <CreditBar
+                  max={E}
+                  segments={giverSegs}
+                  slider={{
+                    value: pledgedValue,
+                    min: p.pledgedConsumed ?? 0,
+                    max: Math.max(p.pledgedConsumed ?? 0, E - (p.used ?? 0) - (p.donated ?? 0)),
+                    // handle starts after the fixed used + donated + already-consumed-pledge segments
+                    trackStart: E > 0 ? ((p.used ?? 0) + (p.donated ?? 0) + (p.pledgedConsumed ?? 0)) / E : 0,
+                    onChange: handlePledgedChange,
+                    onCommit: handlePledgedSave,
+                  }}
+                />
+              </div>
+
+              <div data-testid="credit-legend">
+                <CreditLegend items={[
+                  { label: 'used', value: aiu(p.used ?? 0), color: 'var(--text-dim)', pattern: 'striped' },
+                  ...((p.donated ?? 0) > 0 ? [{ label: 'chipped in', value: aiu(p.donated ?? 0), color: 'var(--give)' }] : []),
+                  { label: 'pledged', value: aiu(pledgedValue), color: 'var(--accent)' },
+                  { label: 'available', value: aiu(Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - pledgedValue)), color: 'var(--reroute)' },
+                ]} />
+                {p.quotaStale && (
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)', marginTop: 6, opacity: 0.7 }}>
+                    figures as of last sync
+                  </div>
+                )}
+              </div>
+
+              {reset && (
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-faint)', marginTop: 8 }}>
+                  {reset}
+                </div>
+              )}
+            </>
+          )}
+
+          <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '14px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
+            <span style={{ color: 'var(--accent)' }}>🔒 private</span> — the surplus you pledge
+            to the common pool; Guests draw from it directly. Not a cap on giving: you can
+            still chip in more to specific requests from your retained balance. Never shown
+            publicly.
+          </p>
+          {saveError && (
+            <p role="alert" style={{ color: 'var(--consume)', fontSize: 13, margin: '12px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
+              {saveError}
+            </p>
+          )}
+        </div>
+      )}
+
+      {!isGiver && p && (
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 18 }}>
+            <span style={monoLabel}>Credits used</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text-dim)' }}>
+              {p.allowance != null ? aiu(p.allowance) : aiu(config.freeAllowance)} free + chip-ins
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 48, color: 'var(--consume)', lineHeight: 1 }}>
+              {aiu(p.consumed)}
+            </span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, color: 'var(--text-faint)', marginBottom: 5 }}>
+              used
+            </span>
+          </div>
+
+          {p.allowanceMax != null && p.allowanceMax > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <CreditBar
+                max={p.allowanceMax}
+                segments={[
+                  { key: 'used', label: 'used', value: p.allowanceUsed ?? 0, color: 'var(--accent)', pattern: 'striped' as const },
+                  { key: 'left', label: 'left', value: p.allowanceLeft ?? 0, color: 'var(--reroute)' },
+                ].filter((s) => s.value > 0)}
+              />
+              <CreditLegend items={[
+                { label: 'used', value: aiu(p.allowanceUsed ?? 0), color: 'var(--accent)', pattern: 'striped' },
+                { label: 'left', value: aiu(p.allowanceLeft ?? 0), color: 'var(--reroute)' },
+              ]} />
+              {reset && (
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>
+                  {reset}
+                </div>
+              )}
+            </div>
+          )}
+
+          {p.donationsReceived > 0 && (
+            <div style={{ marginTop: 16, fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--give)' }}>
+              +{aiu(p.donationsReceived)} from supporters
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Copilot license (Host with a license connected) */}
+      {isGiver && data.hasPat && (
+        <div style={card}>
+          <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 18 }}>Copilot license</div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <input
+              type="text"
+              readOnly
+              value="github_pat_••••••••••••••••"
+              style={{ ...inputStyle, flex: 1, color: 'var(--text-dim)', fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
+            />
+            <button style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '0 16px', color: 'var(--text)', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              Rotate
+            </button>
+            <button style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 10, padding: '0 16px', color: '#ff6b6b', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              Revoke
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Become a Host (no license connected yet) */}
+      {!data.hasPat && (
+        <div style={card}>
+          <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Become a Host</div>
+          <div style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 14 }}>
+            Connect your Copilot license (a GitHub Enterprise PAT with Copilot access).
+            We validate it against your identity and read your quota. Stored encrypted;
+            never shown again.
+          </div>
+          {patSaveError && (
+            <p role="alert" style={{ color: 'var(--consume)', fontSize: 13, margin: '0 0 12px', fontFamily: "'JetBrains Mono', monospace" }}>
+              {patSaveError}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <input
+              type="text"
+              placeholder="github_pat_…"
+              value={patInput}
+              onChange={(e) => setPatInput(e.target.value)}
+              style={{ ...inputStyle, flex: 1, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
+            />
+            <button
+              type="button"
+              disabled={saving || !patInput.trim()}
+              onClick={handlePatSave}
+              style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, padding: '0 18px', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            >
+              Connect license
+            </button>
+          </div>
+          <PatHelp style={{ marginTop: 14 }} />
+        </div>
+      )}
+
+      {/* Set up CLI */}
+      {cli.data && (
+        <Card>
+          <h3 style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, marginBottom: 8 }}>Set up CLI</h3>
+          <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
+            Install once, then launch Copilot through CTC with <code>ctc</code>.
+          </p>
+          <pre style={{ background: 'var(--bg-sunken)', padding: 10, borderRadius: 6, overflowX: 'auto', fontSize: 12 }}>
+{cli.data.installCommand}
+          </pre>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '-4px 0 8px' }}>
+            <CopyButton text={cli.data.installCommand} />
+          </div>
+          <p style={{ color: 'var(--text-faint)', fontSize: 11 }}>Proxy: {cli.data.proxyHost}</p>
+          {cli.data.caFingerprint && (
+            <p style={{ color: 'var(--text-faint)', fontSize: 11, wordBreak: 'break-all' }}>
+              CA fingerprint (SHA-256): <code>{cli.data.caFingerprint}</code> — <code>ctc login</code> prints this; verify they match.
+            </p>
+          )}
+        </Card>
+      )}
+
+      {/* Sign out */}
+      <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px' }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>Sign out</div>
+          <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 3 }}>
+            End your session on this device.
+          </div>
+        </div>
+        <button
+          onClick={handleSignOut}
+          style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 16px', color: 'var(--text)', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          Sign out ⏻
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,38 @@
+import pytest
+from test_web_routes import _make, _login  # reuse harness
+from aiohttp.test_utils import TestClient, TestServer
+from ctc.domain.config import NANO_PER_AIU
+
+
+@pytest.mark.asyncio
+async def test_settings_consumer_then_giver_after_pat():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        s = await (await cli.get("/api/settings")).json()
+        assert s["role"] == "consumer"
+        assert s["allowance"] == 300 * NANO_PER_AIU      # raw nano-AIU on the wire
+        assert s["hasPat"] is False
+        # add PAT -> becomes giver with real quota (4000 AIU == 4000 * NANO nano)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})
+        s2 = await (await cli.get("/api/settings")).json()
+        assert s2["role"] == "giver"
+        assert s2["hasPat"] is True
+        assert s2["totalCredit"] == 4000 * NANO_PER_AIU
+
+
+@pytest.mark.asyncio
+async def test_patch_pledge_persists_in_nano():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})   # quota 4000 AIU
+        pledge = 1500 * NANO_PER_AIU
+        r = await cli.patch("/api/settings", json={"pledgedSurplus": pledge})
+        assert r.status == 200
+        assert (await r.json())["pledgedSurplus"] == pledge
+        assert (await (await cli.get("/api/settings")).json())["pledgedSurplus"] == pledge
+
+
+@pytest.mark.asyncio
+async def test_settings_requires_session():
+    async with TestClient(TestServer(_make())) as cli:
+        assert (await cli.get("/api/settings")).status == 401

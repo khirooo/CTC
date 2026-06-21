@@ -1,0 +1,36 @@
+# Caddy fronts the public surface: it terminates HTTPS (auto Let's Encrypt for a
+# real domain), serves the web app + CLI assets, and reverse-proxies the API.
+# CTC_DOMAIN comes from .env (use "localhost" for a local test — Caddy then uses
+# its internal CA).
+
+{$CTC_DOMAIN} {
+	encode gzip
+	# Use the shared self-signed proxy cert (not Caddy's internal CA) so the cert
+	# `ctc login` trusts also fronts the dashboard — no separate trust, no warning
+	# after install. /certs is the same volume the proxy and gencert write.
+	tls /certs/cert.pem /certs/key.pem
+
+	# The proxy's CA cert, so `ctc login` can fetch it from https://<domain>/ctc-ca.pem.
+	# Served from the shared cert volume mounted at /certs.
+	handle /ctc-ca.pem {
+		root * /certs
+		rewrite * /cert.pem
+		file_server
+	}
+
+	# Control-plane: OAuth + API. (Same origin as the web app, so no CORS hop.)
+	handle /api/* {
+		reverse_proxy controlplane:8090
+	}
+	handle /auth/* {
+		reverse_proxy controlplane:8090
+	}
+
+	# Everything else: the static web app and the CLI assets (/install.sh, /ctc),
+	# with SPA fallback to index.html for client-side routes.
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}

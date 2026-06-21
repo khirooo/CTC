@@ -1,0 +1,48 @@
+# TLS credentials — never commit private keys
+key.pem
+cert.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+venv/
+
+# Smoke-test scratch + any sqlite DBs (may hold encrypted PATs / user rows)
+*.smoke.db
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Web app
+web/node_modules
+web/dist
+web/playwright-report
+web/test-results
+# Build artifacts (tsc -b outputs)
+web/vite.config.js
+web/vite.config.d.ts
+web/*.tsbuildinfo
+
+# Superpowers SDD scratch (briefs, reports, ledger, review diffs)
+.superpowers/
+
+# Local Claude Code workspace (worktrees, memory, SDD scratch)
+.claude/
+
+# Local AI-assistant guidance — kept local, not published
+CLAUDE.md
+
+# AI-process design specs/plans — kept locally, not tracked
+docs/superpowers/
+
+# Browser-automation capture artifacts (console logs / page snapshots — may hold real SSO URLs, OAuth IDs)
+.playwright-mcp/
+
+# Metering capture spike output (CTC_CAPTURE_DIR) — the tests/fixtures copy is the only tracked one
+/exchanges.ndjson

@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CTC_HOST="${CTC_HOST:-ctc.local}"
+CTC_PROXY_PORT="${CTC_PROXY_PORT:-8080}"
+# Your GitHub Enterprise domain. Override per deployment (must match the proxy's
+# GHE_DOMAIN). Defaults to a neutral placeholder so this script carries no
+# organization-specific host name.
+GHE_DOMAIN="${GHE_DOMAIN:-example.ghe.com}"
+
+_config_dir() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/ctc"; }
+
+ctc_usage() {
+  cat <<'EOF'
+CTC — launch GitHub Copilot CLI through the CTC credit proxy.
+
+Usage:
+  ctc            Launch Copilot through CTC (run after 'ctc login')
+  ctc login      Authenticate, trust the CA cert, cache config
+  ctc status     Show whether CTC is set up
+  ctc logout     Remove cached CTC config
+  ctc --help     Show this help
+EOF
+}
+
+_require_macos() {
+  if [ "$(uname)" != "Darwin" ]; then
+    echo "ctc: macOS only for now. See TDD.md §6.3 for the manual setup on other systems." >&2
+    exit 1
+  fi
+}
+
+cmd_login() {
+  _require_macos
+  local cfg cert env iso token=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --token) if [ $# -ge 2 ]; then token="$2"; shift 2; else token=""; shift; fi;;
+      --token=*) token="${1#--token=}"; shift;;
+      --) shift;;
+      *) shift;;
+    esac
+  done
+  cfg="$(_config_dir)"; cert="$cfg/ca.pem"; env="$cfg/env"; iso="$cfg/home"
+
+  if [ -z "$token" ]; then
+    printf 'Paste your CTC token (from the dashboard "Set up CLI" panel): ' >&2
+    IFS= read -rs token || true; echo >&2
+  fi
+  if [ -z "${token:-}" ]; then echo "ctc: No token entered — aborting." >&2; exit 1; fi
+
+  mkdir -p "$cfg" "$iso"
+
+  echo "Downloading CA cert from https://$CTC_HOST/ctc-ca.pem ..." >&2
+  if ! curl -fsSLk "https://$CTC_HOST/ctc-ca.pem" -o "$cert"; then
+    echo "ctc: failed to download CA cert from https://$CTC_HOST/ctc-ca.pem" >&2; exit 1
+  fi
+
+  fp="$(openssl x509 -in "$cert" -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//')"
+  if [ -n "${fp:-}" ]; then
+    echo "CA fingerprint (SHA-256): $fp" >&2
+    echo "Verify this matches the fingerprint on the dashboard before trusting." >&2
+  fi
+
+  echo "Trusting the CA cert (Copilot bundles its own Node and ignores NODE_EXTRA_CA_CERTS," >&2
+  echo "so the System keychain is the trust that actually works — TDD §6.3). You may be asked for your password." >&2
+  if ! sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$cert"; then
+    echo "ctc: cert trust failed. To do it manually, run:" >&2
+    echo "  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \"$cert\"" >&2
+    exit 1
+  fi
+
+  umask 077
+  cat > "$env" <<EOF
+# Written by 'ctc login'. Sourced by 'ctc'. Do not edit by hand.
+export HOME="$iso"
+export XDG_CONFIG_HOME="$iso/.config"
+export XDG_STATE_HOME="$iso/.local/state"
+export XDG_CACHE_HOME="$iso/.cache"
+export GH_HOST=$GHE_DOMAIN
+export GITHUB_API_URL=https://$GHE_DOMAIN/api/v3
+export COPILOT_GITHUB_TOKEN="$token"
+export HTTPS_PROXY="http://$CTC_HOST:$CTC_PROXY_PORT"
+export NODE_EXTRA_CA_CERTS="$cert"
+EOF
+
+  echo "✓ CTC ready. Launch with: ctc" >&2
+}
+cmd_status() {
+  local cfg env; cfg="$(_config_dir)"; env="$cfg/env"
+  if [ ! -f "$env" ]; then
+    echo "CTC: Not set up. Run 'ctc login'." ; return 0
+  fi
+  # shellcheck disable=SC1090
+  ( . "$env"
+    echo "CTC: Set up ✓"
+    echo "  proxy: ${HTTPS_PROXY#http://}"
+    local t="${COPILOT_GITHUB_TOKEN:-}"
+    echo "  token: …${t: -4}"
+    if [ "$(uname)" = "Darwin" ] && security find-certificate -c copilot-proxy-ca /Library/Keychains/System.keychain >/dev/null 2>&1; then
+      echo "  cert:  trusted in System keychain"
+    else
+      echo "  cert:  NOT trusted — re-run 'ctc login'"
+    fi
+  )
+}
+
+cmd_logout() {
+  local cfg; cfg="$(_config_dir)"
+  rm -rf "$cfg/env" "$cfg/home"
+  echo "CTC config removed. Your normal 'copilot' is unaffected."
+  echo "To also untrust the CA cert: sudo security delete-certificate -c copilot-proxy-ca /Library/Keychains/System.keychain"
+}
+cmd_launch() {
+  local env; env="$(_config_dir)/env"
+  if [ ! -f "$env" ]; then
+    echo "ctc: not set up yet. Run 'ctc login' first." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  . "$env"                                  # overrides HOME/XDG_*/GH_HOST/token/proxy
+  printf '\033]0;CTC ◆ copilot\007' >&2     # terminal tab title
+  echo "◆ CTC mode — credits via the donation pool (your normal 'copilot' is untouched)" >&2
+  exec copilot "$@"
+}
+
+main() {
+  case "${1:-}" in
+    login)  shift; cmd_login "$@";;
+    status) shift; cmd_status "$@";;
+    logout) shift; cmd_logout "$@";;
+    -h|--help|help) ctc_usage; exit 0;;
+    "") cmd_launch;;
+    -*) cmd_launch "$@";;            # flags belong to copilot
+    *) echo "ctc: unknown command '$1'" >&2; echo >&2; ctc_usage >&2; exit 2;;
+  esac
+}
+main "$@"

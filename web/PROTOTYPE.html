@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  ::selection{background:rgba(232,89,12,.28);}
+  :root{
+    --bg:#0a0c10; --surface:#111620; --surface-2:#171d28; --surface-3:#1f2734;
+    --border:#242d3b; --border-strong:#33415480;
+    --text:#e9edf3; --text-dim:#9aa6b8; --text-faint:#606c80;
+    --accent:#f2660f; --accent-press:#d9560a; --accent-soft:rgba(242,102,15,.13);
+    --give:#34c1a8; --give-soft:rgba(52,193,168,.13);
+    --reroute:#5b8def; --reroute-soft:rgba(91,141,239,.13);
+    --consume:#f2660f; --consume-soft:rgba(242,102,15,.13);
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.5);
+  }
+  [data-theme="light"]{
+    --bg:#f5f6f8; --surface:#ffffff; --surface-2:#f3f5f8; --surface-3:#eaeef3;
+    --border:#e4e8ee; --border-strong:#cfd6e0;
+    --text:#0e1219; --text-dim:#586273; --text-faint:#97a1b0;
+    --accent:#e8590c; --accent-press:#c94d09; --accent-soft:rgba(232,89,12,.10);
+    --give:#1c9b84; --give-soft:rgba(28,155,132,.12);
+    --reroute:#3a6fe0; --reroute-soft:rgba(58,111,224,.10);
+    --consume:#e8590c; --consume-soft:rgba(232,89,12,.10);
+    --shadow:0 1px 2px rgba(16,18,25,.05),0 12px 28px -16px rgba(16,18,25,.18);
+  }
+  input::placeholder{color:var(--text-faint);}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+  @keyframes rise{from{height:0}to{height:var(--fill)}}
+  @keyframes flow{to{background-position:36px 0}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" style="font-family:'Space Grotesk',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;">
+
+  <!-- ================= AUTH ================= -->
+  <sc-if value="{{ isAuth }}" hint-placeholder-val="{{ false }}">
+    <div style="min-height:100vh;display:grid;grid-template-columns:1.05fr .95fr;background:var(--bg);">
+      <div style="display:flex;flex-direction:column;justify-content:center;padding:64px 7vw;position:relative;background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:26px 26px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:48px;">
+          <div style="width:34px;height:34px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:15px;box-shadow:var(--shadow);">❯</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:.04em;">CTC</div>
+        </div>
+        <div style="max-width:420px;">
+          <sc-if value="{{ isSignin }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <h1 style="font-size:30px;font-weight:600;letter-spacing:-.02em;margin:0 0 8px;">Welcome back</h1>
+              <p style="color:var(--text-dim);margin:0 0 30px;font-size:15px;">Sign in to route surplus across your team.</p>
+              <form onSubmit="{{ signIn }}" style="display:flex;flex-direction:column;gap:16px;">
+                <label style="display:flex;flex-direction:column;gap:7px;">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Email</span>
+                  <input type="email" defaultValue="yuki@example.com" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:7px;">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Password</span>
+                  <input type="password" defaultValue="••••••••••" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+                </label>
+                <button type="submit" style="margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px 16px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:var(--accent-press)">Sign in →</button>
+              </form>
+              <p style="color:var(--text-dim);margin:22px 0 0;font-size:14px;">No account yet? <span onClick="{{ goCreate }}" style="color:var(--accent);cursor:pointer;font-weight:600;">Create one</span></p>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ false }}">
+            <div>
+              <h1 style="font-size:30px;font-weight:600;letter-spacing:-.02em;margin:0 0 8px;">Create account</h1>
+              <p style="color:var(--text-dim);margin:0 0 30px;font-size:15px;">Join as a giver who donates surplus, or a consumer.</p>
+              <form onSubmit="{{ startCreate }}" style="display:flex;flex-direction:column;gap:16px;">
+                <label style="display:flex;flex-direction:column;gap:7px;">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Full name</span>
+                  <input type="text" placeholder="Ada Lovelace" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:7px;">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Email</span>
+                  <input type="email" placeholder="you@example.com" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:7px;">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Password</span>
+                  <input type="password" placeholder="Choose a strong password" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+                </label>
+                <button type="submit" style="margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px 16px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:var(--accent-press)">Continue →</button>
+              </form>
+              <p style="color:var(--text-dim);margin:22px 0 0;font-size:14px;">Already have an account? <span onClick="{{ goSignin }}" style="color:var(--accent);cursor:pointer;font-weight:600;">Sign in</span></p>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+      <!-- right rail: terminal motif -->
+      <div style="background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;padding:48px 5vw;">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);max-width:440px;">
+          <div style="display:flex;align-items:center;gap:7px;padding:12px 14px;border-bottom:1px solid var(--border);">
+            <span style="width:11px;height:11px;border-radius:50%;background:#ff5f57;"></span>
+            <span style="width:11px;height:11px;border-radius:50%;background:#febc2e;"></span>
+            <span style="width:11px;height:11px;border-radius:50%;background:#28c840;"></span>
+            <span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-faint);">ctc — copilot</span>
+          </div>
+          <div style="padding:18px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.9;">
+            <div style="color:var(--text-faint);">$ export HTTPS_PROXY=ctc.local:8080</div>
+            <div style="color:var(--text-faint);">$ copilot "refactor this module"</div>
+            <div style="color:var(--give);">✓ token swapped · routed via pool</div>
+            <div style="color:var(--give);">♥ donated 25 credits → lena</div>
+            <div style="color:var(--text-dim);">drafting response<span style="display:inline-block;width:8px;height:15px;background:var(--accent);margin-left:3px;vertical-align:-2px;animation:blink 1s steps(1) infinite;"></span></div>
+          </div>
+        </div>
+        <p style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-faint);margin:22px 0 0;max-width:440px;line-height:1.7;">Credit Traffic Control · surplus credit, routed to whoever runs out.</p>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ================= ONBOARDING ================= -->
+  <sc-if value="{{ isOnboarding }}" hint-placeholder-val="{{ false }}">
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:48px 24px;background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:26px 26px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:36px;">
+        <div style="width:30px;height:30px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:14px;">❯</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:.04em;">CTC</div>
+      </div>
+      <!-- step indicator -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:30px;font-family:'JetBrains Mono',monospace;font-size:12px;">
+        <span style="display:flex;align-items:center;gap:7px;color:var(--text);"><span style="width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;">1</span>Account</span>
+        <span style="width:30px;height:1px;background:var(--border-strong);"></span>
+        <sc-if value="{{ onbStep2 }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:7px;color:var(--text);"><span style="width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;">2</span>Access</span></sc-if>
+        <sc-if value="{{ onbStep1 }}" hint-placeholder-val="{{ true }}"><span style="display:flex;align-items:center;gap:7px;color:var(--text-faint);"><span style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;font-size:11px;">2</span>Access</span></sc-if>
+      </div>
+
+      <div style="width:100%;max-width:520px;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:32px;box-shadow:var(--shadow);">
+        <!-- STEP 1 -->
+        <sc-if value="{{ onbStep1 }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <h2 style="font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em;">Tell us who you are</h2>
+            <p style="color:var(--text-dim);margin:0 0 26px;font-size:14px;">This is what teammates see on the leaderboard.</p>
+            <form onSubmit="{{ onbNext }}" style="display:flex;flex-direction:column;gap:16px;">
+              <label style="display:flex;flex-direction:column;gap:7px;">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Full name</span>
+                <input type="text" defaultValue="Ada Lovelace" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+              </label>
+              <label style="display:flex;flex-direction:column;gap:7px;">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Email</span>
+                <input type="email" defaultValue="ada@example.com" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+              </label>
+              <button type="submit" style="margin-top:8px;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px 16px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:var(--accent-press)">Next: choose access →</button>
+            </form>
+          </div>
+        </sc-if>
+        <!-- STEP 2 -->
+        <sc-if value="{{ onbStep2 }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <h2 style="font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em;">How will you use CTC?</h2>
+            <p style="color:var(--text-dim);margin:0 0 22px;font-size:14px;">Pick one — you can change it later in settings.</p>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <!-- giver option -->
+              <sc-if value="{{ onbGiver }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ chooseGiver }}" style="border:1.5px solid var(--accent);background:var(--accent-soft);border-radius:14px;padding:16px;cursor:pointer;display:flex;gap:14px;align-items:flex-start;">
+                  <div style="width:38px;height:38px;border-radius:10px;background:var(--give-soft);color:var(--give);display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;">↑</div>
+                  <div style="flex:1;"><div style="font-weight:600;font-size:15px;">I have a PAT — be a <span style="color:var(--give);">giver</span></div><div style="color:var(--text-dim);font-size:13px;margin-top:3px;">Donate your surplus to teammates who run out of credits.</div></div>
+                  <span style="color:var(--accent);font-size:18px;">●</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ onbConsumer }}" hint-placeholder-val="{{ false }}">
+                <div onClick="{{ chooseGiver }}" style="border:1px solid var(--border);border-radius:14px;padding:16px;cursor:pointer;display:flex;gap:14px;align-items:flex-start;">
+                  <div style="width:38px;height:38px;border-radius:10px;background:var(--give-soft);color:var(--give);display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;">↑</div>
+                  <div style="flex:1;"><div style="font-weight:600;font-size:15px;">I have a PAT — be a <span style="color:var(--give);">giver</span></div><div style="color:var(--text-dim);font-size:13px;margin-top:3px;">Donate your surplus to teammates who run out of credits.</div></div>
+                  <span style="color:var(--text-faint);font-size:18px;">○</span>
+                </div>
+              </sc-if>
+              <!-- consumer option -->
+              <sc-if value="{{ onbConsumer }}" hint-placeholder-val="{{ false }}">
+                <div onClick="{{ chooseConsumer }}" style="border:1.5px solid var(--accent);background:var(--accent-soft);border-radius:14px;padding:16px;cursor:pointer;display:flex;gap:14px;align-items:flex-start;">
+                  <div style="width:38px;height:38px;border-radius:10px;background:var(--consume-soft);color:var(--consume);display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;">↓</div>
+                  <div style="flex:1;"><div style="font-weight:600;font-size:15px;">No PAT — be a <span style="color:var(--consume);">consumer</span></div><div style="color:var(--text-dim);font-size:13px;margin-top:3px;">Start with <b style="color:var(--text);">300</b> free credits; request more when you run out.</div></div>
+                  <span style="color:var(--accent);font-size:18px;">●</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ onbGiver }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ chooseConsumer }}" style="border:1px solid var(--border);border-radius:14px;padding:16px;cursor:pointer;display:flex;gap:14px;align-items:flex-start;">
+                  <div style="width:38px;height:38px;border-radius:10px;background:var(--consume-soft);color:var(--consume);display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;">↓</div>
+                  <div style="flex:1;"><div style="font-weight:600;font-size:15px;">No PAT — be a <span style="color:var(--consume);">consumer</span></div><div style="color:var(--text-dim);font-size:13px;margin-top:3px;">Start with <b style="color:var(--text);">300</b> free credits; request more when you run out.</div></div>
+                  <span style="color:var(--text-faint);font-size:18px;">○</span>
+                </div>
+              </sc-if>
+            </div>
+
+            <!-- conditional config -->
+            <sc-if value="{{ onbGiver }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:18px;display:flex;flex-direction:column;gap:14px;">
+                <label style="display:flex;flex-direction:column;gap:7px;">
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Personal access token</span>
+                  <input type="text" placeholder="github_pat_••••••••••••••••••••" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 13px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;" style-focus="border-color:var(--accent)"/>
+                </label>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Donation budget <span style="color:var(--give);text-transform:none;letter-spacing:0;">· private</span></span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--give);">{{ giveLimitLabel }}</span>
+                  </div>
+                  <input type="range" min="0" max="5000" step="100" value="{{ giveLimit }}" onChange="{{ setGiveLimit }}" style="width:100%;accent-color:var(--give);"/>
+                  <p style="color:var(--text-faint);font-size:12px;margin:8px 0 0;font-family:'JetBrains Mono',monospace;">🔒 a cap on how much you'll donate. Only you see this.</p>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ onbConsumer }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
+                <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;align-items:center;justify-content:space-between;">
+                  <div><div style="font-weight:600;font-size:14px;">Free starting allowance</div><div style="color:var(--text-dim);font-size:13px;margin-top:2px;">Donations can extend this later.</div></div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;color:var(--consume);">300</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="display:flex;gap:12px;margin-top:24px;">
+              <button onClick="{{ onbBack }}" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:13px 18px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="border-color:var(--border-strong)">← Back</button>
+              <button onClick="{{ finishOnboarding }}" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px 16px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:var(--accent-press)">Enter CTC →</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ================= APP SHELL ================= -->
+  <sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;min-height:100vh;">
+      <!-- sidebar -->
+      <aside style="width:236px;flex:none;border-right:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;padding:20px 16px;position:sticky;top:0;height:100vh;">
+        <div style="display:flex;align-items:center;gap:11px;padding:6px 8px;margin-bottom:26px;">
+          <div style="width:30px;height:30px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:14px;">❯</div>
+          <div><div style="font-family:'JetBrains Mono',monospace;font-weight:600;letter-spacing:.04em;font-size:14px;">CTC</div><div style="font-size:10px;color:var(--text-faint);letter-spacing:.04em;">Credit Traffic Control</div></div>
+        </div>
+        <nav style="display:flex;flex-direction:column;gap:4px;">
+          <button onClick="{{ goDashboard }}" style="{{ dashboardNavStyle }}"><span style="font-family:'JetBrains Mono',monospace;width:16px;">◧</span>Overview</button>
+          <button onClick="{{ goMarketplace }}" style="{{ marketplaceNavStyle }}"><span style="font-family:'JetBrains Mono',monospace;width:16px;">⇄</span>Marketplace</button>
+          <button onClick="{{ goLeaderboard }}" style="{{ leaderboardNavStyle }}"><span style="font-family:'JetBrains Mono',monospace;width:16px;">≡</span>Leaderboard</button>
+          <button onClick="{{ goHistory }}" style="{{ historyNavStyle }}"><span style="font-family:'JetBrains Mono',monospace;width:16px;">◷</span>History</button>
+          <button onClick="{{ goProfile }}" style="{{ profileNavStyle }}"><span style="font-family:'JetBrains Mono',monospace;width:16px;">◔</span>Your profile</button>
+          <button onClick="{{ goSettings }}" style="{{ settingsNavStyle }}"><span style="font-family:'JetBrains Mono',monospace;width:16px;">⚙</span>Settings</button>
+        </nav>
+        <sc-if value="{{ profileInSidebar }}" hint-placeholder-val="{{ true }}">
+        <div style="margin-top:auto;border-top:1px solid var(--border);padding-top:14px;display:flex;align-items:center;gap:10px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;flex:none;">AL</div>
+          <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Ada Lovelace</div>
+            <sc-if value="{{ isGiver }}" hint-placeholder-val="{{ true }}"><div style="font-size:11px;color:var(--give);font-family:'JetBrains Mono',monospace;">giver</div></sc-if>
+            <sc-if value="{{ isConsumer }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;color:var(--consume);font-family:'JetBrains Mono',monospace;">consumer</div></sc-if>
+          </div>
+          <button onClick="{{ signOut }}" title="Sign out" style="background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:16px;font-family:'JetBrains Mono',monospace;" style-hover="color:var(--text)">⏻</button>
+        </div>
+        </sc-if>
+      </aside>
+
+      <!-- main -->
+      <main style="flex:1;min-width:0;display:flex;flex-direction:column;">
+        <!-- topbar -->
+        <header style="position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:16px 32px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);">
+          <h1 style="font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em;">{{ pageTitle }}</h1>
+          <div style="flex:1;"></div>
+          <sc-if value="{{ profileInSidebar }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ toggleTheme }}" title="Toggle theme" style="width:36px;height:36px;border-radius:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;" style-hover="color:var(--text);border-color:var(--border-strong)">
+            <sc-if value="{{ isDark }}" hint-placeholder-val="{{ true }}"><span>☀</span></sc-if>
+            <sc-if value="{{ isLight }}" hint-placeholder-val="{{ false }}"><span>☾</span></sc-if>
+          </button>
+          </sc-if>
+          <sc-if value="{{ profileTopRight }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;padding:6px 11px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);">
+              <sc-if value="{{ isGiver }}" hint-placeholder-val="{{ true }}"><span style="width:7px;height:7px;border-radius:50%;background:var(--give);"></span><span style="color:var(--give);">giver</span></sc-if>
+              <sc-if value="{{ isConsumer }}" hint-placeholder-val="{{ false }}"><span style="width:7px;height:7px;border-radius:50%;background:var(--consume);"></span><span style="color:var(--consume);">consumer</span></sc-if>
+            </div>
+            <div style="width:1px;height:22px;background:var(--border);"></div>
+            <div style="display:flex;align-items:center;gap:11px;">
+              <div style="text-align:right;line-height:1.2;">
+                <div style="font-size:13.5px;font-weight:600;letter-spacing:-.01em;">Ada Lovelace</div>
+                <div style="font-size:11px;color:var(--text-faint);font-family:'JetBrains Mono',monospace;">ada@example.com</div>
+              </div>
+              <div style="position:relative;width:38px;height:38px;flex:none;">
+                <div style="width:38px;height:38px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;font-family:'JetBrains Mono',monospace;">AL</div>
+                <span style="position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:var(--give);border:2px solid var(--bg);"></span>
+              </div>
+            </div>
+            <button onClick="{{ signOut }}" title="Sign out" style="width:36px;height:36px;border-radius:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-faint);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;" style-hover="color:var(--text);border-color:var(--border-strong)">⏻</button>
+          </div>
+          </sc-if>
+        </header>
+
+        <div style="padding:32px;max-width:1180px;width:100%;margin:0 auto;">
+
+          <!-- ===== DASHBOARD ===== -->
+          <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:22px;">
+              <!-- MARKETPLACE FLOW HERO -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:26px 28px;box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:24px;">
+                  <div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);">Credit marketplace</div><div style="font-size:15px;color:var(--text-dim);margin-top:3px;">Surplus credit, routed to whoever runs out</div></div>
+                  <span style="display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--give);"><span style="width:7px;height:7px;border-radius:50%;background:var(--give);animation:pulse 1.6s infinite;"></span>live</span>
+                </div>
+                <div style="display:flex;align-items:stretch;gap:0;">
+                  <!-- supply -->
+                  <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;gap:20px;padding:6px 0;">
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--consume);"></span>Pledged credits</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:32px;color:var(--consume);line-height:1;">3,600</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-faint);">≈ €360</span>
+                      <span style="font-size:12.5px;color:var(--text-dim);">free allowance for non-PAT users</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">🔒 Locked credits</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:32px;color:var(--text);line-height:1;">5,680</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-faint);">≈ €568</span>
+                      <span style="font-size:12.5px;color:var(--text-dim);">private, not yet donated by PAT users</span>
+                    </div>
+                  </div>
+                  <!-- connector -->
+                  <div style="width:56px;flex:none;display:flex;align-items:center;justify-content:center;">
+                    <div style="width:100%;height:3px;background-image:linear-gradient(90deg,var(--give) 60%,transparent 0);background-size:14px 3px;background-repeat:repeat-x;animation:flow 1s linear infinite;opacity:.7;"></div>
+                  </div>
+                  <!-- consumes credit -->
+                  <div style="flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:0 6px;">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Demand</span>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                      <!-- open requests tile -->
+                      <div style="width:158px;border-radius:14px;border:1px solid var(--border-strong);background:var(--surface-2);padding:12px 14px;display:flex;flex-direction:column;gap:5px;">
+                        <div style="display:flex;align-items:baseline;gap:7px;">
+                          <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:34px;color:var(--accent);line-height:1;">{{ openCount }}</span>
+                          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);">open · {{ closedCount }} closed</span>
+                        </div>
+                        <span style="font-size:11px;color:var(--text-dim);">requests awaiting a donor</span>
+                      </div>
+                      <!-- active non-PAT tile -->
+                      <div style="width:158px;border-radius:14px;border:1px solid var(--border-strong);background:var(--surface-2);padding:12px 14px;display:flex;flex-direction:column;gap:5px;">
+                        <div style="display:flex;align-items:baseline;gap:7px;">
+                          <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:34px;color:var(--consume);line-height:1;">{{ activeNonPatCount }}</span>
+                          <span style="display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);"><span style="width:7px;height:7px;border-radius:50%;background:var(--consume);"></span>active</span>
+                        </div>
+                        <span style="font-size:11px;color:var(--text-dim);">non-PAT users on free allowance</span>
+                      </div>
+                    </div>
+                    <span onClick="{{ goMarketplace }}" style="font-size:12px;color:var(--accent);cursor:pointer;font-weight:600;font-family:'JetBrains Mono',monospace;white-space:nowrap;">open board →</span>
+                  </div>
+                  <!-- connector -->
+                  <div style="width:56px;flex:none;display:flex;align-items:center;justify-content:center;">
+                    <div style="width:100%;height:3px;background-image:linear-gradient(90deg,var(--accent) 60%,transparent 0);background-size:14px 3px;background-repeat:repeat-x;animation:flow 1s linear infinite;opacity:.7;"></div>
+                  </div>
+                  <!-- recipients -->
+                  <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;gap:20px;padding:6px 0;transform:translateX(22px);">
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);display:flex;align-items:center;gap:7px;white-space:nowrap;"><span style="width:8px;height:8px;border-radius:50%;background:var(--reroute);"></span>Rotated to PAT</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:32px;color:var(--text);line-height:1;">1,240</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--give);">≈ €124 saved</span>
+                      <span style="font-size:12.5px;color:var(--text-dim);">surplus passed between PAT users</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);display:flex;align-items:center;gap:7px;white-space:nowrap;"><span style="width:8px;height:8px;border-radius:50%;background:var(--consume);"></span>Donated to non-PAT</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:32px;color:var(--consume);line-height:1;">2,880</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--give);">≈ €288 saved</span>
+                      <span style="font-size:12.5px;color:var(--text-dim);">given to users without a PAT</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- secondary stat row -->
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Donated this week</div>
+                  <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;">4,120</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--give);">≈ €412</span></div>
+                  <div style="font-size:12px;color:var(--give);margin-top:4px;">↑ 18% vs last week</div>
+                </div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Fulfillment rate</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;margin-top:8px;">86%</div>
+                  <div style="height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden;margin-top:9px;"><div style="height:100%;width:86%;background:var(--give);"></div></div>
+                </div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Active givers</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;margin-top:8px;">5</div>
+                  <div style="font-size:12px;color:var(--give);margin-top:4px;">↑ 2 this month</div>
+                </div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Active consumers</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;margin-top:8px;">12</div>
+                  <div style="font-size:12px;color:var(--give);margin-top:4px;">↑ 4 this month</div>
+                </div>
+              </div>
+
+              <!-- activity + snapshot -->
+              <div style="display:grid;grid-template-columns:1.55fr 1fr;gap:16px;">
+                <sc-if value="{{ showActivityLog }}" hint-placeholder-val="{{ true }}">
+                  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);">
+                      <span style="font-weight:600;font-size:14px;">Marketplace activity</span>
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);">live</span>
+                    </div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1;">
+                      <div style="display:grid;grid-template-columns:64px 74px 1fr auto;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);align-items:center;"><span style="color:var(--text-faint);">12:48:02</span><span style="color:var(--give);">donate</span><span style="color:var(--text-dim);">ada → lena</span><span style="color:var(--give);">+25</span></div>
+                      <div style="display:grid;grid-template-columns:64px 74px 1fr auto;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);align-items:center;"><span style="color:var(--text-faint);">12:47:30</span><span style="color:var(--accent);">request</span><span style="color:var(--text-dim);">priya → @ada</span><span style="color:var(--accent);">90</span></div>
+                      <div style="display:grid;grid-template-columns:64px 74px 1fr auto;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);align-items:center;"><span style="color:var(--text-faint);">12:46:30</span><span style="color:var(--give);">fulfill</span><span style="color:var(--text-dim);">amine · auto-closed</span><span style="color:var(--give);">120 ✓</span></div>
+                      <div style="display:grid;grid-template-columns:64px 74px 1fr auto;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);align-items:center;"><span style="color:var(--text-faint);">12:45:12</span><span style="color:var(--give);">donate</span><span style="color:var(--text-dim);">yuki → diego</span><span style="color:var(--give);">+30</span></div>
+                      <div style="display:grid;grid-template-columns:64px 74px 1fr auto;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);align-items:center;"><span style="color:var(--text-faint);">12:44:01</span><span style="color:var(--accent);">request</span><span style="color:var(--text-dim);">lena · open to all</span><span style="color:var(--accent);">60</span></div>
+                      <div style="display:grid;grid-template-columns:64px 74px 1fr auto;gap:12px;padding:11px 20px;align-items:center;"><span style="color:var(--text-faint);">12:42:48</span><span style="color:var(--reroute);">rotate</span><span style="color:var(--text-dim);">sofia → amine</span><span style="color:var(--reroute);">+40</span></div>
+                    </div>
+                  </div>
+                </sc-if>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 20px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                    <span style="font-weight:600;font-size:14px;">Leaderboard</span>
+                    <span onClick="{{ goLeaderboard }}" style="font-size:12px;color:var(--accent);cursor:pointer;font-weight:600;">View all →</span>
+                  </div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--reroute);margin-bottom:8px;">Best rotator</div>
+                  <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:18px;">
+                    <div style="display:flex;align-items:center;gap:10px;font-size:13px;"><span style="color:var(--text-faint);font-family:'JetBrains Mono',monospace;width:14px;">1</span><span style="flex:1;">Yuki Tanaka</span><span style="font-family:'JetBrains Mono',monospace;color:var(--reroute);">640</span></div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:13px;"><span style="color:var(--text-faint);font-family:'JetBrains Mono',monospace;width:14px;">2</span><span style="flex:1;">Sofia L.</span><span style="font-family:'JetBrains Mono',monospace;color:var(--reroute);">420</span></div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:13px;"><span style="color:var(--text-faint);font-family:'JetBrains Mono',monospace;width:14px;">3</span><span style="flex:1;">Ada L.</span><span style="font-family:'JetBrains Mono',monospace;color:var(--reroute);">310</span></div>
+                  </div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--give);margin-bottom:8px;">Most generous</div>
+                  <div style="display:flex;flex-direction:column;gap:9px;">
+                    <div style="display:flex;align-items:center;gap:10px;font-size:13px;"><span style="color:var(--text-faint);font-family:'JetBrains Mono',monospace;width:14px;">1</span><span style="flex:1;">Marco B.</span><span style="font-family:'JetBrains Mono',monospace;color:var(--give);">1,540</span></div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:13px;"><span style="color:var(--text-faint);font-family:'JetBrains Mono',monospace;width:14px;">2</span><span style="flex:1;">Yuki Tanaka</span><span style="font-family:'JetBrains Mono',monospace;color:var(--give);">1,220</span></div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:13px;"><span style="color:var(--text-faint);font-family:'JetBrains Mono',monospace;width:14px;">3</span><span style="flex:1;">Sofia L.</span><span style="font-family:'JetBrains Mono',monospace;color:var(--give);">980</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- ===== MARKETPLACE ===== -->
+          <sc-if value="{{ isMarketplace }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:18px;">
+              <!-- header -->
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+                <div>
+                  <div style="font-size:18px;font-weight:600;letter-spacing:-.01em;">Open requests</div>
+                  <div style="font-size:14px;color:var(--text-dim);margin-top:4px;">Out of credits? Post a request — surplus from PAT users finds you. Requests auto-close when funded.</div>
+                </div>
+                <button onClick="{{ toggleCompose }}" style="flex:none;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:11px 16px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:var(--accent-press)">+ Post a request</button>
+              </div>
+
+              <!-- filter -->
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:4px;gap:3px;">
+                  <button onClick="{{ setFilterAll }}" style="{{ filterAllStyle }}">All · {{ totalCount }}</button>
+                  <button onClick="{{ setFilterPro }}" style="{{ filterProStyle }}"><span style="color:var(--reroute);">●</span> PAT users · {{ proCount }}</button>
+                  <button onClick="{{ setFilterNoob }}" style="{{ filterNoobStyle }}"><span style="color:var(--consume);">●</span> Non-PAT · {{ noobCount }}</button>
+                </div>
+              </div>
+
+              <!-- compose -->
+              <sc-if value="{{ compose }}" hint-placeholder-val="{{ false }}">
+                <form onSubmit="{{ addRequest }}" style="background:var(--surface);border:1px solid var(--accent);border-radius:16px;padding:20px 22px;display:flex;flex-direction:column;gap:14px;">
+                  <div style="font-weight:600;font-size:14px;">New request</div>
+                  <div style="display:flex;gap:14px;flex-wrap:wrap;">
+                    <label style="display:flex;flex-direction:column;gap:7px;width:140px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Amount</span>
+                      <input type="number" min="1" defaultValue="50" ref="{{ amountRef }}" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:7px;width:220px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Ask</span>
+                      <select ref="{{ targetRef }}" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;cursor:pointer;">
+                        <option value="open">Open to all donors</option>
+                        <option value="Yuki Tanaka">@yuki</option>
+                        <option value="Amine Tazi">@amine</option>
+                        <option value="Sofia Lindqvist">@sofia</option>
+                        <option value="Marco Bianchi">@marco</option>
+                      </select>
+                    </label>
+                    <label style="display:flex;flex-direction:column;gap:7px;flex:1;min-width:200px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Reason</span>
+                      <input type="text" defaultValue="Finishing up a PR" ref="{{ reasonRef }}" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/>
+                    </label>
+                  </div>
+                  <div style="display:flex;gap:10px;">
+                    <button type="submit" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:11px 18px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:var(--accent-press)">Post request</button>
+                    <button type="button" onClick="{{ toggleCompose }}" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:11px 18px;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;" style-hover="border-color:var(--border-strong)">Cancel</button>
+                  </div>
+                </form>
+              </sc-if>
+
+              <!-- request grid -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <sc-for list="{{ filteredVMs }}" as="r" hint-placeholder-count="4">
+                  <div style="{{ r.cardStyle }}">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                      <div style="{{ r.avatarStyle }}">{{ r.initials }}</div>
+                      <div style="flex:1;min-width:0;">
+                        <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;font-size:14px;">{{ r.name }}</span><span style="{{ r.badgeStyle }}">{{ r.roleLabel }}</span></div>
+                        <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">{{ r.reason }}</div>
+                      </div>
+                      <div style="text-align:right;flex:none;">
+                        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);">{{ r.timeLabel }}</div>
+                        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);margin-top:2px;">{{ r.targetLabel }}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px;">
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--text);">{{ r.fundedLabel }}</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-faint);">{{ r.donorLabel }} · {{ r.statusLabel }}</span>
+                      </div>
+                      <div style="height:8px;border-radius:4px;background:var(--surface-3);overflow:hidden;"><div style="{{ r.barStyle }}"></div></div>
+                    </div>
+                    <sc-if value="{{ r.open }}" hint-placeholder-val="{{ true }}">
+                      <button onClick="{{ r.donate }}" style="align-self:flex-start;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:9px;padding:8px 16px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;" style-hover="background:var(--accent);color:#fff">Donate 25 →</button>
+                    </sc-if>
+                    <sc-if value="{{ r.fulfilled }}" hint-placeholder-val="{{ false }}">
+                      <span style="align-self:flex-start;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--give);background:var(--give-soft);border-radius:9px;padding:8px 14px;">✓ fulfilled · auto-closed</span>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <sc-if value="{{ filterEmpty }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px dashed var(--border-strong);border-radius:16px;padding:36px;text-align:center;color:var(--text-faint);font-family:'JetBrains Mono',monospace;font-size:13px;">No requests from this group right now.</div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <!-- ===== LEADERBOARD ===== -->
+          <sc-if value="{{ isLeaderboard }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+              <!-- best rotator -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+                  <span style="width:30px;height:30px;border-radius:8px;background:var(--reroute-soft);color:var(--reroute);display:flex;align-items:center;justify-content:center;font-size:15px;">⇄</span>
+                  <div><div style="font-weight:600;font-size:15px;">Best rotator</div><div style="font-size:12px;color:var(--text-dim);">most donated to other PAT users</div></div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:15px;">
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--reroute);width:16px;">1</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Yuki Tanaka</div><div style="height:5px;border-radius:3px;background:var(--reroute-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:100%;background:var(--reroute);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--reroute);">640</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">2</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Sofia Lindqvist</div><div style="height:5px;border-radius:3px;background:var(--reroute-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:66%;background:var(--reroute);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--reroute);">420</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">3</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Ada Lovelace</div><div style="height:5px;border-radius:3px;background:var(--reroute-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:48%;background:var(--reroute);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--reroute);">310</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">4</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Yuki Tanaka</div><div style="height:5px;border-radius:3px;background:var(--reroute-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:28%;background:var(--reroute);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--reroute);">180</span></div>
+                </div>
+              </div>
+              <!-- most generous -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+                  <span style="width:30px;height:30px;border-radius:8px;background:var(--give-soft);color:var(--give);display:flex;align-items:center;justify-content:center;font-size:15px;">♥</span>
+                  <div><div style="font-weight:600;font-size:15px;">Most generous</div><div style="font-size:12px;color:var(--text-dim);">most donated to non-PAT users</div></div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:15px;">
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--give);width:16px;">1</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Marco Bianchi</div><div style="height:5px;border-radius:3px;background:var(--give-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:100%;background:var(--give);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--give);">1,540</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">2</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Yuki Tanaka</div><div style="height:5px;border-radius:3px;background:var(--give-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:79%;background:var(--give);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--give);">1,220</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">3</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Sofia Lindqvist</div><div style="height:5px;border-radius:3px;background:var(--give-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:64%;background:var(--give);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--give);">980</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">4</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Amine Tazi</div><div style="height:5px;border-radius:3px;background:var(--give-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:40%;background:var(--give);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--give);">610</span></div>
+                </div>
+              </div>
+              <!-- top pro -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+                  <span style="width:30px;height:30px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:15px;">◆</span>
+                  <div><div style="font-weight:600;font-size:15px;">Top pro</div><div style="font-size:12px;color:var(--text-dim);">PAT user · most credit consumed</div></div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:15px;">
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--accent);width:16px;">1</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Yuki Tanaka</div><div style="height:5px;border-radius:3px;background:var(--accent-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:100%;background:var(--accent);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--accent);">1,240</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">2</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Amine Tazi</div><div style="height:5px;border-radius:3px;background:var(--accent-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:79%;background:var(--accent);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--accent);">980</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">3</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Sofia Lindqvist</div><div style="height:5px;border-radius:3px;background:var(--accent-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:70%;background:var(--accent);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--accent);">870</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">4</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Marco Bianchi</div><div style="height:5px;border-radius:3px;background:var(--accent-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:52%;background:var(--accent);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--accent);">640</span></div>
+                </div>
+              </div>
+              <!-- top noob -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+                  <span style="width:30px;height:30px;border-radius:8px;background:var(--consume-soft);color:var(--consume);display:flex;align-items:center;justify-content:center;font-size:15px;">▲</span>
+                  <div><div style="font-weight:600;font-size:15px;">Top noob</div><div style="font-size:12px;color:var(--text-dim);">non-PAT user · most credit consumed</div></div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:15px;">
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--consume);width:16px;">1</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Lena Hoffmann</div><div style="height:5px;border-radius:3px;background:var(--consume-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:100%;background:var(--consume);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--consume);">412</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">2</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Diego Ramirez</div><div style="height:5px;border-radius:3px;background:var(--consume-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:87%;background:var(--consume);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--consume);">360</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">3</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Priya Nair</div><div style="height:5px;border-radius:3px;background:var(--consume-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:72%;background:var(--consume);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--consume);">295</span></div>
+                  <div style="display:flex;align-items:center;gap:12px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--text-faint);width:16px;">4</span><div style="flex:1;"><div style="font-size:13.5px;font-weight:600;">Tom Becker</div><div style="height:5px;border-radius:3px;background:var(--consume-soft);overflow:hidden;margin-top:6px;"><div style="height:100%;width:51%;background:var(--consume);"></div></div></div><span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--consume);">210</span></div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- ===== HISTORY ===== -->
+          <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:18px;">
+              <!-- header + month selector -->
+              <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+                <div>
+                  <div style="font-size:18px;font-weight:600;letter-spacing:-.01em;">Monthly reports</div>
+                  <div style="font-size:14px;color:var(--text-dim);margin-top:4px;">Every cycle resets on the 1st — here's the archive of closed months.</div>
+                </div>
+                <div style="display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:4px;gap:3px;">
+                  <sc-for list="{{ monthVMs }}" as="mo" hint-placeholder-count="3">
+                    <button onClick="{{ mo.select }}" style="{{ mo.btnStyle }}">{{ mo.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+
+              <!-- KPI flow summary -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:26px 28px;box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:24px;">
+                  <div><div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);">{{ monthLabel }} · cycle summary</div><div style="font-size:15px;color:var(--text-dim);margin-top:3px;">Where credits were pledged, donated and routed</div></div>
+                  <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-faint);padding:4px 10px;border:1px solid var(--border);border-radius:7px;">closed</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:0;">
+                  <!-- pledged -->
+                  <div style="flex:1;display:flex;flex-direction:column;gap:10px;padding:4px 0;">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Pledged</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:36px;color:var(--text);line-height:1;">{{ pledgedLabel }}</span>
+                    <span style="font-size:13px;color:var(--text-dim);">total donation budgets</span>
+                  </div>
+                  <div style="width:56px;flex:none;display:flex;align-items:center;justify-content:center;">
+                    <div style="width:100%;height:3px;background-image:linear-gradient(90deg,var(--give) 60%,transparent 0);background-size:14px 3px;background-repeat:repeat-x;opacity:.6;"></div>
+                  </div>
+                  <!-- donated -->
+                  <div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 6px;">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Actually donated</span>
+                    <div style="width:148px;height:96px;border-radius:14px;border:1px solid var(--border-strong);background:var(--give-soft);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;">
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:34px;color:var(--give);line-height:1;">{{ donatedLabel2 }}</span>
+                      <span style="font-size:11px;color:var(--text-faint);font-family:'JetBrains Mono',monospace;">credits used</span>
+                    </div>
+                  </div>
+                  <div style="width:56px;flex:none;display:flex;align-items:center;justify-content:center;">
+                    <div style="width:100%;height:3px;background-image:linear-gradient(90deg,var(--accent) 60%,transparent 0);background-size:14px 3px;background-repeat:repeat-x;opacity:.6;"></div>
+                  </div>
+                  <!-- split -->
+                  <div style="flex:1;display:flex;flex-direction:column;gap:14px;justify-content:center;">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                      <span style="width:9px;height:9px;border-radius:50%;background:var(--reroute);flex:none;"></span>
+                      <div style="flex:1;"><div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:22px;color:var(--text);">{{ toPatLabel }}</div><div style="font-size:12px;color:var(--text-dim);">rotated to PAT users</div></div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                      <span style="width:9px;height:9px;border-radius:50%;background:var(--consume);flex:none;"></span>
+                      <div style="flex:1;"><div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:22px;color:var(--text);">{{ toNonPatLabel }}</div><div style="font-size:12px;color:var(--text-dim);">transferred to non-PAT users</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- stat row -->
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Requests filled</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;margin-top:8px;">{{ reqFilledLabel }}</div>
+                  <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">fulfilled this cycle</div>
+                </div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Fulfillment rate</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;margin-top:8px;">{{ fillRateLabel }}</div>
+                  <div style="height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden;margin-top:9px;"><div style="height:100%;width:{{ fillRateLabel }};background:var(--give);"></div></div>
+                </div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Unused budget</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:26px;margin-top:8px;">{{ pledgedLabel }} <span style="color:var(--text-faint);font-size:14px;">pledged</span></div>
+                  <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">{{ donatedLabel2 }} actually flowed</div>
+                </div>
+              </div>
+
+              <!-- fills + winners -->
+              <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;">
+                <!-- requests filled by type -->
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;display:flex;flex-direction:column;">
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+                    <span style="width:30px;height:30px;border-radius:8px;background:var(--give-soft);color:var(--give);display:flex;align-items:center;justify-content:center;font-size:15px;">✓</span>
+                    <div><div style="font-weight:600;font-size:15px;">Requests filled</div><div style="font-size:12px;color:var(--text-dim);">split by requester type</div></div>
+                  </div>
+                  <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:18px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:42px;color:var(--text);line-height:1;">{{ reqFilledCount }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--text-faint);margin-bottom:4px;">requests fulfilled</span></div>
+                  <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--surface-3);margin-bottom:18px;"><div style="{{ patBarStyle }}"></div><div style="{{ nonPatBarStyle }}"></div></div>
+                  <div style="display:flex;gap:16px;">
+                    <div style="flex:1;display:flex;align-items:center;gap:10px;">
+                      <span style="width:9px;height:9px;border-radius:50%;background:var(--reroute);flex:none;"></span>
+                      <div style="flex:1;"><div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:24px;color:var(--text);">{{ reqPatLabel }}</div><div style="font-size:12px;color:var(--text-dim);">PAT requests</div></div>
+                    </div>
+                    <div style="flex:1;display:flex;align-items:center;gap:10px;">
+                      <span style="width:9px;height:9px;border-radius:50%;background:var(--consume);flex:none;"></span>
+                      <div style="flex:1;"><div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:24px;color:var(--text);">{{ reqNonPatLabel }}</div><div style="font-size:12px;color:var(--text-dim);">non-PAT requests</div></div>
+                    </div>
+                  </div>
+                </div>
+                <!-- cycle winners -->
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;">
+                  <div style="font-weight:600;font-size:15px;margin-bottom:4px;">Cycle winners</div>
+                  <div style="font-size:12px;color:var(--text-dim);margin-bottom:18px;">leaderboard champions for {{ monthLabel }}</div>
+                  <div style="display:flex;flex-direction:column;gap:14px;">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                      <span style="width:30px;height:30px;border-radius:8px;background:var(--reroute-soft);color:var(--reroute);display:flex;align-items:center;justify-content:center;font-size:14px;flex:none;">⇄</span>
+                      <div style="flex:1;min-width:0;"><div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);">Best rotator</div><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ winners.rotator.name }}</div></div>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--reroute);">{{ winners.rotator.value }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                      <span style="width:30px;height:30px;border-radius:8px;background:var(--give-soft);color:var(--give);display:flex;align-items:center;justify-content:center;font-size:14px;flex:none;">♥</span>
+                      <div style="flex:1;min-width:0;"><div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);">Most generous</div><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ winners.generous.name }}</div></div>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--give);">{{ winners.generous.value }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                      <span style="width:30px;height:30px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:14px;flex:none;">◆</span>
+                      <div style="flex:1;min-width:0;"><div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);">Top pro</div><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ winners.pro.name }}</div></div>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--accent);">{{ winners.pro.value }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                      <span style="width:30px;height:30px;border-radius:8px;background:var(--consume-soft);color:var(--consume);display:flex;align-items:center;justify-content:center;font-size:14px;flex:none;">▲</span>
+                      <div style="flex:1;min-width:0;"><div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);">Top noob</div><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ winners.noob.name }}</div></div>
+                      <span style="font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--consume);">{{ winners.noob.value }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- ===== PROFILE ===== -->
+          <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:18px;max-width:760px;">
+              <!-- identity card -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;display:flex;align-items:center;gap:18px;">
+                <div style="width:60px;height:60px;border-radius:16px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:22px;flex:none;">AL</div>
+                <div style="flex:1;">
+                  <div style="font-size:20px;font-weight:600;letter-spacing:-.01em;">Ada Lovelace</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-dim);margin-top:3px;">ada@example.com</div>
+                </div>
+                <sc-if value="{{ isGiver }}" hint-placeholder-val="{{ true }}"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:6px 12px;border-radius:8px;background:var(--give-soft);color:var(--give);">giver</span></sc-if>
+                <sc-if value="{{ isConsumer }}" hint-placeholder-val="{{ false }}"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:6px 12px;border-radius:8px;background:var(--consume-soft);color:var(--consume);">consumer</span></sc-if>
+              </div>
+
+              <!-- GIVER VIEW -->
+              <sc-if value="{{ isGiver }}" hint-placeholder-val="{{ true }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                  <!-- public: donated -->
+                  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 24px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Donated to others</span><span style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text-faint);padding:3px 7px;border:1px solid var(--border);border-radius:6px;">public</span></div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:42px;color:var(--give);margin-top:14px;line-height:1;">{{ donatedLabel }}</div>
+                    <div style="font-size:13px;color:var(--text-dim);margin-top:8px;">credits you've given out · this is what teammates see.</div>
+                  </div>
+                  <!-- private: donation budget -->
+                  <div style="background:var(--surface);border:1px dashed var(--border-strong);border-radius:16px;padding:22px 24px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Donation budget</span><span style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--accent);padding:3px 7px;border:1px solid var(--accent-soft);border-radius:6px;background:var(--accent-soft);">🔒 private</span></div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:42px;color:var(--text);margin-top:14px;line-height:1;">{{ giveLimitLabel }}</div>
+                    <div style="height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden;margin-top:14px;"><div style="height:100%;width:{{ givePct }}%;background:var(--accent);"></div></div>
+                    <div style="font-size:12px;color:var(--text-faint);margin-top:8px;font-family:'JetBrains Mono',monospace;">{{ givePct }}% of your budget donated · only you see this</div>
+                  </div>
+                </div>
+              </sc-if>
+
+              <!-- CONSUMER VIEW -->
+              <sc-if value="{{ isConsumer }}" hint-placeholder-val="{{ false }}">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;">
+                  <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px;">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Credits consumed</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--text-dim);">300 free + donations</span>
+                  </div>
+                  <div style="display:flex;align-items:flex-end;gap:8px;"><span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:48px;color:var(--consume);line-height:1;">412</span><span style="font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--text-faint);margin-bottom:5px;">consumed</span></div>
+                  <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:18px;background:var(--surface-3);"><div style="height:100%;width:73%;background:var(--consume);"></div><div style="height:100%;width:27%;background:var(--give);"></div></div>
+                  <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px;font-family:'JetBrains Mono',monospace;"><span style="color:var(--consume);">● 300 free allowance (used up)</span><span style="color:var(--give);">● 112 from donations</span></div>
+                </div>
+              </sc-if>
+
+              <!-- recent personal activity -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;">
+                <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:14px;">Recent activity</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;">
+                  <div style="display:flex;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);"><span style="color:var(--text-dim);">Today 09:14 · copilot session</span><span style="color:var(--consume);">−14</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);"><span style="color:var(--text-dim);">Yesterday 17:02 · copilot session</span><span style="color:var(--consume);">−22</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:12px 20px;"><span style="color:var(--text-dim);">Yesterday 11:30 · copilot session</span><span style="color:var(--consume);">−9</span></div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- ===== SETTINGS ===== -->
+          <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:18px;max-width:680px;">
+              <!-- account -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;">
+                <div style="font-weight:600;font-size:15px;margin-bottom:18px;">Account</div>
+                <div style="display:flex;flex-direction:column;gap:16px;">
+                  <label style="display:flex;flex-direction:column;gap:7px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Name</span><input type="text" defaultValue="Ada Lovelace" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/></label>
+                  <label style="display:flex;flex-direction:column;gap:7px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Email</span><input type="email" defaultValue="ada@example.com" style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;" style-focus="border-color:var(--accent)"/></label>
+                </div>
+              </div>
+
+              <!-- access: giver -->
+              <sc-if value="{{ isGiver }}" hint-placeholder-val="{{ true }}">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;"><span style="font-weight:600;font-size:15px;">PAT &amp; donation budget</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--give);">giver</span></div>
+                  <label style="display:flex;flex-direction:column;gap:7px;margin-bottom:18px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Personal access token</span>
+                    <div style="display:flex;gap:10px;"><input type="text" defaultValue="github_pat_••••••••••••••••3aF9" readOnly style="flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:11px 13px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;"/><button style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:0 16px;color:var(--text);font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;" style-hover="border-color:var(--border-strong)">Rotate</button><button style="background:transparent;border:1px solid var(--border);border-radius:10px;padding:0 16px;color:#ff6b6b;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;" style-hover="border-color:#ff6b6b">Revoke</button></div>
+                  </label>
+                  <div style="border-top:1px solid var(--border);padding-top:18px;">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;"><span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);">Donation budget <span style="color:var(--accent);text-transform:none;letter-spacing:0;">· 🔒 private</span></span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:18px;color:var(--accent);">{{ giveLimitLabel }}</span></div>
+                    <input type="range" min="0" max="5000" step="100" value="{{ giveLimit }}" onChange="{{ setGiveLimit }}" style="width:100%;accent-color:var(--accent);"/>
+                    <p style="color:var(--text-faint);font-size:12px;margin:8px 0 0;font-family:'JetBrains Mono',monospace;">A cap on how much you'll ever donate. Never shown publicly.</p>
+                  </div>
+                </div>
+              </sc-if>
+              <!-- access: consumer -->
+              <sc-if value="{{ isConsumer }}" hint-placeholder-val="{{ false }}">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;"><div><div style="font-weight:600;font-size:15px;">Free allowance</div><div style="font-size:13px;color:var(--text-dim);margin-top:3px;">Every consumer starts here. Donations from PAT users can extend you beyond it.</div></div><div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:30px;color:var(--consume);">300</div></div>
+                </div>
+              </sc-if>
+
+              <!-- appearance -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;">
+                <div><div style="font-weight:600;font-size:15px;">Appearance</div><div style="font-size:13px;color:var(--text-dim);margin-top:3px;">Switch between dark and light.</div></div>
+                <button onClick="{{ toggleTheme }}" style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 16px;color:var(--text);font-family:'JetBrains Mono',monospace;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;" style-hover="border-color:var(--border-strong)">
+                  <sc-if value="{{ isDark }}" hint-placeholder-val="{{ true }}"><span>☀ Light mode</span></sc-if>
+                  <sc-if value="{{ isLight }}" hint-placeholder-val="{{ false }}"><span>☾ Dark mode</span></sc-if>
+                </button>
+              </div>
+
+              <!-- danger -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;">
+                <div><div style="font-weight:600;font-size:15px;">Sign out</div><div style="font-size:13px;color:var(--text-dim);margin-top:3px;">End your session on this device.</div></div>
+                <button onClick="{{ signOut }}" style="background:transparent;border:1px solid var(--border);border-radius:10px;padding:10px 16px;color:var(--text);font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;" style-hover="border-color:var(--border-strong)">Sign out ⏻</button>
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </main>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark'|'light'&quot;},&quot;showActivityLog&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;profilePlacement&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;sidebar&quot;,&quot;topright&quot;],&quot;default&quot;:&quot;sidebar&quot;,&quot;tsType&quot;:&quot;'sidebar'|'topright'&quot;}}">
+class Component extends DCLogic {
+  amountRef = React.createRef();
+  reasonRef = React.createRef();
+  targetRef = React.createRef();
+  state = {
+    view: 'dashboard',
+    compose: false,
+    requests: [
+      { id: 1, name: 'Lena Hoffmann', initials: 'LH', role: 'noob', needed: 60, funded: 35, reason: 'Finishing the migration PR', target: null, hoursLeft: 4, donors: 2 },
+      { id: 2, name: 'Diego Ramirez', initials: 'DR', role: 'noob', needed: 40, funded: 10, reason: 'Code-review marathon today', target: null, hoursLeft: 18, donors: 1 },
+      { id: 3, name: 'Priya Nair', initials: 'PN', role: 'noob', needed: 90, funded: 0, reason: 'Debugging a prod incident', target: 'Ada Lovelace', hoursLeft: 26, donors: 0 },
+      { id: 4, name: 'Amine Tazi', initials: 'AT', role: 'pro', needed: 120, funded: 120, reason: 'Ran dry mid-refactor', target: null, hoursLeft: 0, donors: 3 },
+      { id: 5, name: 'Tom Becker', initials: 'TB', role: 'noob', needed: 30, funded: 30, reason: 'Writing test coverage', target: null, hoursLeft: 0, donors: 1 },
+    ],
+    months: [
+      { id: '2026-05', label: 'May 2026', pledged: 9800, donated: 6240, toNonPat: 4010, toPat: 2230, reqFilled: 38, reqTotal: 44, reqPat: 9, reqNonPat: 29,
+        fills: [
+          { who: 'Marco Bianchi', amount: 1540, count: 14 },
+          { who: 'Yuki Tanaka', amount: 1860, count: 11 },
+          { who: 'Sofia Lindqvist', amount: 1400, count: 9 },
+          { who: 'Amine Tazi', amount: 610, count: 4 },
+        ],
+        winners: { rotator: { name: 'Yuki Tanaka', value: 640 }, generous: { name: 'Marco Bianchi', value: 1540 }, pro: { name: 'Yuki Tanaka', value: 1240 }, noob: { name: 'Lena Hoffmann', value: 412 } } },
+      { id: '2026-04', label: 'April 2026', pledged: 8100, donated: 5020, toNonPat: 3100, toPat: 1920, reqFilled: 31, reqTotal: 39, reqPat: 7, reqNonPat: 24,
+        fills: [
+          { who: 'Yuki Tanaka', amount: 1480, count: 12 },
+          { who: 'Sofia Lindqvist', amount: 1120, count: 8 },
+          { who: 'Marco Bianchi', amount: 940, count: 7 },
+          { who: 'Yuki Tanaka', amount: 480, count: 4 },
+        ],
+        winners: { rotator: { name: 'Sofia Lindqvist', value: 520 }, generous: { name: 'Yuki Tanaka', value: 1480 }, pro: { name: 'Amine Tazi', value: 1080 }, noob: { name: 'Diego Ramirez', value: 388 } } },
+      { id: '2026-03', label: 'March 2026', pledged: 5400, donated: 2980, toNonPat: 1740, toPat: 1240, reqFilled: 19, reqTotal: 25, reqPat: 5, reqNonPat: 14,
+        fills: [
+          { who: 'Sofia Lindqvist', amount: 880, count: 7 },
+          { who: 'Yuki Tanaka', amount: 760, count: 6 },
+          { who: 'Amine Tazi', amount: 540, count: 4 },
+          { who: 'Marco Bianchi', amount: 320, count: 2 },
+        ],
+        winners: { rotator: { name: 'Amine Tazi', value: 410 }, generous: { name: 'Sofia Lindqvist', value: 880 }, pro: { name: 'Yuki Tanaka', value: 920 }, noob: { name: 'Priya Nair', value: 276 } } },
+    ],
+  };
+  donate(id) {
+    this.setState(s => ({
+      requests: s.requests.map(r => {
+        if (r.id !== id || r.funded >= r.needed) return r;
+        const add = Math.min(25, r.needed - r.funded);
+        return { ...r, funded: r.funded + add, donors: r.donors + 1 };
+      })
+    }));
+  }
+  addRequest(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const amount = Math.max(1, Number(this.amountRef.current && this.amountRef.current.value) || 50);
+    const reason = (this.reasonRef.current && this.reasonRef.current.value) || 'Need a top-up';
+    const tgt = this.targetRef.current && this.targetRef.current.value;
+    this.setState(s => ({
+      compose: false,
+      requests: [{ id: Date.now(), name: 'Ada Lovelace', initials: 'AL', role: 'pro', needed: amount, funded: 0, reason, target: (!tgt || tgt === 'open') ? null : tgt, hoursLeft: 24, donors: 0 }, ...s.requests]
+    }));
+  }
+  get theme() { return this.state.theme || this.props.defaultTheme || 'dark'; }
+  renderVals() {
+    const view = this.state.view || 'dashboard';
+    const role = this.state.role || 'giver';
+    const authMode = this.state.authMode || 'signin';
+    const onbStep = this.state.onbStep || 1;
+    const onbRole = this.state.onbRole || 'giver';
+    const giveLimit = this.state.giveLimit ?? 2000;
+    const theme = this.theme;
+    const isDark = theme === 'dark';
+    const go = (v) => () => this.setState({ view: v });
+    const navStyle = (active) => ({
+      display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px',
+      borderRadius: '10px', color: active ? 'var(--text)' : 'var(--text-dim)',
+      background: active ? 'var(--accent-soft)' : 'transparent',
+      border: '1px solid ' + (active ? 'var(--border-strong)' : 'transparent'),
+      fontWeight: active ? '600' : '500', cursor: 'pointer', fontSize: '14px',
+      width: '100%', textAlign: 'left', fontFamily: 'inherit'
+    });
+    const seg = (active, color) => ({
+      padding: '5px 12px', borderRadius: '7px', border: 'none', cursor: 'pointer',
+      fontFamily: "'JetBrains Mono',monospace", fontSize: '12px', fontWeight: '600',
+      background: active ? 'var(--surface)' : 'transparent',
+      color: active ? color : 'var(--text-faint)',
+      boxShadow: active ? 'var(--shadow)' : 'none'
+    });
+    const donated = 1860;
+    const givePct = Math.min(100, Math.round((donated / Math.max(1, giveLimit)) * 100));
+    const requestVMs = (this.state.requests || []).map(r => {
+      const fulfilled = r.funded >= r.needed;
+      const pct = Math.min(100, Math.round((r.funded / r.needed) * 100));
+      const isPro = r.role === 'pro';
+      const accent = isPro ? 'var(--reroute)' : 'var(--consume)';
+      const soft = isPro ? 'var(--reroute-soft)' : 'var(--consume-soft)';
+      return {
+        ...r, fulfilled, open: !fulfilled, pct, isPro, isNoob: !isPro,
+        roleLabel: isPro ? 'pro' : 'noob',
+        avatarStyle: { width: '38px', height: '38px', borderRadius: '50%', background: soft, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '600', flex: 'none' },
+        badgeStyle: { fontFamily: "'JetBrains Mono',monospace", fontSize: '10px', padding: '3px 8px', borderRadius: '6px', background: soft, color: accent },
+        barStyle: { height: '100%', width: pct + '%', background: fulfilled ? 'var(--give)' : accent, transition: 'width .4s ease' },
+        cardStyle: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', padding: '20px 22px', opacity: fulfilled ? 0.6 : 1, display: 'flex', flexDirection: 'column', gap: '13px' },
+        fundedLabel: r.funded + ' / ' + r.needed,
+        remaining: Math.max(0, r.needed - r.funded),
+        timeLabel: fulfilled ? 'auto-closed' : (r.hoursLeft >= 24 ? Math.round(r.hoursLeft / 24) + 'd left' : r.hoursLeft + 'h left'),
+        statusLabel: fulfilled ? 'fulfilled' : (r.funded > 0 ? 'partially funded' : 'open'),
+        targetLabel: r.target ? ('→ @' + String(r.target).split(' ')[0].toLowerCase()) : 'open to all',
+        donorLabel: r.donors + (r.donors === 1 ? ' donor' : ' donors'),
+        donate: () => this.donate(r.id),
+      };
+    });
+    const openCount = (this.state.requests || []).filter(r => r.funded < r.needed).length;
+    const closedCount = (this.state.requests || []).filter(r => r.funded >= r.needed).length;
+    // active non-PAT users on the free allowance — pledged surplus (3,600) ÷ 300 free allowance each
+    const activeNonPatCount = 12;
+    const mFilter = this.state.filter || 'all';
+    const filteredVMs = requestVMs.filter(r => mFilter === 'all' ? true : (mFilter === 'pro' ? r.isPro : r.isNoob));
+    const proCount = requestVMs.filter(r => r.isPro).length;
+    const noobCount = requestVMs.filter(r => r.isNoob).length;
+    const fSeg = (active) => ({
+      padding: '6px 13px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+      fontFamily: "'JetBrains Mono',monospace", fontSize: '12px', fontWeight: '600',
+      background: active ? 'var(--surface)' : 'transparent',
+      color: active ? 'var(--text)' : 'var(--text-faint)',
+      boxShadow: active ? 'var(--shadow)' : 'none', whiteSpace: 'nowrap'
+    });
+    const months = this.state.months || [];
+    const monthId = this.state.month || (months[0] && months[0].id);
+    const m = months.find(x => x.id === monthId) || months[0] || {};
+    const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+    const fillsMax = Math.max(1, ...((m.fills || []).map(f => f.amount)));
+    const fillsVMs = (m.fills || []).map((f, i) => ({
+      who: f.who, count: f.count + (f.count === 1 ? ' request' : ' requests'), amountLabel: fmt(f.amount), rank: i + 1,
+      initials: f.who.split(' ').map(s => s[0]).slice(0, 2).join(''),
+      barStyle: { height: '100%', width: Math.round(f.amount / fillsMax * 100) + '%', background: 'var(--give)' },
+    }));
+    const monthVMs = months.map(mm => ({
+      id: mm.id, label: mm.label, active: mm.id === monthId,
+      btnStyle: fSeg(mm.id === monthId),
+      select: () => this.setState({ month: mm.id }),
+    }));
+    const fillRate = m.reqTotal ? Math.round(m.reqFilled / m.reqTotal * 100) : 0;
+    const filledCount = m.reqFilled || 0;
+    const patPct = filledCount ? Math.round((m.reqPat || 0) / filledCount * 100) : 0;
+    return {
+      theme, isDark, isLight: !isDark,
+      profileInSidebar: (this.props.profilePlacement ?? 'sidebar') === 'sidebar',
+      profileTopRight: (this.props.profilePlacement ?? 'sidebar') === 'topright',
+      isAuth: view === 'auth',
+      isOnboarding: view === 'onboarding',
+      isApp: ['dashboard', 'marketplace', 'leaderboard', 'history', 'profile', 'settings'].includes(view),
+      isDashboard: view === 'dashboard',
+      isMarketplace: view === 'marketplace',
+      isLeaderboard: view === 'leaderboard',
+      isHistory: view === 'history',
+      isProfile: view === 'profile',
+      isSettings: view === 'settings',
+      isSignin: authMode === 'signin',
+      isSignup: authMode === 'signup',
+      isGiver: role === 'giver',
+      isConsumer: role === 'consumer',
+      onbStep1: onbStep === 1, onbStep2: onbStep === 2,
+      onbGiver: onbRole === 'giver', onbConsumer: onbRole === 'consumer',
+      pageTitle: ({ dashboard: 'Overview', marketplace: 'Marketplace', leaderboard: 'Leaderboard', history: 'Monthly reports', profile: 'Your profile', settings: 'Settings' })[view] || '',
+      showActivityLog: this.props.showActivityLog ?? true,
+      showDemoRoleSwitch: this.props.showDemoRoleSwitch ?? true,
+      giveLimit, giveLimitLabel: Number(giveLimit).toLocaleString('en-US'), givePct,
+      donatedLabel: '1,860',
+      requestVMs, filteredVMs, openCount, closedCount, activeNonPatCount, compose: !!this.state.compose,
+      filterEmpty: filteredVMs.length === 0,
+      totalCount: requestVMs.length, proCount, noobCount,
+      filterAllStyle: fSeg(mFilter === 'all'),
+      filterProStyle: fSeg(mFilter === 'pro'),
+      filterNoobStyle: fSeg(mFilter === 'noob'),
+      setFilterAll: () => this.setState({ filter: 'all' }),
+      setFilterPro: () => this.setState({ filter: 'pro' }),
+      setFilterNoob: () => this.setState({ filter: 'noob' }),
+      dashboardNavStyle: navStyle(view === 'dashboard'),
+      marketplaceNavStyle: navStyle(view === 'marketplace'),
+      leaderboardNavStyle: navStyle(view === 'leaderboard'),
+      historyNavStyle: navStyle(view === 'history'),
+      goHistory: go('history'),
+      monthVMs, monthLabel: m.label,
+      pledgedLabel: fmt(m.pledged), donatedLabel2: fmt(m.donated),
+      toNonPatLabel: fmt(m.toNonPat), toPatLabel: fmt(m.toPat),
+      reqFilledLabel: m.reqFilled + ' / ' + m.reqTotal, fillRateLabel: fillRate + '%',
+      winners: m.winners,
+      reqFilledCount: filledCount,
+      reqPatLabel: fmt(m.reqPat), reqNonPatLabel: fmt(m.reqNonPat),
+      patBarStyle: { height: '100%', width: patPct + '%', background: 'var(--reroute)' },
+      nonPatBarStyle: { height: '100%', width: (100 - patPct) + '%', background: 'var(--consume)' },
+      profileNavStyle: navStyle(view === 'profile'),
+      settingsNavStyle: navStyle(view === 'settings'),
+      roleGiverStyle: seg(role === 'giver', 'var(--give)'),
+      roleConsumerStyle: seg(role === 'consumer', 'var(--consume)'),
+      go,
+      goDashboard: go('dashboard'), goMarketplace: go('marketplace'), goLeaderboard: go('leaderboard'),
+      goProfile: go('profile'), goSettings: go('settings'),
+      toggleTheme: () => this.setState({ theme: isDark ? 'light' : 'dark' }),
+      signIn: (e) => { if (e && e.preventDefault) e.preventDefault(); this.setState({ view: 'dashboard' }); },
+      goCreate: () => this.setState({ authMode: 'signup' }),
+      goSignin: () => this.setState({ authMode: 'signin' }),
+      startCreate: (e) => { if (e && e.preventDefault) e.preventDefault(); this.setState({ view: 'onboarding', onbStep: 1 }); },
+      onbNext: (e) => { if (e && e.preventDefault) e.preventDefault(); this.setState({ onbStep: 2 }); },
+      onbBack: () => this.setState({ onbStep: 1 }),
+      chooseGiver: () => this.setState({ onbRole: 'giver' }),
+      chooseConsumer: () => this.setState({ onbRole: 'consumer' }),
+      finishOnboarding: () => this.setState({ view: 'dashboard', role: onbRole }),
+      signOut: () => this.setState({ view: 'auth', authMode: 'signin' }),
+      setRoleGiver: () => this.setState({ role: 'giver' }),
+      setRoleConsumer: () => this.setState({ role: 'consumer' }),
+      setGiveLimit: (e) => this.setState({ giveLimit: Number(e.target.value) }),
+      toggleCompose: () => this.setState(s => ({ compose: !s.compose })),
+      addRequest: (e) => this.addRequest(e),
+      amountRef: this.amountRef, reasonRef: this.reasonRef, targetRef: this.targetRef,
+    };
+  }
+}
+</script>
+</body>
+</html>

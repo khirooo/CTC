@@ -1,0 +1,10 @@
+# CTC runtime dependencies (proxy.py + api_server.py + ctc/).
+# Dev/test deps live in requirements-dev.txt.
+aiohttp>=3.9
+cryptography>=42
+pydantic>=2.5
+
+# Optional — only used to decode brotli/zstd response bodies in proxy logs.
+# Uncomment if you want readable logs for those encodings.
+# brotli>=1.1
+# zstandard>=0.22

@@ -1,0 +1,92 @@
+# 05 · The web app — the dashboards people click on
+
+> The website (in `web/`) is what teammates actually see. It's a React app; it
+> doesn't hold any logic of its own about credit — it just shows what the server
+> tells it and sends actions back.
+
+---
+
+## Layer 1 — The screens
+
+```mermaid
+flowchart LR
+    Auth["🔐 Sign in"] --> Onb["🚀 First-run setup<br/>(first login only)"]
+    Onb --> Dash["📊 Dashboard"]
+    Dash --> Market["🛒 Marketplace"]
+    Dash --> Lead["🏆 Leaderboard"]
+    Dash --> Hist["📜 History"]
+    Dash --> Prof["👤 Profile"]
+    Dash --> Set["⚙️ Settings"]
+```
+
+| Screen | What you see |
+|---|---|
+| **Sign in** | A "Continue with GitHub Enterprise" button (the [login flow](03-identity-and-login.md)). |
+| **First-run setup** | A short, **skippable** walkthrough shown once after your first login: pick a role (giver/consumer), givers validate their PAT + set a pledge, and everyone gets the ready-to-run CLI install one-liner. It only does what Settings already does — just guided. Skip anytime; it never reappears. |
+| **Dashboard** | Your credit summary, a recent-activity feed, and a snapshot of the marketplace. |
+| **Marketplace** | Open credit requests you can fund, plus a form to post your own. |
+| **Leaderboard** | Top givers and top consumers this cycle. |
+| **History** | Past cycles: how much was consumed and donated. |
+| **Profile** | Your own detailed stats: quota, pledge, retained, donated, consumed. |
+| **Settings** | Hand in your Copilot token (become a giver), set your pledge, and get your **CLI setup** code (your proxy token + the install command). |
+
+---
+
+## Layer 2 — How the website talks to the server
+
+The app is built around **one interface** (`CtcApi`) that lists every action it
+can take — "log in", "get dashboard", "donate", and so on. Each action is a real
+HTTP call to the control-plane server, carrying your session cookie:
+
+```mermaid
+flowchart LR
+    App["The React app<br/>(asks via the CtcApi interface)"] --> Http["HttpCtcApi<br/>→ HTTP + session cookie"]
+    Http --> Server["control-plane (api_server.py)"]
+```
+
+The website holds no credit logic of its own — it shows what the server returns
+and sends actions back. Everything you see (dashboard, marketplace, leaderboard,
+profile, settings) comes from the server.
+
+---
+
+## Layer 2 — One important unit rule
+
+The server speaks **nano-AIU** on the wire (big whole numbers). The browser is
+the only place that converts to human "X.XX AIU":
+
+- A helper called `aiu()` divides by a billion and adds " AIU" for display.
+- When you type a number in (e.g. a pledge), the app multiplies it back up before
+  sending.
+
+So if you ever see "0.00 AIU" where you expected a real number, it's almost
+always a units bug (someone converted twice, or not at all). The rule is simple:
+**nano everywhere except the very edge of the screen.**
+
+---
+
+## Layer 3 — Under the hood
+
+- **Framework:** React + Vite + TypeScript, under `web/`.
+- **The seam:** `web/src/api/CtcApi.ts` is the interface and `HttpCtcApi.ts` is
+  its HTTP implementation; `web/src/store/AppContext.tsx` wires it into the app.
+- **Auth:** every call uses `credentials: 'include'` so the httpOnly session
+  cookie rides along; the server identifies you from that cookie. Logging in is a
+  full-page redirect to `/auth/login` (not an in-page form), because that's how
+  OAuth works.
+- **Units:** `web/src/domain/credit.ts` holds `aiu()` (display) and
+  `NANO_PER_AIU`; inputs multiply by it before sending.
+- **The screens** live under `web/src/screens/` (one folder each:
+  `Auth`, `Onboarding`, `Dashboard`, `Marketplace`, `Leaderboard`, `History`,
+  `Profile`, `Settings`).
+- **The first-run gate:** the server tracks an `onboarded` flag per user (exposed
+  on `/api/me`). Until it's set, the route guard sends you to the walkthrough;
+  finishing or skipping calls `POST /api/onboarding/complete`, which flips the flag
+  so you go straight to the dashboard on every later login.
+
+> The first time you log in you're shown the skippable first-run setup; after that
+> you land straight on the dashboard. You can always (re)configure giver status and
+> your pledge in **Settings** — onboarding just front-loads it.
+
+**Next:** the early-warning system that keeps it all honest →
+[06 · Drift detection](06-drift-detection.md).
