@@ -112,13 +112,23 @@ cmd_logout() {
   echo "To also untrust the CA cert: sudo security delete-certificate -c copilot-proxy-ca /Library/Keychains/System.keychain"
 }
 cmd_launch() {
-  local env; env="$(_config_dir)/env"
+  local env real_home disc; env="$(_config_dir)/env"
   if [ ! -f "$env" ]; then
     echo "ctc: not set up yet. Run 'ctc login' first." >&2
     exit 1
   fi
+  real_home="$HOME"                         # capture BEFORE sourcing overrides it
   # shellcheck disable=SC1090
   . "$env"                                  # overrides HOME/XDG_*/GH_HOST/token/proxy
+  # Bridge the VS Code IDE-workspace registry so `/ide` can find the running
+  # window. The VS Code companion registers workspaces under the real
+  # ~/.copilot/ide; the isolated HOME otherwise can't see it (spike 2026-06-22).
+  # Share ONLY .copilot/ide — token/session/config under ~/.copilot stay isolated.
+  disc=".copilot/ide"
+  if [ -e "$real_home/$disc" ] && [ ! -e "$HOME/$disc" ]; then
+    mkdir -p "$(dirname "$HOME/$disc")"
+    ln -s "$real_home/$disc" "$HOME/$disc"
+  fi
   printf '\033]0;CTC ◆ copilot\007' >&2     # terminal tab title
   echo "◆ CTC mode — credits via the donation pool (your normal 'copilot' is untouched)" >&2
   exec copilot "$@"
