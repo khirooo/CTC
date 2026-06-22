@@ -124,10 +124,15 @@ cmd_launch() {
   # window. The VS Code companion registers workspaces under the real
   # ~/.copilot/ide; the isolated HOME otherwise can't see it (spike 2026-06-22).
   # Share ONLY .copilot/ide — token/session/config under ~/.copilot stay isolated.
+  # Must REPLACE a stale isolated ide (copilot creates an empty one on prior runs),
+  # not skip when it exists — otherwise the symlink never gets made.
   disc=".copilot/ide"
-  if [ -e "$real_home/$disc" ] && [ ! -e "$HOME/$disc" ]; then
-    mkdir -p "$(dirname "$HOME/$disc")"
-    ln -s "$real_home/$disc" "$HOME/$disc"
+  if [ -d "$real_home/$disc" ] && [ "$real_home" != "$HOME" ]; then
+    mkdir -p "$HOME/.copilot"
+    if [ ! -L "$HOME/$disc" ] || [ "$(readlink "$HOME/$disc")" != "$real_home/$disc" ]; then
+      rm -rf "$HOME/$disc"                 # safe: isolated path, ephemeral connection state
+      ln -s "$real_home/$disc" "$HOME/$disc"
+    fi
   fi
   printf '\033]0;CTC ◆ copilot\007' >&2     # terminal tab title
   echo "◆ CTC mode — credits via the donation pool (your normal 'copilot' is untouched)" >&2

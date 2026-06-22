@@ -54,6 +54,23 @@ EOF
   teardown_sandbox
 }
 
+test_launch_bridges_even_when_stale_empty_ide_dir_exists() {
+  setup_sandbox
+  # Regression: an earlier ctc run left an empty .copilot/ide in the isolated
+  # home. The bridge must replace it so the real registry shows through.
+  real_home="$HOME"
+  mkdir -p "$real_home/.copilot/ide"
+  echo "live-lock" > "$real_home/.copilot/ide/conn.lock"
+  cfg="$real_home/.config/ctc"; mkdir -p "$cfg/home/.copilot/ide"   # stale empty isolated ide
+  printf 'export HOME="%s/home"\n' "$cfg" > "$cfg/env"
+  make_stub copilot ':'
+
+  "$CTC_BIN" >/dev/null 2>&1
+  assert_contains "$(cat "$cfg/home/.copilot/ide/conn.lock" 2>/dev/null)" "live-lock" \
+    "stale empty isolated ide is replaced so the real registry shows through"
+  teardown_sandbox
+}
+
 test_launch_does_not_share_rest_of_copilot_dir() {
   setup_sandbox
   real_home="$HOME"
