@@ -112,13 +112,28 @@ cmd_logout() {
   echo "To also untrust the CA cert: sudo security delete-certificate -c copilot-proxy-ca /Library/Keychains/System.keychain"
 }
 cmd_launch() {
-  local env; env="$(_config_dir)/env"
+  local env real_home disc; env="$(_config_dir)/env"
   if [ ! -f "$env" ]; then
     echo "ctc: not set up yet. Run 'ctc login' first." >&2
     exit 1
   fi
+  real_home="$HOME"                         # capture BEFORE sourcing overrides it
   # shellcheck disable=SC1090
   . "$env"                                  # overrides HOME/XDG_*/GH_HOST/token/proxy
+  # Bridge the VS Code IDE-workspace registry so `/ide` can find the running
+  # window. The VS Code companion registers workspaces under the real
+  # ~/.copilot/ide; the isolated HOME otherwise can't see it (spike 2026-06-22).
+  # Share ONLY .copilot/ide — token/session/config under ~/.copilot stay isolated.
+  # Must REPLACE a stale isolated ide (copilot creates an empty one on prior runs),
+  # not skip when it exists — otherwise the symlink never gets made.
+  disc=".copilot/ide"
+  if [ -d "$real_home/$disc" ] && [ "$real_home" != "$HOME" ]; then
+    mkdir -p "$HOME/.copilot"
+    if [ ! -L "$HOME/$disc" ] || [ "$(readlink "$HOME/$disc")" != "$real_home/$disc" ]; then
+      rm -rf "$HOME/$disc"                 # safe: isolated path, ephemeral connection state
+      ln -s "$real_home/$disc" "$HOME/$disc"
+    fi
+  fi
   printf '\033]0;CTC ◆ copilot\007' >&2     # terminal tab title
   echo "◆ CTC mode — credits via the donation pool (your normal 'copilot' is untouched)" >&2
   exec copilot "$@"

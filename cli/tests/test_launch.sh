@@ -28,6 +28,77 @@ EOF
   teardown_sandbox
 }
 
+test_launch_bridges_ide_discovery_path_into_isolated_home() {
+  setup_sandbox
+  # The sandbox's $HOME is the *real* home here; VS Code registers the live
+  # workspace under ~/.copilot/ide, which the isolated copilot must be able to see.
+  real_home="$HOME"
+  disc=".copilot/ide"
+  mkdir -p "$real_home/$disc"
+  echo "workspace-marker" > "$real_home/$disc/registry.json"
+
+  cfg="$real_home/.config/ctc"; mkdir -p "$cfg/home"
+  cat > "$cfg/env" <<EOF
+export HOME="$cfg/home"
+export GH_HOST=example.ghe.com
+export COPILOT_GITHUB_TOKEN=github_pat_TESTTOKEN1234
+export HTTPS_PROXY=http://ctc.local:8080
+EOF
+  make_stub copilot ':'
+
+  "$CTC_BIN" >/dev/null 2>&1; code=$?
+  assert_exit "$code" 0 "launch exits 0"
+  bridged="$cfg/home/$disc/registry.json"
+  assert_contains "$(cat "$bridged" 2>/dev/null)" "workspace-marker" \
+    "isolated HOME sees the real ~/.copilot/ide registry"
+  teardown_sandbox
+}
+
+test_launch_bridges_even_when_stale_empty_ide_dir_exists() {
+  setup_sandbox
+  # Regression: an earlier ctc run left an empty .copilot/ide in the isolated
+  # home. The bridge must replace it so the real registry shows through.
+  real_home="$HOME"
+  mkdir -p "$real_home/.copilot/ide"
+  echo "live-lock" > "$real_home/.copilot/ide/conn.lock"
+  cfg="$real_home/.config/ctc"; mkdir -p "$cfg/home/.copilot/ide"   # stale empty isolated ide
+  printf 'export HOME="%s/home"\n' "$cfg" > "$cfg/env"
+  make_stub copilot ':'
+
+  "$CTC_BIN" >/dev/null 2>&1
+  assert_contains "$(cat "$cfg/home/.copilot/ide/conn.lock" 2>/dev/null)" "live-lock" \
+    "stale empty isolated ide is replaced so the real registry shows through"
+  teardown_sandbox
+}
+
+test_launch_does_not_share_rest_of_copilot_dir() {
+  setup_sandbox
+  real_home="$HOME"
+  mkdir -p "$real_home/.copilot/ide"
+  echo "real-token" > "$real_home/.copilot/config.json"   # must stay private to real home
+
+  cfg="$real_home/.config/ctc"; mkdir -p "$cfg/home"
+  printf 'export HOME="%s/home"\n' "$cfg" > "$cfg/env"
+  make_stub copilot ':'
+
+  "$CTC_BIN" >/dev/null 2>&1
+  # Only .copilot/ide is bridged; config.json is NOT visible from the isolated home.
+  assert_exit "$([ -e "$cfg/home/.copilot/config.json" ] && echo 1 || echo 0)" 0 \
+    "isolated HOME does NOT see real ~/.copilot/config.json"
+  teardown_sandbox
+}
+
+test_launch_without_discovery_dir_still_runs() {
+  setup_sandbox
+  cfg="$HOME/.config/ctc"; mkdir -p "$cfg/home"
+  printf 'export HOME="%s/home"\n' "$cfg" > "$cfg/env"
+  make_stub copilot ':'
+  out="$("$CTC_BIN" 2>&1)"; code=$?
+  assert_exit "$code" 0 "launch with no discovery dir still exits 0"
+  assert_contains "$out" "CTC mode" "still prints banner"
+  teardown_sandbox
+}
+
 test_launch_prints_banner() {
   setup_sandbox
   cfg="$HOME/.config/ctc"; mkdir -p "$cfg/home"
