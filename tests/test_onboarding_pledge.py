@@ -18,7 +18,7 @@ async def _http_get_user(pat):
 @pytest.mark.asyncio
 async def test_onboarding_seeds_pledge_from_default_pct():
     conn = connect(":memory:"); init_db(conn)
-    s = SettingsStore(conn); s.set_many({"default_pledge_pct": "40"}, "admin", 1)
+    s = SettingsStore(conn); s.set_many({"shared_pool_enabled": "on", "default_pledge_pct": "40"}, "admin", 1)
     ec = EffectiveConfig(s)
     eng = AccountingEngine(AccountingStore(conn), config=ec); eng.start_cycle("c1", "J", 0, 99 * 10**12)
     reg = AuthRegistry(AuthStore(conn), derive_key("k"))
@@ -46,9 +46,10 @@ async def test_onboarding_pledge_zero_when_pct_zero():
 
 @pytest.mark.asyncio
 async def test_onboarding_seeds_10pct_by_default():
-    # No override set → falls back to the env Config default (now 10%).
+    # shared_pool_enabled=on so default_pledge_pct (10%) is active.
     conn = connect(":memory:"); init_db(conn)
-    ec = EffectiveConfig(SettingsStore(conn))
+    s = SettingsStore(conn); s.set_many({"shared_pool_enabled": "on"}, "admin", 1)
+    ec = EffectiveConfig(s)
     eng = AccountingEngine(AccountingStore(conn), config=ec); eng.start_cycle("c1", "J", 0, 99 * 10**12)
     reg = AuthRegistry(AuthStore(conn), derive_key("k"))
     AuthStore(conn).upsert_user("u1", "octo", "Octo", "consumer", 0)
@@ -62,7 +63,7 @@ async def test_onboarding_seeds_10pct_by_default():
 async def test_resubmit_pat_does_not_overwrite_giver_pledge():
     """A returning giver who changed their pledge keeps it on PAT re-submission."""
     conn = connect(":memory:"); init_db(conn)
-    s = SettingsStore(conn); s.set_many({"default_pledge_pct": "40"}, "admin", 1)
+    s = SettingsStore(conn); s.set_many({"shared_pool_enabled": "on", "default_pledge_pct": "40"}, "admin", 1)
     ec = EffectiveConfig(s)
     eng = AccountingEngine(AccountingStore(conn), config=ec); eng.start_cycle("c1", "J", 0, 99 * 10**12)
     reg = AuthRegistry(AuthStore(conn), derive_key("k"))

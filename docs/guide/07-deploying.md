@@ -5,6 +5,57 @@
 
 ---
 
+## Layer 0 — Deployment shapes
+
+CTC ships with defaults that target the "license-holders trade credits" use-case
+(email magic-link auth, plain HTTP transport, givers-only pool, shared pool off).
+The legacy "all-GHE" configuration (ghe_oauth + HTTPS + givers_and_consumers +
+pool on) is still fully supported — just set the right env vars.
+
+### Configuration knobs
+
+| Knob | Default (shipped) | Legacy / alternative |
+|---|---|---|
+| `CTC_AUTH_MODE` | `email` — magic-link, no GHE account needed | `ghe_oauth` — GitHub Enterprise OAuth |
+| `CTC_WEB_TRANSPORT` | `http` — plain HTTP (VPN/LAN only) | `https` — TLS via Caddy |
+| `CADDYFILE` | `Caddyfile.http` | `Caddyfile` (HTTPS with TLS) |
+| `CTC_PARTICIPANTS_MODE` | `givers_only` — anyone who uploads a PAT is a giver | `givers_and_consumers` |
+| `CTC_SHARED_POOL` | `off` | `on` — shared quota pool |
+
+### Deployment shapes at a glance
+
+| Shape | Auth | Transport | Participants | Pool | Key env vars |
+|---|---|---|---|---|---|
+| **Default (shipped)** | `email` | `http` | `givers_only` | `off` | `CTC_AUTH_MODE=email`, `CTC_WEB_TRANSPORT=http`, `CADDYFILE=Caddyfile.http` |
+| **Legacy / public** | `ghe_oauth` | `https` | `givers_and_consumers` | `on` | `CTC_AUTH_MODE=ghe_oauth`, `CTC_WEB_TRANSPORT=https`, `CADDYFILE=Caddyfile`, `GHE_OAUTH_*` set |
+
+> **Upgrading from an earlier version? Read this.**
+> Before this release CTC only supported ghe_oauth + HTTPS. The shipped defaults
+> have changed: if you deploy a new image without explicitly setting the env vars,
+> auth becomes `email` (magic-link), the website becomes plain HTTP, participants
+> mode becomes `givers_only`, and the shared pool turns off. Set the env vars
+> from the "Legacy / public" row above to preserve the old behavior.
+
+### Selecting the Caddy config (HTTP vs HTTPS)
+
+Two Caddyfile variants are shipped:
+
+- **`Caddyfile`** — HTTPS, terminates TLS using `/certs/cert.pem` + `/certs/key.pem`.
+  Use for public deployments. Set `CADDYFILE=Caddyfile` (or leave it unset — the
+  docker-compose default is the HTTPS variant).
+- **`Caddyfile.http`** — plain HTTP with `auto_https off`. Use when CTC sits behind
+  a VPN or trusted LAN and TLS is terminated elsewhere (or not at all).
+  Set `CADDYFILE=Caddyfile.http`.
+
+`docker-compose.yml` mounts `./${CADDYFILE:-Caddyfile}` into the Caddy container,
+so setting `CADDYFILE` in `.env` is all you need.
+
+> **Security warning — plain HTTP:** when `CTC_WEB_TRANSPORT=http` / `CADDYFILE=Caddyfile.http`,
+> session cookies and magic-link tokens travel in plaintext. Only use this behind a
+> VPN or on a trusted private network. Never expose HTTP-mode CTC to the public internet.
+
+---
+
 ## Layer 1 — The shape of a deployment
 
 One VM runs three containers that share one database:
@@ -78,13 +129,20 @@ created/migrated on first start.
 |---|---|
 | `CTC_DOMAIN` | **The one host knob** — a hostname *or* a raw IP. Sets the web/API origin and is the source the CLI install command, the proxy host, and the launcher's default all derive from. `localhost` for a local test. |
 | `CTC_SECRET_KEY` | One secret, shared by proxy + control-plane. Encrypts stored PATs, signs cookies. **Never change it** once set (it would orphan stored PATs). |
+| `CTC_AUTH_MODE` | `email` (default) — magic-link login, no GHE account required. `ghe_oauth` — GitHub Enterprise OAuth login. |
+| `CTC_WEB_TRANSPORT` | `http` (default) — plain HTTP, VPN/LAN only. `https` — TLS via Caddy. Must match `CTC_APP_ORIGIN` scheme. |
+| `CADDYFILE` | Caddyfile to mount. Default (unset) = `Caddyfile` (HTTPS). Set `Caddyfile.http` for plain HTTP. |
+| `CTC_PARTICIPANTS_MODE` | `givers_only` (default) or `givers_and_consumers`. Seeds the admin-panel default on first boot. |
+| `CTC_SHARED_POOL` | `off` (default) or `on`. Seeds the admin-panel default on first boot. |
+| `CTC_EMAIL_BACKEND` | `console` (default, logs link to stdout) or `smtp` (sends real email). |
+| `CTC_SMTP_HOST` / `_PORT` / `_USER` / `_PASS` / `_FROM` / `_STARTTLS` | SMTP credentials (only used when `CTC_EMAIL_BACKEND=smtp`). |
 | `GHE_DOMAIN` | Your GitHub Enterprise domain (e.g. `example.ghe.com`). The proxy derives the hosts it decrypts + the cert SANs from this; the CLI launcher uses it for `GH_HOST`. The code default is the neutral placeholder `example.ghe.com` — override it here. |
-| `GHE_OAUTH_CLIENT_ID` / `_SECRET` | Your GHE OAuth app credentials. |
-| `GHE_OAUTH_BASE` | GHE **web** host (login). |
-| `GHE_API_BASE` | GHE **API** host (Copilot quota lives here). |
+| `GHE_OAUTH_CLIENT_ID` / `_SECRET` | GHE OAuth app credentials. **Only required when `CTC_AUTH_MODE=ghe_oauth`.** |
+| `GHE_OAUTH_BASE` | GHE **web** host (login). Only used in `ghe_oauth` mode. |
+| `GHE_API_BASE` | GHE **API** host (Copilot quota / PAT validation). **Required in both auth modes** — PAT validation always hits the API host. Note: no longer defaults to `GHE_OAUTH_BASE`; must be set explicitly. |
 | `REAL_GHE_HOST` | API host the proxy forwards Copilot traffic to. |
 | `PROXY_BIND` | The VM's **VPN-facing IP** for port 8080. Keep proxy off the public internet. |
-| `CTC_ADMINS` | Comma-separated GHE logins that get the admin panel (all users, PAT reveal, runtime defaults). Case-insensitive. Lock down like a secret — an admin can reveal any giver's PAT. Empty = no admin. |
+| `CTC_ADMINS` | Comma-separated identities that get the admin panel (all users, PAT reveal, runtime defaults). Case-insensitive. Lock down like a secret — an admin can reveal any giver's PAT. Empty = no admin. **In email mode: email addresses. In ghe_oauth mode: GHE login names.** |
 
 ---
 

@@ -46,6 +46,34 @@ describe('HttpCtcApi admin', () => {
     expect(s.creditToEuroRate.value).toBe(0.1);
   });
 
+  it('updateAdminSettings sends shared_pool_enabled as "on"/"off" string', async () => {
+    const fetchMock = mockFetchOnce({
+      free_allowance_aiu: { value: 300, is_override: false },
+      default_pledge_pct: { value: 0, is_override: false },
+      request_expiry_hours: { value: 24, is_override: false },
+      request_expiry_max_hours: { value: 168, is_override: false },
+      credit_to_euro_rate: { value: 0.1, is_override: false },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new HttpCtcApi(BASE);
+    await api.updateAdminSettings({ sharedPoolEnabled: true });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.shared_pool_enabled).toBe('on');
+
+    // Also verify "off" for false
+    const fetchMock2 = mockFetchOnce({
+      free_allowance_aiu: { value: 300, is_override: false },
+      default_pledge_pct: { value: 0, is_override: false },
+      request_expiry_hours: { value: 24, is_override: false },
+      request_expiry_max_hours: { value: 168, is_override: false },
+      credit_to_euro_rate: { value: 0.1, is_override: false },
+    });
+    vi.stubGlobal('fetch', fetchMock2);
+    await api.updateAdminSettings({ sharedPoolEnabled: false });
+    const body2 = JSON.parse(fetchMock2.mock.calls[0][1].body);
+    expect(body2.shared_pool_enabled).toBe('off');
+  });
+
   it('getSession maps is_admin', async () => {
     vi.stubGlobal('fetch', mockFetchOnce({
       user_id: 'u1', display_name: 'Octo', ghe_login: 'octo', role: 'giver',

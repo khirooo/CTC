@@ -43,19 +43,38 @@ services:
       CTC_DB_PATH: /data/ctc.db
       CONTROL_PLANE_PORT: "8090"
       CTC_SECRET_KEY: ${CTC_SECRET_KEY}
-      CTC_APP_ORIGIN: https://${CTC_DOMAIN}
+      # CTC_WEB_TRANSPORT must match the Caddyfile choice:
+      #   http  → use Caddyfile.http  (set CADDYFILE=Caddyfile.http in .env)
+      #   https → use Caddyfile       (default, Let's Encrypt)
+      # The control plane validates that CTC_APP_ORIGIN scheme == CTC_WEB_TRANSPORT
+      # and refuses to start on a mismatch.
+      CTC_WEB_TRANSPORT: ${CTC_WEB_TRANSPORT:-http}
+      CTC_APP_ORIGIN: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}
       GHE_OAUTH_CLIENT_ID: ${GHE_OAUTH_CLIENT_ID}
       GHE_OAUTH_CLIENT_SECRET: ${GHE_OAUTH_CLIENT_SECRET}
-      GHE_OAUTH_REDIRECT_URI: https://${CTC_DOMAIN}/auth/callback
+      GHE_OAUTH_REDIRECT_URI: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}/auth/callback
       GHE_OAUTH_BASE: ${GHE_OAUTH_BASE}
       GHE_API_BASE: ${GHE_API_BASE}
       CTC_ADMINS: ${CTC_ADMINS:-}
       CTC_CA_CERT: /certs/cert.pem
+      # Deployment mode knobs — all optional, defaults shown
+      CTC_AUTH_MODE: ${CTC_AUTH_MODE:-email}
+      CTC_PARTICIPANTS_MODE: ${CTC_PARTICIPANTS_MODE:-givers_only}
+      CTC_SHARED_POOL: ${CTC_SHARED_POOL:-off}
+      CTC_EMAIL_BACKEND: ${CTC_EMAIL_BACKEND:-console}
+      CTC_SMTP_HOST: ${CTC_SMTP_HOST:-}
+      CTC_SMTP_PORT: ${CTC_SMTP_PORT:-587}
+      CTC_SMTP_USER: ${CTC_SMTP_USER:-}
+      CTC_SMTP_PASS: ${CTC_SMTP_PASS:-}
+      CTC_SMTP_FROM: ${CTC_SMTP_FROM:-}
+      CTC_SMTP_STARTTLS: ${CTC_SMTP_STARTTLS:-1}
     volumes:
       - ctcdata:/data
       - ctccerts:/certs:ro
 
-  # Public edge: HTTPS, web app, CLI assets, and reverse-proxy to the control plane.
+  # Public edge: HTTPS or HTTP, web app, CLI assets, and reverse-proxy to the control plane.
+  # Transport is selected by CADDYFILE (default = Caddyfile = HTTPS with TLS).
+  # For plain HTTP (VPN/trusted LAN) set CADDYFILE=Caddyfile.http in .env.
   caddy:
     build:
       context: .
@@ -63,7 +82,7 @@ services:
       args:
         # Everything the web app + CLI assets need is derived from CTC_DOMAIN
         # (a hostname OR a raw IP — same VM serves the site and the proxy).
-        VITE_API_BASE: https://${CTC_DOMAIN}/api
+        VITE_API_BASE: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}/api
         VITE_CTC_HOST: ${CTC_DOMAIN}
         VITE_PROXY_HOST: ${CTC_DOMAIN}:8080
         # The PAT-help "Generate a token" link points at the GHE web host.
@@ -81,6 +100,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
+      - ./${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
       - ctccerts:/certs:ro
       - caddydata:/data        # Caddy's Let's Encrypt certs (persist across restarts)
 

@@ -7,7 +7,7 @@ from ..domain.settings import effective_view, validate_patch
 
 
 def register_admin_routes(app, *, store, engine, registry, settings_store,
-                          effective_config, admin_only, now):
+                          effective_config, admin_only, now, deployment):
     acct = engine.store
 
     def _balances(user_id, role):
@@ -70,7 +70,12 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
 
     @admin_only
     async def get_settings(req, _admin):
-        return web.json_response(effective_view(effective_config, settings_store))
+        view = effective_view(effective_config, settings_store)
+        view["boot"] = {"auth_mode": deployment.auth_mode,
+                        "web_transport": deployment.web_transport,
+                        "email_backend": deployment.email_backend,
+                        "source": "env"}
+        return web.json_response(view)
 
     @admin_only
     async def patch_settings(req, admin):

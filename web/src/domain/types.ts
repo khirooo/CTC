@@ -164,6 +164,12 @@ export interface Session {
   role: Role;
   onboarded: boolean;
   isAdmin?: boolean;
+  /** Deployment-level flags from /api/me */
+  participantsMode?: 'givers_only' | 'givers_and_consumers';
+  sharedPoolEnabled?: boolean;
+  authMode?: 'email' | 'ghe_oauth';
+  webTransport?: 'http' | 'https';
+  hasPat?: boolean;
 }
 
 export interface SignUpInput {
@@ -203,12 +209,21 @@ export interface AdminUserDetail extends AdminUser {
 
 export interface AdminSettingField<T> { value: T; isOverride: boolean; }
 
+export interface AdminBootConfig {
+  authMode: string;
+  webTransport: string;
+  emailBackend: string;
+}
+
 export interface AdminSettings {
   freeAllowanceAiu: AdminSettingField<number>;
   defaultPledgePct: AdminSettingField<number>;
   requestExpiryHours: AdminSettingField<number>;
   requestExpiryMaxHours: AdminSettingField<number>;
   creditToEuroRate: AdminSettingField<number>;
+  participantsMode: AdminSettingField<string>;
+  sharedPoolEnabled: AdminSettingField<boolean>;
+  boot: AdminBootConfig | null;
 }
 
 export type AdminSettingsPatch = Partial<{
@@ -217,4 +232,6 @@ export type AdminSettingsPatch = Partial<{
   requestExpiryHours: number;
   requestExpiryMaxHours: number;
   creditToEuroRate: number;
+  participantsMode: 'givers_only' | 'givers_and_consumers';
+  sharedPoolEnabled: boolean;
 }>;

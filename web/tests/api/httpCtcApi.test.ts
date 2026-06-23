@@ -46,12 +46,21 @@ describe('HttpCtcApi', () => {
   it('getSession maps /api/me to a Session with credentials', async () => {
     const f = vi.fn(async () => ({
       ok: true, status: 200, statusText: 'x',
-      json: async () => ({ user_id: 'u1', ghe_login: 'octocat', display_name: 'Octo', role: 'giver', has_pat: true, onboarded: true }),
+      json: async () => ({
+        user_id: 'u1', ghe_login: 'octocat', display_name: 'Octo', role: 'giver',
+        has_pat: true, onboarded: true,
+        participants_mode: 'givers_and_consumers', shared_pool_enabled: true,
+        auth_mode: 'ghe_oauth', web_transport: 'https',
+      }),
     })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', f);
     const api = new HttpCtcApi('http://api');
     const s = await api.getSession();
-    expect(s).toEqual({ userId: 'u1', name: 'Octo', role: 'giver', onboarded: true, isAdmin: false });
+    expect(s).toMatchObject({
+      userId: 'u1', name: 'Octo', role: 'giver', onboarded: true, isAdmin: false,
+      hasPat: true, participantsMode: 'givers_and_consumers', sharedPoolEnabled: true,
+      authMode: 'ghe_oauth', webTransport: 'https',
+    });
     const [url, init] = (f as any).mock.calls[0];
     expect(url).toBe('http://api/me');
     expect(init.credentials).toBe('include');

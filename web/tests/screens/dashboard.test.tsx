@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { AppShell } from '@/app/AppShell';
@@ -7,8 +7,10 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
 import { createMockApi } from '@/api/mockApi';
 
-async function setup() {
-  const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'dash.test' });
+beforeEach(() => localStorage.clear());
+
+async function setup(opts?: Parameters<typeof createMockApi>[0]) {
+  const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'dash.test', ...opts });
   await api.signIn('ada@example.com', 'x');
   await api.completeOnboarding({ name: 'Ada', email: 'ada@example.com', role: 'giver', pledgedSurplus: 2000 });
   render(
@@ -22,6 +24,7 @@ async function setup() {
       </MemoryRouter>
     </AppProvider></ThemeProvider>,
   );
+  return api;
 }
 
 describe('dashboard', () => {
@@ -31,5 +34,34 @@ describe('dashboard', () => {
     // 3 open requests in seed (Lena, Diego, Priya unfunded/partial) — scoped to the hero
     expect(screen.getByTestId('hero-open-count')).toHaveTextContent('3');
     expect(screen.getByRole('heading', { name: /Overview/i })).toBeInTheDocument(); // topbar title
+  });
+
+  it('givers_only + no PAT shows the license CTA instead of the dashboard', async () => {
+    // Sign in as priya (no PAT in seed) in givers_only deployment mode
+    const api = createMockApi({ latencyMs: 0, storageKey: 'dash.gonly', participantsMode: 'givers_only' });
+    await api.signIn('priya@example.com', 'x');
+    render(
+      <ThemeProvider><AppProvider api={api}>
+        <MemoryRouter initialEntries={['/app/dashboard']}>
+          <Routes>
+            <Route path="/app" element={<AppShell />}>
+              <Route path="dashboard" element={<DashboardScreen />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AppProvider></ThemeProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/Add a license to continue/i)).toBeInTheDocument(),
+    );
+    // The normal marketplace hero should NOT be shown
+    expect(screen.queryByText(/Credit marketplace/i)).not.toBeInTheDocument();
+  });
+
+  it('givers_only + user HAS a PAT shows the normal dashboard', async () => {
+    // Sign in as ada (has PAT in seed) in givers_only deployment mode
+    await setup({ storageKey: 'dash.gonly2', participantsMode: 'givers_only' });
+    await waitFor(() => expect(screen.getByText(/Credit marketplace/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Add a license to continue/i)).not.toBeInTheDocument();
   });
 });

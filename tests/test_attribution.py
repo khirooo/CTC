@@ -6,10 +6,18 @@ from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
 
 
+class _PoolEnabledConfig:
+    """Config with shared pool enabled for testing."""
+    shared_pool_enabled = True
+    free_allowance = 300 * 1_000_000_000
+    default_pledge_pct = 0
+    participants_mode = "givers_and_consumers"
+
+
 def _service(pledge_alice=100, quota_alice=200, quota_bob=0, alice_is_giver=True):
     conn = connect(":memory:")
     init_db(conn)
-    eng = AccountingEngine(AccountingStore(conn))
+    eng = AccountingEngine(AccountingStore(conn), config=_PoolEnabledConfig())
     eng.start_cycle("c1", "June", 0, 10_000_000)
     eng.set_quota("c1", "alice", quota_alice)
     eng.set_pledge("c1", "alice", min(pledge_alice, quota_alice))  # pledge capped to quota (engine invariant)
@@ -83,7 +91,7 @@ def test_any_giver_pat_returns_a_stored_pat():
 def test_any_giver_pat_none_when_no_pats():
     conn = connect(":memory:")
     init_db(conn)
-    eng = AccountingEngine(AccountingStore(conn))
+    eng = AccountingEngine(AccountingStore(conn), config=_PoolEnabledConfig())
     eng.start_cycle("c1", "June", 0, 10_000_000)
     svc = AttributionService(eng, InMemoryIdentityProvider({}), InMemoryPatRegistry({}))
     assert svc.any_giver_pat() is None
@@ -95,7 +103,7 @@ def test_giver_with_credit_but_no_pat_falls_through_to_grant():
     to GRANT (or None if no grant exists)."""
     conn = connect(":memory:")
     init_db(conn)
-    eng = AccountingEngine(AccountingStore(conn))
+    eng = AccountingEngine(AccountingStore(conn), config=_PoolEnabledConfig())
     eng.start_cycle("c1", "June", 0, 10_000_000)
     eng.set_quota("c1", "alice", 100)
     eng.set_pledge("c1", "alice", 50)

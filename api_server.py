@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 import uuid
@@ -19,18 +20,28 @@ from ctc.auth.sessions import SessionService
 from ctc.auth.oauth import GheOAuth, AiohttpJson
 from ctc.auth.onboarding import validate_and_store_pat, PatInvalid, PatIdentityMismatch
 from ctc.auth.admin import is_admin as _is_admin
+from ctc.domain.deployment import DeploymentConfig
 
 COOKIE = "ctc_session"
 STATE_COOKIE = "ctc_oauth_state"
+
+
+def assert_transport_consistent(deployment, app_origin) -> None:
+    origin_https = app_origin.startswith("https")
+    if (deployment.web_transport == "https") != origin_https:
+        raise ValueError(
+            f"CTC_WEB_TRANSPORT={deployment.web_transport} but CTC_APP_ORIGIN="
+            f"{app_origin!r}; scheme must match")
 
 
 def _sign(secret: str, value: str) -> str:
     return hmac.new(secret.encode(), value.encode(), hashlib.sha256).hexdigest()
 
 
-def make_app(*, store, engine, registry, sessions, oauth, http_get_user,
+def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
              cycle_id=None, secret, app_origin, admins=frozenset(),
              ca_cert_path="/certs/cert.pem",
+             deployment: DeploymentConfig, magic_link=None,
              now=lambda: int(time.time())):
 
     from ctc.auth.ca_fingerprint import ca_fingerprint_sha256
@@ -126,6 +137,12 @@ def make_app(*, store, engine, registry, sessions, oauth, http_get_user,
         resp.del_cookie(COOKIE)
         return resp
 
+    from ctc.store.settings_store import SettingsStore
+    from ctc.domain.settings import EffectiveConfig
+    _settings_store = SettingsStore(store.conn)
+    _ec = getattr(engine, "config", None)
+    _effective_config = _ec if isinstance(_ec, EffectiveConfig) else EffectiveConfig(_settings_store)
+
     async def api_me(req):
         user = await current_user(req)
         if not user:
@@ -136,6 +153,10 @@ def make_app(*, store, engine, registry, sessions, oauth, http_get_user,
             "has_pat": store.get_giver_pat(user["id"]) is not None,
             "onboarded": bool(user["onboarded"]),
             "is_admin": _is_admin(user["ghe_login"], admins),
+            "auth_mode": deployment.auth_mode,
+            "web_transport": deployment.web_transport,
+            "participants_mode": _effective_config.participants_mode,
+            "shared_pool_enabled": _effective_config.shared_pool_enabled,
         })
 
     async def api_pat(req):
@@ -215,23 +236,55 @@ def make_app(*, store, engine, registry, sessions, oauth, http_get_user,
         _quota_cache[giver_id] = (now(), value)
         return value
 
+    async def auth_email_start(req):
+        body = await req.json()
+        try:
+            magic_link.start((body or {}).get("email", ""), now())
+        except ValueError:
+            pass  # do not reveal validity / deliverability
+        return web.Response(status=204)
+
+    async def auth_magic(req):
+        try:
+            email = magic_link.verify(req.query.get("token", ""), now())
+        except ValueError:
+            raise web.HTTPBadRequest(text="link invalid or expired")
+        user = store.get_user_by_login(email)
+        if user is None:
+            uid = uuid.uuid4().hex
+            store.upsert_user(uid, email, email, "consumer", now())
+            user = store.get_user_by_id(uid)
+        cookie_val = sessions.create(user["id"], now())
+        resp = web.HTTPFound(app_origin)
+        resp.set_cookie(COOKIE, cookie_val, httponly=True, samesite="Lax",
+                        secure=app_origin.startswith("https"))
+        raise resp
+
+    async def api_config(req):
+        return web.json_response({"authMode": deployment.auth_mode})
+
     from ctc.api.web_routes import register_web_routes
     register_web_routes(app, store=store, engine=engine, current_user=current_user,
                         now=now, live_quota=live_quota)
 
-    from ctc.store.settings_store import SettingsStore
-    from ctc.domain.settings import EffectiveConfig
-    _settings_store = SettingsStore(store.conn)
-    _ec = getattr(engine, "config", None)
-    _effective_config = _ec if isinstance(_ec, EffectiveConfig) else EffectiveConfig(_settings_store)
     from ctc.api.admin_routes import register_admin_routes
     register_admin_routes(app, store=store, engine=engine, registry=registry,
                           settings_store=_settings_store, effective_config=_effective_config,
-                          admin_only=admin_only, now=now)
+                          admin_only=admin_only, now=now, deployment=deployment)
+
+    if deployment.auth_mode == "ghe_oauth":
+        app.add_routes([
+            web.get("/auth/login", auth_login),
+            web.get("/auth/callback", auth_callback),
+        ])
+    else:
+        app.add_routes([
+            web.post("/auth/email", auth_email_start),
+            web.get("/auth/magic", auth_magic),
+        ])
 
     app.add_routes([
-        web.get("/auth/login", auth_login),
-        web.get("/auth/callback", auth_callback),
+        web.get("/api/config", api_config),
         web.post("/auth/logout", auth_logout),
         web.get("/api/me", api_me),
         web.post("/api/pat", api_pat),
@@ -260,13 +313,14 @@ def build_from_env(session) -> web.Application:
     engine.ensure_active_cycle(int(time.time()))
     registry = AuthRegistry(store, derive_key(secret))
     sessions = SessionService(store, secret=secret)
-    base = os.environ["GHE_OAUTH_BASE"].rstrip("/")
-    # OAuth authorize/token + /api/v3/user live on the GHE web host (base); the
-    # Copilot endpoint /copilot_internal/user is served on the API host. Default
-    # the API host to base, override with GHE_API_BASE (e.g. https://api.example.ghe.com).
-    api_base = os.environ.get("GHE_API_BASE", base).rstrip("/")
-    oauth = GheOAuth(os.environ["GHE_OAUTH_CLIENT_ID"], os.environ["GHE_OAUTH_CLIENT_SECRET"],
-                     os.environ["GHE_OAUTH_REDIRECT_URI"], base, http=AiohttpJson(session))
+
+    deployment = DeploymentConfig.from_env(os.environ)
+    app_origin = os.environ.get("CTC_APP_ORIGIN", "/")
+    assert_transport_consistent(deployment, app_origin)
+
+    # api_base is required in both modes (PAT onboarding calls /copilot_internal/user).
+    # GHE_OAUTH_BASE and GHE_OAUTH_* are only required in ghe_oauth mode.
+    api_base = os.environ["GHE_API_BASE"].rstrip("/")
 
     async def http_get_user(pat):
         headers = {"authorization": f"Bearer {pat}", "editor-version": "copilot/1.0.63",
@@ -276,13 +330,26 @@ def build_from_env(session) -> web.Application:
                 raise PatInvalid(f"/copilot_internal/user -> {r.status}")
             return await r.json()
 
+    oauth = None
+    magic_link = None
+    if deployment.auth_mode == "ghe_oauth":
+        base = os.environ["GHE_OAUTH_BASE"].rstrip("/")
+        oauth = GheOAuth(os.environ["GHE_OAUTH_CLIENT_ID"], os.environ["GHE_OAUTH_CLIENT_SECRET"],
+                         os.environ["GHE_OAUTH_REDIRECT_URI"], base, http=AiohttpJson(session))
+    else:
+        from ctc.auth.email_sender import email_sender_from_env
+        from ctc.auth.magic_link import EmailMagicLink
+        sender = email_sender_from_env(os.environ, logging.getLogger("ctc.email"))
+        magic_link = EmailMagicLink(store, secret, app_origin, sender)
+
     from ctc.auth.admin import admins_from_env
     admins = admins_from_env(os.environ)
     ca_cert_path = os.environ.get("CTC_CA_CERT", "/certs/cert.pem")
     return make_app(store=store, engine=engine, registry=registry, sessions=sessions,
                     oauth=oauth, http_get_user=http_get_user,
-                    secret=secret, app_origin=os.environ.get("CTC_APP_ORIGIN", "/"),
-                    admins=admins, ca_cert_path=ca_cert_path)
+                    secret=secret, app_origin=app_origin,
+                    admins=admins, ca_cert_path=ca_cert_path,
+                    deployment=deployment, magic_link=magic_link)
 
 
 async def _serve() -> None:

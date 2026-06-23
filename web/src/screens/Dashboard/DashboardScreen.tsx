@@ -4,6 +4,7 @@ import { useAsync } from '@/store/useAsync';
 import { MarketplaceHero } from './MarketplaceHero';
 import { StatTile } from '@/components';
 import { aiu, euros } from '@/domain/credit';
+import { PatHelp } from '@/components/PatHelp';
 
 const kindColor: Record<string, string> = {
   donate: 'var(--give)',
@@ -21,7 +22,7 @@ const kindLabel: Record<string, string> = {
 };
 
 export function DashboardScreen() {
-  const { api } = useApp();
+  const { api, session } = useApp();
   const navigate = useNavigate();
   const { data, loading } = useAsync(() => api.getDashboard(), []);
 
@@ -37,6 +38,45 @@ export function DashboardScreen() {
         }}
       >
         Loading…
+      </div>
+    );
+  }
+
+  // givers_only mode + no PAT → block with license CTA
+  if (session?.participantsMode === 'givers_only' && !session?.hasPat) {
+    return (
+      <div style={{ maxWidth: 520, margin: '60px auto', padding: '0 16px' }}>
+        <div
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 16,
+            padding: '28px 28px 24px',
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8 }}>Add a license to continue</div>
+          <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 20, lineHeight: 1.6 }}>
+            This deployment is configured for license holders only. Connect your Copilot license (GitHub Enterprise PAT) in your profile to access the dashboard.
+          </p>
+          <PatHelp />
+          <button
+            onClick={() => navigate('/app/profile')}
+            style={{
+              marginTop: 18,
+              background: 'var(--accent)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 10,
+              padding: '11px 22px',
+              fontFamily: 'inherit',
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            Go to Profile →
+          </button>
+        </div>
       </div>
     );
   }

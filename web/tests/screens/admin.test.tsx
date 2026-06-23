@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AppProvider } from '@/store/AppContext';
@@ -36,6 +36,68 @@ describe('AdminScreen', () => {
   it('shows the settings form', async () => {
     renderAdmin();
     await waitFor(() => expect(screen.getByLabelText(/free allowance/i)).toBeInTheDocument());
+  });
+
+  it('renders the participants mode select and shared pool toggle', async () => {
+    renderAdmin();
+    await waitFor(() => expect(screen.getByLabelText(/participants mode/i)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /toggle shared pool/i })).toBeInTheDocument();
+  });
+
+  it('toggling shared pool and saving calls updateAdminSettings with sharedPoolEnabled', async () => {
+    const api = createMockApi({ latencyMs: 0, storageKey: 'admin.toggle' });
+    const spy = vi.spyOn(api, 'updateAdminSettings');
+    render(
+      <ThemeProvider>
+        <AppProvider api={api}>
+          <MemoryRouter><AdminScreen /></MemoryRouter>
+        </AppProvider>
+      </ThemeProvider>,
+    );
+    // Wait for the toggle button to appear (pool is ON by default)
+    const toggleBtn = await screen.findByRole('button', { name: /toggle shared pool/i });
+    expect(toggleBtn).toHaveTextContent('ON');
+
+    // Click to toggle OFF
+    fireEvent.click(toggleBtn);
+    await waitFor(() => expect(toggleBtn).toHaveTextContent('OFF'));
+
+    // Click save
+    const saveBtn = screen.getByRole('button', { name: /save settings/i });
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ sharedPoolEnabled: false }),
+    ));
+  });
+
+  it('changing participants mode and saving calls updateAdminSettings with participantsMode', async () => {
+    const api = createMockApi({ latencyMs: 0, storageKey: 'admin.mode' });
+    const spy = vi.spyOn(api, 'updateAdminSettings');
+    render(
+      <ThemeProvider>
+        <AppProvider api={api}>
+          <MemoryRouter><AdminScreen /></MemoryRouter>
+        </AppProvider>
+      </ThemeProvider>,
+    );
+    const modeSelect = await screen.findByLabelText(/participants mode/i);
+    // Change from default to givers_only
+    fireEvent.change(modeSelect, { target: { value: 'givers_only' } });
+
+    const saveBtn = screen.getByRole('button', { name: /save settings/i });
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ participantsMode: 'givers_only' }),
+    ));
+  });
+
+  it('renders the boot config card with auth_mode/web_transport/email_backend', async () => {
+    renderAdmin();
+    await waitFor(() => expect(screen.getByText(/boot config/i)).toBeInTheDocument());
+    expect(screen.getByText(/set in .env/i)).toBeInTheDocument();
+    expect(screen.getByText('auth_mode')).toBeInTheDocument();
+    expect(screen.getByText('web_transport')).toBeInTheDocument();
+    expect(screen.getByText('email_backend')).toBeInTheDocument();
   });
 });
 

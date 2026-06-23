@@ -18,13 +18,15 @@ def test_empty_store_falls_back_to_env_defaults():
     assert ec.request_expiry_hours == config.request_expiry_hours
     assert ec.request_expiry_max_hours == config.request_expiry_max_hours
     assert ec.credit_to_euro_rate == config.credit_to_euro_rate
-    assert ec.default_pledge_pct == config.default_pledge_pct
+    # default_pledge_pct returns 0 when shared_pool_enabled is False (the default)
+    assert ec.default_pledge_pct == 0
 
 
 def test_override_is_read_back_typed():
     s = _store()
-    s.set_many({"free_allowance_aiu": "500", "default_pledge_pct": "40",
-                "credit_to_euro_rate": "0.25"}, "admin1", 1000)
+    # Enable shared pool so default_pledge_pct is not forced to 0
+    s.set_many({"shared_pool_enabled": "on", "free_allowance_aiu": "500",
+                "default_pledge_pct": "40", "credit_to_euro_rate": "0.25"}, "admin1", 1000)
     ec = EffectiveConfig(s)
     assert ec.free_allowance == 500 * NANO_PER_AIU   # stored as AIU, exposed as nano
     assert ec.default_pledge_pct == 40

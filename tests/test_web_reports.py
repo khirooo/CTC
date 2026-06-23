@@ -16,9 +16,13 @@ from ctc.store.accounting_store import AccountingStore
 from ctc.store.auth_store import AuthStore
 from ctc.store.db import connect, init_db
 from api_server import make_app
+from ctc.domain.deployment import DeploymentConfig
 
 # Reuse the OAuth stub + login helper from the marketplace test harness.
 from test_web_routes import StubOAuth, _giver_user, _login
+
+_DEFAULT_DEPLOYMENT = DeploymentConfig(auth_mode="ghe_oauth", web_transport="https",
+                                       email_backend="console")
 
 
 def _build(now=lambda: 1000):
@@ -31,7 +35,8 @@ def _build(now=lambda: 1000):
     sess = SessionService(store, secret="sek", ttl_s=10**9)
     app = make_app(store=store, engine=engine, registry=reg, sessions=sess,
                    oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
-                   secret="sek", app_origin="http://app", now=now)
+                   secret="sek", app_origin="http://app", now=now,
+                   deployment=_DEFAULT_DEPLOYMENT)
     return app, store, engine
 
 

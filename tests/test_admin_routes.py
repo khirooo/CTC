@@ -67,3 +67,26 @@ async def test_admin_settings_get_and_patch():
 
         bad = await cli.patch("/api/admin/settings", json={"default_pledge_pct": 200})
         assert bad.status == 400
+
+
+@pytest.mark.asyncio
+async def test_admin_settings_includes_modes_and_boot():
+    app = await _client(admins=frozenset({"octocat"}))
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        r = await cli.get("/api/admin/settings")
+        body = await r.json()
+        assert body["participants_mode"]["value"] == "givers_only"
+        assert body["shared_pool_enabled"]["value"] is False
+        assert body["boot"]["auth_mode"] in ("email", "ghe_oauth")
+        assert body["boot"]["source"] == "env"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_toggle_pool():
+    app = await _client(admins=frozenset({"octocat"}))
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.patch("/api/admin/settings", json={"shared_pool_enabled": "on"})
+        r = await cli.get("/api/admin/settings")
+        assert (await r.json())["shared_pool_enabled"]["value"] is True

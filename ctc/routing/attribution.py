@@ -34,6 +34,9 @@ class AttributionService:
     def select_source(self, cycle_id: str, consumer: ConsumerIdentity) -> Source | None:
         """First eligible bucket in the credit-model order, including the PAT to
         forward. None means 'no credit available' -> caller blocks with 402."""
+        if getattr(self.engine.config, "participants_mode", "givers_and_consumers") \
+                == "givers_only" and not consumer.is_giver:
+            return None
         uid = consumer.user_id
         if consumer.is_giver:
             # OWN -> GRANT
@@ -42,11 +45,12 @@ class AttributionService:
                 if pat is not None:
                     return Source(Bucket.OWN, uid, pat)
             return self._grant_source(cycle_id, uid)
-        # non-PAT consumer: GRANT -> POOL
+        # non-PAT consumer: GRANT -> POOL (POOL only when the shared pool is enabled)
         grant = self._grant_source(cycle_id, uid)
         if grant is not None:
             return grant
-        if self.engine.allowance_remaining(cycle_id, uid) > 0:
+        if getattr(self.engine.config, "shared_pool_enabled", True) \
+                and self.engine.allowance_remaining(cycle_id, uid) > 0:
             givers = self.engine.givers_with_pool_capacity(cycle_id)  # [(giver_id, remaining)]
             for giver_id, _rem in sorted(givers, key=lambda t: t[1], reverse=True):
                 pat = self.pats.pat_for(giver_id)

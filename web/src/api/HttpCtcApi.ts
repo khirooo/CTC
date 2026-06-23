@@ -2,7 +2,7 @@ import type { CtcApi, ListRequestsResult } from './CtcApi';
 import type {
   PublicRequest, CreateRequestInput, DashboardData, Leaderboard, OwnProfile,
   SettingsData, SettingsPatch, Session, OnboardingInput, CycleReport,
-  AdminUser, AdminUserDetail, AdminSettings, AdminSettingsPatch,
+  AdminUser, AdminUserDetail, AdminSettings, AdminSettingsPatch, AdminBootConfig,
 } from '@/domain/types';
 import { apiFetch, CtcApiError } from './http';
 
@@ -82,6 +82,11 @@ export class HttpCtcApi implements CtcApi {
       role: me.role,
       onboarded: Boolean(me.onboarded),
       isAdmin: Boolean(me.is_admin),
+      hasPat: Boolean(me.has_pat),
+      participantsMode: me.participants_mode,
+      sharedPoolEnabled: me.shared_pool_enabled !== undefined ? Boolean(me.shared_pool_enabled) : undefined,
+      authMode: me.auth_mode,
+      webTransport: me.web_transport,
     };
   }
   async completeOnboarding(input: OnboardingInput): Promise<Session> {
@@ -121,6 +126,17 @@ export class HttpCtcApi implements CtcApi {
     };
   }
 
+  // --- Config ---
+  getConfig(): Promise<{ authMode: 'email' | 'ghe_oauth' }> {
+    return apiFetch(this.base, '', '/config');
+  }
+  async startEmailLogin(email: string): Promise<void> {
+    await apiFetch(this.authBase(), '', '/auth/email', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
   // --- Admin ---
   async listAllUsers(): Promise<AdminUser[]> {
     const rows = await apiFetch(this.base, '', '/admin/users');
@@ -144,12 +160,14 @@ export class HttpCtcApi implements CtcApi {
     return mapAdminSettings(await apiFetch(this.base, '', '/admin/settings'));
   }
   async updateAdminSettings(patch: AdminSettingsPatch): Promise<AdminSettings> {
-    const body: Record<string, number> = {};
+    const body: Record<string, number | string | boolean> = {};
     if (patch.freeAllowanceAiu !== undefined) body.free_allowance_aiu = patch.freeAllowanceAiu;
     if (patch.defaultPledgePct !== undefined) body.default_pledge_pct = patch.defaultPledgePct;
     if (patch.requestExpiryHours !== undefined) body.request_expiry_hours = patch.requestExpiryHours;
     if (patch.requestExpiryMaxHours !== undefined) body.request_expiry_max_hours = patch.requestExpiryMaxHours;
     if (patch.creditToEuroRate !== undefined) body.credit_to_euro_rate = patch.creditToEuroRate;
+    if (patch.participantsMode !== undefined) body.participants_mode = patch.participantsMode;
+    if (patch.sharedPoolEnabled !== undefined) body.shared_pool_enabled = patch.sharedPoolEnabled ? 'on' : 'off';
     return mapAdminSettings(await apiFetch(this.base, '', '/admin/settings', {
       method: 'PATCH', body: JSON.stringify(body),
     }));
@@ -166,11 +184,17 @@ function mapAdminUser(u: any): AdminUser {
 }
 function field(f: any) { return { value: f.value, isOverride: Boolean(f.is_override) }; }
 function mapAdminSettings(s: any): AdminSettings {
+  const boot: AdminBootConfig | null = s.boot
+    ? { authMode: s.boot.auth_mode, webTransport: s.boot.web_transport, emailBackend: s.boot.email_backend }
+    : null;
   return {
     freeAllowanceAiu: field(s.free_allowance_aiu),
     defaultPledgePct: field(s.default_pledge_pct),
     requestExpiryHours: field(s.request_expiry_hours),
     requestExpiryMaxHours: field(s.request_expiry_max_hours),
     creditToEuroRate: field(s.credit_to_euro_rate),
+    participantsMode: s.participants_mode ? field(s.participants_mode) : { value: 'givers_only', isOverride: false },
+    sharedPoolEnabled: s.shared_pool_enabled ? field(s.shared_pool_enabled) : { value: false, isOverride: false },
+    boot,
   };
 }

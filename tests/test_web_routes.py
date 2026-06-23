@@ -10,7 +10,11 @@ from ctc.accounting.engine import AccountingEngine
 from ctc.store.auth_store import AuthStore
 from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
+from ctc.domain.deployment import DeploymentConfig
 from ctc.domain.types import Role
+
+_DEFAULT_DEPLOYMENT = DeploymentConfig(auth_mode="ghe_oauth", web_transport="https",
+                                       email_backend="console")
 
 
 class StubOAuth:
@@ -31,7 +35,8 @@ def _make(now=lambda: 1000):
     sess = SessionService(store, secret="sek", ttl_s=10**9)  # large so clock-advancing tests keep the session
     return make_app(store=store, engine=eng, registry=reg, sessions=sess,
                     oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
-                    secret="sek", app_origin="http://app", now=now)
+                    secret="sek", app_origin="http://app", now=now,
+                    deployment=_DEFAULT_DEPLOYMENT)
 
 
 async def _login(cli):
@@ -51,7 +56,8 @@ async def test_create_list_donate_lifecycle_in_aiu():
     sess = SessionService(store, secret="sek", ttl_s=10**9)
     app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
                    oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
-                   secret="sek", app_origin="http://app", now=lambda: 1000)
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   deployment=_DEFAULT_DEPLOYMENT)
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)                         # logged in as octocat (consumer by default)
         # consumer creates a 100-AIU request — it's their own

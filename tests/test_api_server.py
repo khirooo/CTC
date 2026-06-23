@@ -10,6 +10,10 @@ from ctc.accounting.engine import AccountingEngine
 from ctc.store.auth_store import AuthStore
 from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
+from ctc.domain.deployment import DeploymentConfig
+
+_DEFAULT_DEPLOYMENT = DeploymentConfig(auth_mode="ghe_oauth", web_transport="https",
+                                       email_backend="console")
 
 
 class StubOAuth:
@@ -30,7 +34,8 @@ async def _client(http_get_user=_default_user, admins=frozenset()):
     sess = SessionService(store, secret="sek", ttl_s=10_000)
     app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
                    oauth=StubOAuth(), http_get_user=http_get_user, cycle_id="c1",
-                   secret="sek", app_origin="http://app", now=lambda: 1000, admins=admins)
+                   secret="sek", app_origin="http://app", now=lambda: 1000, admins=admins,
+                   deployment=_DEFAULT_DEPLOYMENT)
     return app
 
 

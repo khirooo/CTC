@@ -132,3 +132,22 @@ class AuthStore:
             "SELECT * FROM admin_audit ORDER BY ts DESC, id"
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def add_magic_link(self, id, email, expires_at, created_at):
+        self.conn.execute(
+            "INSERT INTO magic_links (id, email, expires_at, created_at) VALUES (?,?,?,?)",
+            (id, email, expires_at, created_at),
+        )
+
+    def get_magic_link(self, id):
+        return self.conn.execute(
+            "SELECT id, email, expires_at, consumed_at, created_at FROM magic_links WHERE id=?",
+            (id,),
+        ).fetchone()
+
+    def consume_magic_link(self, id, now) -> bool:
+        cur = self.conn.execute(
+            "UPDATE magic_links SET consumed_at=? WHERE id=? AND consumed_at IS NULL",
+            (now, id),
+        )
+        return cur.rowcount == 1

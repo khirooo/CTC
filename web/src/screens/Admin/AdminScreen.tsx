@@ -3,6 +3,9 @@ import { useApp } from '@/store/AppContext';
 import { NANO_PER_AIU } from '@/domain/credit';
 import type { AdminUser, AdminSettings, AdminSettingsPatch } from '@/domain/types';
 
+// Numeric-only keys of AdminSettingsPatch (for the existing SettingRow number inputs)
+type NumericSettingKey = 'freeAllowanceAiu' | 'defaultPledgePct' | 'requestExpiryHours' | 'requestExpiryMaxHours' | 'creditToEuroRate';
+
 // ─── Shared style constants ────────────────────────────────────────────────────
 
 const card: React.CSSProperties = {
@@ -192,8 +195,11 @@ export function AdminScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Settings local edits — track only changed fields
-  const [localSettings, setLocalSettings] = useState<AdminSettingsPatch>({});
+  // Settings local edits — track only changed fields (numeric fields use AdminSettingsPatch)
+  const [localSettings, setLocalSettings] = useState<Pick<AdminSettingsPatch, NumericSettingKey>>({});
+  // Mode toggles tracked separately (string / boolean types)
+  const [localParticipantsMode, setLocalParticipantsMode] = useState<'givers_only' | 'givers_and_consumers' | null>(null);
+  const [localSharedPoolEnabled, setLocalSharedPoolEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
@@ -212,17 +218,25 @@ export function AdminScreen() {
 
   const handleReveal = useCallback((id: string) => api.revealPat(id), [api]);
 
-  // Derive effective display value: local override > server value
-  function effective(key: keyof AdminSettingsPatch): number {
+  // Derive effective display value: local override > server value (numeric keys only)
+  function effective(key: NumericSettingKey): number {
     if (!settings) return 0;
     const local = localSettings[key];
     if (local !== undefined) return local;
-    return settings[key].value;
+    return settings[key].value as number;
   }
 
-  function handleFieldChange(key: keyof AdminSettingsPatch, val: number) {
+  function handleFieldChange(key: NumericSettingKey, val: number) {
     setLocalSettings(prev => ({ ...prev, [key]: val }));
     setSaveMsg(null);
+  }
+
+  function hasLocalChanges(): boolean {
+    return (
+      Object.keys(localSettings).length > 0 ||
+      localParticipantsMode !== null ||
+      localSharedPoolEnabled !== null
+    );
   }
 
   async function handleSave() {
@@ -232,15 +246,24 @@ export function AdminScreen() {
     try {
       // Only send fields that actually changed
       const patch: AdminSettingsPatch = {};
-      for (const key of Object.keys(localSettings) as Array<keyof AdminSettingsPatch>) {
+      const numericKeys: NumericSettingKey[] = ['freeAllowanceAiu', 'defaultPledgePct', 'requestExpiryHours', 'requestExpiryMaxHours', 'creditToEuroRate'];
+      for (const key of numericKeys) {
         const localVal = localSettings[key];
-        if (localVal !== undefined && localVal !== settings[key].value) {
+        if (localVal !== undefined && localVal !== (settings[key].value as number)) {
           (patch as Record<string, number>)[key] = localVal;
         }
+      }
+      if (localParticipantsMode !== null && localParticipantsMode !== settings.participantsMode.value) {
+        patch.participantsMode = localParticipantsMode;
+      }
+      if (localSharedPoolEnabled !== null && localSharedPoolEnabled !== settings.sharedPoolEnabled.value) {
+        patch.sharedPoolEnabled = localSharedPoolEnabled;
       }
       const updated = await api.updateAdminSettings(patch);
       setSettings(updated);
       setLocalSettings({});
+      setLocalParticipantsMode(null);
+      setLocalSharedPoolEnabled(null);
       setSaveMsg('Saved.');
     } catch (err) {
       setSaveMsg(err instanceof Error ? err.message : 'Save failed — please try again.');
@@ -380,11 +403,66 @@ export function AdminScreen() {
             step={0.001}
             onChange={(v) => handleFieldChange('creditToEuroRate', v)}
           />
+
+          {/* Participants mode select */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label htmlFor="setting-participantsMode" style={{ ...monoLabel, flex: 1 }}>Participants mode</label>
+              {settings.participantsMode.isOverride && (
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, padding: '2px 7px', borderRadius: 5, background: 'var(--accent-soft)', color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  override
+                </span>
+              )}
+            </div>
+            <select
+              id="setting-participantsMode"
+              value={localParticipantsMode ?? settings.participantsMode.value}
+              onChange={(e) => { setLocalParticipantsMode(e.target.value as 'givers_only' | 'givers_and_consumers'); setSaveMsg(null); }}
+              style={{ ...inputStyle, cursor: 'pointer' }}
+            >
+              <option value="givers_and_consumers">givers_and_consumers — open to all</option>
+              <option value="givers_only">givers_only — license required</option>
+            </select>
+          </div>
+
+          {/* Shared pool toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ ...monoLabel }}>Shared pool</span>
+                {settings.sharedPoolEnabled.isOverride && (
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, padding: '2px 7px', borderRadius: 5, background: 'var(--accent-soft)', color: 'var(--accent)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    override
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Enable the shared credit pool and pledge/surplus widgets</span>
+            </div>
+            <button
+              id="setting-sharedPoolEnabled"
+              type="button"
+              aria-label="Toggle shared pool"
+              onClick={() => {
+                const current = localSharedPoolEnabled ?? settings.sharedPoolEnabled.value;
+                setLocalSharedPoolEnabled(!current);
+                setSaveMsg(null);
+              }}
+              style={{
+                ...btnBase,
+                padding: '7px 18px',
+                background: (localSharedPoolEnabled ?? settings.sharedPoolEnabled.value) ? 'var(--give-soft)' : 'var(--surface-2)',
+                color: (localSharedPoolEnabled ?? settings.sharedPoolEnabled.value) ? 'var(--give)' : 'var(--text-faint)',
+                border: `1px solid ${(localSharedPoolEnabled ?? settings.sharedPoolEnabled.value) ? 'var(--give)' : 'var(--border)'}`,
+              }}
+            >
+              {(localSharedPoolEnabled ?? settings.sharedPoolEnabled.value) ? 'ON' : 'OFF'}
+            </button>
+          </div>
         </div>
         <div style={{ marginTop: 22, display: 'flex', alignItems: 'center', gap: 14 }}>
           <button
             onClick={handleSave}
-            disabled={saving || Object.keys(localSettings).length === 0}
+            disabled={saving || !hasLocalChanges()}
             style={{
               background: 'var(--accent)',
               color: '#fff',
@@ -394,8 +472,8 @@ export function AdminScreen() {
               fontFamily: 'inherit',
               fontWeight: 600,
               fontSize: 13,
-              cursor: Object.keys(localSettings).length === 0 ? 'default' : 'pointer',
-              opacity: Object.keys(localSettings).length === 0 ? 0.5 : 1,
+              cursor: !hasLocalChanges() ? 'default' : 'pointer',
+              opacity: !hasLocalChanges() ? 0.5 : 1,
             }}
           >
             {saving ? 'Saving…' : 'Save settings'}
@@ -417,6 +495,28 @@ export function AdminScreen() {
           credit_to_euro_rate is stored and editable here; it has no live consumer in this release (reserved for future billing).
         </p>
       </div>
+
+      {/* Boot config — read-only, set via .env */}
+      {settings.boot && (
+        <div style={card}>
+          <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>Boot config</div>
+          <p style={{ fontSize: 12, color: 'var(--text-faint)', fontFamily: "'JetBrains Mono', monospace", marginBottom: 16 }}>
+            Set in .env — restart to change
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {([
+              ['auth_mode', settings.boot.authMode],
+              ['web_transport', settings.boot.webTransport],
+              ['email_backend', settings.boot.emailBackend],
+            ] as [string, string][]).map(([key, val]) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ ...monoLabel, flex: 1 }}>{key}</span>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text)' }}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -5,6 +5,7 @@ from .config import NANO_PER_AIU, config as _env_config
 EFFECTIVE_KEYS = [
     "free_allowance_aiu", "default_pledge_pct",
     "request_expiry_hours", "request_expiry_max_hours", "credit_to_euro_rate",
+    "participants_mode", "shared_pool_enabled",
 ]
 
 
@@ -24,7 +25,21 @@ class EffectiveConfig:
         return int(v) * NANO_PER_AIU if v is not None else self.base.free_allowance
 
     @property
+    def shared_pool_enabled(self) -> bool:
+        v = self._raw("shared_pool_enabled")
+        if v is None:
+            return self.base.shared_pool_enabled
+        return str(v).strip().lower() in ("1", "on", "true", "yes")
+
+    @property
+    def participants_mode(self) -> str:
+        v = self._raw("participants_mode")
+        return v if v is not None else self.base.participants_mode
+
+    @property
     def default_pledge_pct(self) -> int:
+        if not self.shared_pool_enabled:
+            return 0
         v = self._raw("default_pledge_pct")
         return int(v) if v is not None else self.base.default_pledge_pct
 
@@ -58,6 +73,10 @@ def effective_view(ec: EffectiveConfig, store) -> dict:
                                      "is_override": "request_expiry_max_hours" in raw},
         "credit_to_euro_rate": {"value": ec.credit_to_euro_rate,
                                 "is_override": "credit_to_euro_rate" in raw},
+        "participants_mode": {"value": ec.participants_mode,
+                              "is_override": "participants_mode" in raw},
+        "shared_pool_enabled": {"value": ec.shared_pool_enabled,
+                                "is_override": "shared_pool_enabled" in raw},
     }
 
 
@@ -74,7 +93,18 @@ def validate_patch(patch: dict, current: dict | None = None) -> dict[str, str]:
         raise ValueError(f"unknown settings: {sorted(unknown)}")
     out: dict[str, str] = {}
     coerced: dict = {}
+    _MODES = {"participants_mode": ("givers_only", "givers_and_consumers")}
+    _BOOLS = ("shared_pool_enabled",)
     for k, v in patch.items():
+        if k in _MODES:
+            if str(v) not in _MODES[k]:
+                raise ValueError(f"{k} must be one of {_MODES[k]!r}")
+            out[k] = str(v); continue
+        if k in _BOOLS:
+            s = str(v).strip().lower()
+            if s not in ("on", "off", "true", "false", "1", "0"):
+                raise ValueError(f"{k} must be on/off")
+            out[k] = "on" if s in ("on", "true", "1") else "off"; continue
         if k == "credit_to_euro_rate":
             f = float(v)
             if f < 0:

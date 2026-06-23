@@ -30,6 +30,11 @@ class Config:
     # (givers can change it later). Override via CTC_DEFAULT_PLEDGE_PCT or admin settings.
     default_pledge_pct: int = field(
         default_factory=lambda: int(os.environ.get("CTC_DEFAULT_PLEDGE_PCT", "10")))
+    participants_mode: str = field(
+        default_factory=lambda: os.environ.get("CTC_PARTICIPANTS_MODE", "givers_only"))
+    shared_pool_enabled: bool = field(
+        default_factory=lambda: os.environ.get("CTC_SHARED_POOL", "off").strip().lower()
+        in ("1", "on", "true", "yes"))
 
 
 config = Config()

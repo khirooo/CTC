@@ -16,6 +16,7 @@ import type {
   AdminUserDetail,
   AdminSettings,
   AdminSettingsPatch,
+  AdminBootConfig,
 } from '@/domain/types';
 import { deriveStatus, donationKind, NANO_PER_AIU } from '@/domain/credit';
 import { CtcApiError } from './http';
@@ -35,18 +36,30 @@ function fp(id: string): string {
   return (h >>> 0).toString(16).padStart(8, '0').slice(0, 8);
 }
 
+const DEFAULT_BOOT_CONFIG: AdminBootConfig = {
+  authMode: 'email',
+  webTransport: 'http',
+  emailBackend: 'none',
+};
+
 const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   freeAllowanceAiu:      { value: 300,   isOverride: false },
   defaultPledgePct:      { value: 0,     isOverride: false },
   requestExpiryHours:    { value: 24,    isOverride: false },
   requestExpiryMaxHours: { value: 168,   isOverride: false },
   creditToEuroRate:      { value: 0.1,   isOverride: false },
+  participantsMode:      { value: 'givers_and_consumers', isOverride: false },
+  sharedPoolEnabled:     { value: true,  isOverride: false },
+  boot:                  DEFAULT_BOOT_CONFIG,
 };
 
 interface MockApiOpts {
   now?: () => number;
   latencyMs?: number;
   storageKey?: string;
+  /** Deployment mode flags — defaults match "full-featured" mode */
+  participantsMode?: 'givers_only' | 'givers_and_consumers';
+  sharedPoolEnabled?: boolean;
 }
 
 function toPublic(r: SeedRequest, now: number, viewerId?: string): PublicRequest {
@@ -91,6 +104,8 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
   const getNow = opts?.now ?? (() => Date.now());
   const latencyMs = opts?.latencyMs ?? 0;
   const storageKey = opts?.storageKey ?? DEFAULT_STORE_KEY;
+  const deployParticipantsMode: 'givers_only' | 'givers_and_consumers' = opts?.participantsMode ?? 'givers_and_consumers';
+  const deploySharedPoolEnabled: boolean = opts?.sharedPoolEnabled ?? true;
 
   // Load or seed
   let state: StoreState = load(storageKey) ?? makeSeed(getNow());
@@ -141,6 +156,11 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       role: user.role,
       onboarded: true,
       isAdmin: Boolean(user.isAdmin),
+      hasPat: Boolean(user.hasPat),
+      participantsMode: deployParticipantsMode,
+      sharedPoolEnabled: deploySharedPoolEnabled,
+      authMode: 'email',
+      webTransport: 'http',
     };
   }
 
@@ -529,6 +549,14 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       return delay([...state.months]);
     },
 
+    async getConfig(): Promise<{ authMode: 'email' | 'ghe_oauth' }> {
+      return delay({ authMode: 'email' as const });
+    },
+
+    async startEmailLogin(_email: string): Promise<void> {
+      return delay(undefined);
+    },
+
     async getCliCredentials() {
       if (!session) throw new Error('Not authenticated');
       // Deterministic, well-formed FAKE token derived from the user id (no real secret).
@@ -611,6 +639,12 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       }
       if (patch.creditToEuroRate !== undefined) {
         updated.creditToEuroRate = { value: patch.creditToEuroRate, isOverride: true };
+      }
+      if (patch.participantsMode !== undefined) {
+        updated.participantsMode = { value: patch.participantsMode, isOverride: true };
+      }
+      if (patch.sharedPoolEnabled !== undefined) {
+        updated.sharedPoolEnabled = { value: patch.sharedPoolEnabled, isOverride: true };
       }
       state = { ...state, adminSettings: updated };
       persistState();

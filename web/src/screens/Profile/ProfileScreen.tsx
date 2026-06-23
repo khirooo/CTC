@@ -52,7 +52,7 @@ const inputStyle: React.CSSProperties = {
  * no editable name/email fields.
  */
 export function ProfileScreen() {
-  const { api, signOut } = useApp();
+  const { api, signOut, session } = useApp();
   const navigate = useNavigate();
   const settings = useAsync(() => api.getSettings(), []);
   const profile = useAsync(() => api.getOwnProfile(), []);
@@ -165,7 +165,8 @@ export function ProfileScreen() {
       </div>
 
       {/* Credit cycle — giver: interactive pledge bar; consumer: allowance bar */}
-      {isGiver && p && (
+      {/* When pool is off, hide the pledge slider and pool/surplus display for givers */}
+      {isGiver && p && session?.sharedPoolEnabled !== false && (
         <div style={{ ...card, padding: '22px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
             <span style={monoLabel}>Credit cycle</span>

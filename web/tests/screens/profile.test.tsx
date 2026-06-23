@@ -90,4 +90,14 @@ describe('ProfileScreen (merged profile + settings)', () => {
     // still rendered (no crash)
     expect(screen.getByRole('slider')).toBeInTheDocument();
   });
+
+  it('pool OFF: hides the pledge slider for a giver when sharedPoolEnabled is false', async () => {
+    const api = createMockApi({ latencyMs: 0, storageKey: 'prof.pool-off', sharedPoolEnabled: false });
+    await api.signIn('ada@example.com', 'x'); // seed giver
+    renderProfile(api);
+    // Wait for data to load (identity card is always shown — login for u_ada is 'u_ada' since no email)
+    await waitFor(() => expect(screen.getByText('u_ada')).toBeInTheDocument());
+    // The pledge slider should NOT be present when pool is disabled
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+  });
 });
