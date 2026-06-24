@@ -1,36 +1,41 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { LandingScreen } from '@/screens/Landing/LandingScreen';
-import * as AppCtx from '@/store/AppContext';
 
-beforeEach(() => vi.restoreAllMocks());
+const navigate = vi.fn();
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>();
+  return { ...actual, useNavigate: () => navigate };
+});
+
+beforeEach(() => navigate.mockClear());
+
+function renderLanding() {
+  return render(
+    <MemoryRouter>
+      <LandingScreen />
+    </MemoryRouter>,
+  );
+}
 
 describe('LandingScreen', () => {
-  function stub() {
-    const signIn = vi.fn();
-    vi.spyOn(AppCtx, 'useApp').mockReturnValue({ signIn } as any);
-    return { signIn };
-  }
-
   it('embeds the how-it-works deck in an iframe', () => {
-    stub();
-    render(<LandingScreen />);
+    renderLanding();
     const frame = screen.getByTitle('How CTC works') as HTMLIFrameElement;
     expect(frame).toBeInTheDocument();
     expect(frame.getAttribute('src')).toBe('/howitworks.html');
   });
 
-  it("starts OAuth sign-in when the deck posts a 'ctc:login' message", async () => {
-    const { signIn } = stub();
-    render(<LandingScreen />);
+  it("routes to the mode-aware /login screen when the deck posts 'ctc:login'", async () => {
+    renderLanding();
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'ctc:login' } }));
-    await waitFor(() => expect(signIn).toHaveBeenCalledOnce());
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/login'));
   });
 
   it('ignores unrelated postMessages', () => {
-    const { signIn } = stub();
-    render(<LandingScreen />);
+    renderLanding();
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'something-else' } }));
-    expect(signIn).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

@@ -236,13 +236,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (!follow || !header) { if (tries++ < 180) requestAnimationFrame(init); return; }
 
     // 1) Hero: drop "Follow a request", put the GHE button in its place.
-    var hero = mkBtn('Continue with GitHub Enterprise', {});
+    var hero = mkBtn('Get started', {});
     hero.id = 'ctc-hero-cta';
     follow.replaceWith(hero);
 
     // 2) The same CTA, pinned bottom-right, that appears only once the hero
     //    button has scrolled out of view and then follows you down the page.
-    var fab = mkBtn('Continue with GitHub Enterprise', {
+    var fab = mkBtn('Get started', {
       radius: 11, pad: '13px 22px', fs: 15,
       extra: 'position:fixed;right:24px;bottom:24px;z-index:9999;opacity:0;transform:translateY(8px);' +
              'pointer-events:none;transition:opacity .25s ease,transform .25s ease;box-shadow:0 8px 26px rgba(0,0,0,.45);',

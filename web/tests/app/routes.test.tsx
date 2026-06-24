@@ -20,8 +20,12 @@ describe('routes', () => {
     renderAt('/app/dashboard');
     await waitFor(() => expect(screen.getByTitle('How CTC works')).toBeInTheDocument());
   });
-  it('redirects the old /signin path to the landing page', async () => {
+  it('redirects the old /signin path to the mode-aware /login screen', async () => {
     renderAt('/signin');
-    await waitFor(() => expect(screen.getByTitle('How CTC works')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Welcome back')).toBeInTheDocument());
+  });
+  it('serves the mode-aware login screen at /login', async () => {
+    renderAt('/login');
+    await waitFor(() => expect(screen.getByText('Welcome back')).toBeInTheDocument());
   });
 });

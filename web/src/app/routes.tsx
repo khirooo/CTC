@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { RequireSession, RequireGuest, RequireAdmin } from './guards';
 import { AppShell } from './AppShell';
 import { LandingScreen } from '@/screens/Landing/LandingScreen';
+import { AuthScreen } from '@/screens/Auth/AuthScreen';
 import { OnboardingScreen } from '@/screens/Onboarding/OnboardingScreen';
 import { DashboardScreen } from '@/screens/Dashboard/DashboardScreen';
 import { MarketplaceScreen } from '@/screens/Marketplace/MarketplaceScreen';
@@ -23,10 +24,13 @@ export function AppRoutes() {
         {/* Public landing: the marketing deck + GHE OAuth CTA. Logged-in users
             are redirected to /app/dashboard by RequireGuest. */}
         <Route path="/" element={<LandingScreen />} />
-        {/* The standalone sign-in page was replaced by the landing deck; keep the
-            old paths as redirects for bookmarks / the deck's standalone fallback. */}
-        <Route path="/signin" element={<Navigate to="/" replace />} />
-        <Route path="/signup" element={<Navigate to="/" replace />} />
+        {/* Mode-aware login screen: shows the email magic-link form when the
+            backend runs CTC_AUTH_MODE=email, or the GHE OAuth button otherwise.
+            The landing deck's CTA navigates here instead of assuming OAuth. */}
+        <Route path="/login" element={<AuthScreen mode="signin" />} />
+        {/* Old standalone paths now point at the mode-aware login screen. */}
+        <Route path="/signin" element={<Navigate to="/login" replace />} />
+        <Route path="/signup" element={<Navigate to="/login" replace />} />
       </Route>
 
       {/* Onboarding (accessible to any logged-in user) */}
