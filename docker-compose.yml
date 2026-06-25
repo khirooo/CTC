@@ -15,6 +15,11 @@ services:
       dockerfile: Dockerfile
     command: ["python", "proxy.py"]
     restart: unless-stopped
+    depends_on:
+      gencert:
+        condition: service_completed_successfully
+      controlplane:
+        condition: service_healthy
     environment:
       CTC_DB_PATH: /data/ctc.db
       CTC_SECRET_KEY: ${CTC_SECRET_KEY}
@@ -50,6 +55,9 @@ services:
       dockerfile: Dockerfile
     command: ["python", "api_server.py"]
     restart: unless-stopped
+    depends_on:
+      gencert:
+        condition: service_completed_successfully
     environment:
       CTC_DB_PATH: /data/ctc.db
       CONTROL_PLANE_PORT: "8090"
@@ -126,7 +134,10 @@ services:
         max-size: "10m"
         max-file: "5"
     depends_on:
-      - controlplane
+      gencert:
+        condition: service_completed_successfully
+      controlplane:
+        condition: service_healthy
     environment:
       CTC_DOMAIN: ${CTC_DOMAIN}
     ports:
@@ -141,7 +152,6 @@ services:
   # Run once before the first `up`:  docker compose --profile tools run --rm gencert
   gencert:
     image: alpine:3.20
-    profiles: ["tools"]
     environment:
       GHE_DOMAIN: ${GHE_DOMAIN}
       CTC_DOMAIN: ${CTC_DOMAIN}
