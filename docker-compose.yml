@@ -1,7 +1,9 @@
-# Single-VM CTC deployment. Three services + a shared SQLite DB and cert volume.
+# Single-VM CTC deployment. Three services + a one-shot cert init, sharing a
+# SQLite DB and cert volume.
 #
-#   1. one-time:   docker compose --profile tools run --rm gencert
-#   2. start:      docker compose up -d --build
+#   1. preflight:  sh scripts/preflight.sh        # validate .env before deploying
+#   2. start:      docker compose up -d --build    # gencert runs automatically first
+#   3. health:     docker compose ps               # all services should be "healthy"
 #
 # Config comes from .env (copy .env.example → .env and fill it in).
 
@@ -15,6 +17,11 @@ services:
       dockerfile: Dockerfile
     command: ["python", "proxy.py"]
     restart: unless-stopped
+    depends_on:
+      gencert:
+        condition: service_completed_successfully
+      controlplane:
+        condition: service_healthy
     environment:
       CTC_DB_PATH: /data/ctc.db
       CTC_SECRET_KEY: ${CTC_SECRET_KEY}
@@ -28,6 +35,17 @@ services:
     # set PROXY_BIND in .env to the VM's VPN-facing IP so teammates can reach it.
     ports:
       - "${PROXY_BIND:-127.0.0.1}:8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     volumes:
       - ctcdata:/data
       - ctccerts:/certs:ro
@@ -39,6 +57,9 @@ services:
       dockerfile: Dockerfile
     command: ["python", "api_server.py"]
     restart: unless-stopped
+    depends_on:
+      gencert:
+        condition: service_completed_successfully
     environment:
       CTC_DB_PATH: /data/ctc.db
       CONTROL_PLANE_PORT: "8090"
@@ -68,6 +89,17 @@ services:
       CTC_SMTP_PASS: ${CTC_SMTP_PASS:-}
       CTC_SMTP_FROM: ${CTC_SMTP_FROM:-}
       CTC_SMTP_STARTTLS: ${CTC_SMTP_STARTTLS:-1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/api/config', timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     volumes:
       - ctcdata:/data
       - ctccerts:/certs:ro
@@ -92,8 +124,22 @@ services:
         # the example.ghe.com placeholder (else Copilot validation fetch-fails).
         GHE_DOMAIN: ${GHE_DOMAIN}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
-      - controlplane
+      gencert:
+        condition: service_completed_successfully
+      controlplane:
+        condition: service_healthy
     environment:
       CTC_DOMAIN: ${CTC_DOMAIN}
     ports:
@@ -104,11 +150,11 @@ services:
       - ctccerts:/certs:ro
       - caddydata:/data        # Caddy's Let's Encrypt certs (persist across restarts)
 
-  # One-shot helper: generate the proxy MITM cert into the shared cert volume.
-  # Run once before the first `up`:  docker compose --profile tools run --rm gencert
+  # One-shot cert init: generates the proxy MITM cert into the shared cert volume.
+  # Runs automatically as part of `up` (other services depend on it completing).
+  # gen-cert.sh is idempotent, so re-running on every `up` is a no-op once certs exist.
   gencert:
     image: alpine:3.20
-    profiles: ["tools"]
     environment:
       GHE_DOMAIN: ${GHE_DOMAIN}
       CTC_DOMAIN: ${CTC_DOMAIN}

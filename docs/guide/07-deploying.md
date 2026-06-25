@@ -100,27 +100,23 @@ You need, before you start:
 
 Then:
 
-```bash
-# 1. Configure
-cp .env.example .env
-#    edit .env — set CTC_DOMAIN, CTC_SECRET_KEY (openssl rand -hex 32),
-#    GHE_DOMAIN (your real GitHub Enterprise domain, e.g. example.ghe.com),
-#    the GHE_OAUTH_* values, and PROXY_BIND (your VM's VPN-facing IP).
-#
-#    For example, the GHE values might be:
-#      GHE_DOMAIN=example.ghe.com
-#      GHE_OAUTH_BASE=https://example.ghe.com
-#      GHE_API_BASE=https://api.example.ghe.com
-#      REAL_GHE_HOST=api.example.ghe.com
+1. Copy `.env.example` to `.env` and fill it in.
+   Set `CTC_DOMAIN`, `CTC_SECRET_KEY` (`openssl rand -hex 32`),
+   `GHE_DOMAIN` (your real GitHub Enterprise domain, e.g. `example.ghe.com`),
+   the `GHE_OAUTH_*` values (if using `ghe_oauth` mode), and `PROXY_BIND`
+   (your VM's VPN-facing IP).
 
-# 2. Generate the proxy's MITM certificate (once — reads GHE_DOMAIN for the SANs)
-docker compose --profile tools run --rm gencert
+2. Run the preflight check: `sh scripts/preflight.sh` — it validates required
+   variables and web-transport consistency and fails loudly if something's off.
 
-# 3. Build + start everything
-docker compose up -d --build
-```
+3. Start everything: `docker compose up -d --build`. The `gencert` step runs
+   automatically first and writes the MITM cert into the shared volume; the
+   proxy and Caddy wait for it and for the control plane to report healthy.
 
-That's it — Caddy fetches a Let's Encrypt cert automatically, and the database is
+4. Check health: `docker compose ps` — every service should show `healthy`.
+   If one is `unhealthy`, `docker compose logs <service>` shows why.
+
+Caddy fetches a Let's Encrypt cert automatically, and the database is
 created/migrated on first start.
 
 ### What each `.env` value is for
@@ -158,8 +154,7 @@ PROXY_BIND=10.0.0.5          # bind the proxy to the same internal interface
 # …plus CTC_SECRET_KEY, GHE_OAUTH_* as usual
 ```
 
-Then `docker compose --profile tools run --rm gencert && docker compose up -d --build`
-as normal. With an IP, **Caddy can't get a Let's Encrypt cert** (those are
+Then `sh scripts/preflight.sh && docker compose up -d --build` as normal. With an IP, **Caddy can't get a Let's Encrypt cert** (those are
 domain-only), so it serves HTTPS using its **own internal CA**. That's fine — it's
 real HTTPS — but nothing trusts that CA yet, which means two one-time trust steps:
 
