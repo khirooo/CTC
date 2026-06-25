@@ -1,7 +1,9 @@
-# Single-VM CTC deployment. Three services + a shared SQLite DB and cert volume.
+# Single-VM CTC deployment. Three services + a one-shot cert init, sharing a
+# SQLite DB and cert volume.
 #
-#   1. one-time:   docker compose --profile tools run --rm gencert
-#   2. start:      docker compose up -d --build
+#   1. preflight:  sh scripts/preflight.sh        # validate .env before deploying
+#   2. start:      docker compose up -d --build    # gencert runs automatically first
+#   3. health:     docker compose ps               # all services should be "healthy"
 #
 # Config comes from .env (copy .env.example → .env and fill it in).
 
@@ -148,8 +150,9 @@ services:
       - ctccerts:/certs:ro
       - caddydata:/data        # Caddy's Let's Encrypt certs (persist across restarts)
 
-  # One-shot helper: generate the proxy MITM cert into the shared cert volume.
-  # Run once before the first `up`:  docker compose --profile tools run --rm gencert
+  # One-shot cert init: generates the proxy MITM cert into the shared cert volume.
+  # Runs automatically as part of `up` (other services depend on it completing).
+  # gen-cert.sh is idempotent, so re-running on every `up` is a no-op once certs exist.
   gencert:
     image: alpine:3.20
     environment:
