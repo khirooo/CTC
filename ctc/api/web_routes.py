@@ -3,8 +3,9 @@ from __future__ import annotations
 from aiohttp import web
 
 from ..accounting.errors import InsufficientCredit, InvalidConsumption, InvalidPledge, RequestClosed
-from ..accounting.leaderboard import LeaderboardUser, build_leaderboard
+from ..accounting.leaderboard import LeaderboardUser, build_leaderboard, giver_tier_inputs
 from ..accounting.reports import build_dashboard, build_history
+from ..accounting.tiers import assign_tiers
 from ..domain.config import NANO_PER_AIU
 from ..domain.types import Role
 from .serializers import (CreateRequestDTO, DonateDTO, ListRequestsDTO, OwnProfileDTO,
@@ -165,8 +166,6 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         # the profile badge matches the leaderboard standings exactly.
         tier = net = net_to_next = None
         if is_giver:
-            from ..accounting.leaderboard import giver_tier_inputs
-            from ..accounting.tiers import assign_tiers
             ranked = assign_tiers(giver_tier_inputs(engine, _leaderboard_users(), cycle.id))
             for idx, r in enumerate(ranked):
                 if r.user_id == uid:
@@ -253,12 +252,10 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         name = u["display_name"] or u["ghe_login"]
         tier = net = donated = donations_made = None
         if u["role"] == "giver":
-            from ..accounting.leaderboard import giver_tier_inputs
-            from ..accounting.tiers import assign_tiers
             ranked = assign_tiers(giver_tier_inputs(engine, _leaderboard_users(), cycle.id))
             entry = next((r for r in ranked if r.user_id == uid), None)
             tier = entry.tier if entry else None
-            net = entry.net if entry else 0
+            net = entry.net if entry else None
             donated = engine.donated_live(cycle.id, uid)
             donations_made = acct.grants_count_by(cycle.id, uid)
         dto = PublicProfileDTO(
