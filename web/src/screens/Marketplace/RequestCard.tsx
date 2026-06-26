@@ -3,6 +3,7 @@ import type { PublicRequest } from '@/domain/types';
 import { pct, aiu } from '@/domain/credit';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
+import { UserLink } from '@/components/UserLink';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Button } from '@/components/Button';
 
@@ -27,6 +28,7 @@ export function RequestCard({ request, onDonate }: RequestCardProps) {
 
   const {
     id,
+    requesterId,
     requesterName,
     initials,
     requesterRole,
@@ -69,7 +71,9 @@ export function RequestCard({ request, onDonate }: RequestCardProps) {
         <Avatar initials={initials} tone={avatarTone} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{requesterName}</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>
+              {requesterId ? <UserLink userId={requesterId} name={requesterName} /> : requesterName}
+            </span>
             <Badge tone={badgeTone}>{roleLabel}</Badge>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{reason}</div>
