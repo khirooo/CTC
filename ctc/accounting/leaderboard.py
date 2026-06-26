@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .tiers import TierInput, assign_tiers
+
 
 @dataclass(frozen=True)
 class LeaderboardUser:
@@ -58,8 +60,25 @@ def build_leaderboard(engine, users: list[LeaderboardUser], cycle_id: str, top_n
     noob_candidates.sort(key=lambda x: x[1], reverse=True)
     top_noob = [{"name": name, "value": value} for name, value in noob_candidates[:top_n]]
 
+    # Standings: aristocracy tiers over all givers (givers-only feature)
+    giver_inputs = [
+        TierInput(
+            user.user_id,
+            user.name,
+            engine.donated_live(cycle_id, user.user_id),
+            engine.consumed_total(cycle_id, user.user_id),
+        )
+        for user in users
+        if user.is_giver
+    ]
+    standings = [
+        {"name": r.name, "net": r.net, "tier": r.tier}
+        for r in assign_tiers(giver_inputs)
+    ]
+
     return {
         "generous": generous,
         "topPro": top_pro,
         "topNoob": top_noob,
+        "standings": standings,
     }

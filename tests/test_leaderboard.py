@@ -8,6 +8,17 @@ from ctc.accounting.engine import AccountingEngine
 from ctc.accounting.leaderboard import build_leaderboard, LeaderboardUser
 from ctc.domain.types import Cycle, GiverCycle, Bucket
 
+
+class FakeEngine:
+    def __init__(self, donated, consumed):
+        self._d, self._c = donated, consumed
+
+    def donated_live(self, cycle_id, uid):
+        return self._d.get(uid, 0)
+
+    def consumed_total(self, cycle_id, uid):
+        return self._c.get(uid, 0)
+
 CYC = "2026-06"
 
 
@@ -163,16 +174,17 @@ def test_respects_top_n():
 
 
 def test_returns_correct_shape():
-    """Returned dict has exactly the three keys with list values."""
+    """Returned dict has the four expected keys with list values."""
     e, s = seed()
     users = []
 
     lb = build_leaderboard(e, users, CYC, top_n=5)
 
-    assert set(lb.keys()) == {"generous", "topPro", "topNoob"}
+    assert set(lb.keys()) == {"generous", "topPro", "topNoob", "standings"}
     assert isinstance(lb["generous"], list)
     assert isinstance(lb["topPro"], list)
     assert isinstance(lb["topNoob"], list)
+    assert isinstance(lb["standings"], list)
 
 
 def test_entry_shape():
@@ -201,7 +213,7 @@ def test_empty_user_list():
 
     lb = build_leaderboard(e, users, CYC)
 
-    assert lb == {"generous": [], "topPro": [], "topNoob": []}
+    assert lb == {"generous": [], "topPro": [], "topNoob": [], "standings": []}
 
 
 def test_mixed_giver_consumption_ranking():
@@ -252,3 +264,28 @@ def test_mixed_giver_consumption_ranking():
         {"name": "Eve", "value": 250},
         {"name": "Dana", "value": 200},
     ]
+
+
+def test_standings_present_sorted_and_tracks_unchanged():
+    from ctc.accounting.leaderboard import LeaderboardUser, build_leaderboard
+
+    users = [
+        LeaderboardUser("a", "Alice", True),
+        LeaderboardUser("b", "Bob", True),
+        LeaderboardUser("c", "Cara", True),
+    ]
+    # Alice net +300, Bob net -50, Cara zero activity (newcomer)
+    engine = FakeEngine(
+        donated={"a": 300, "b": 0, "c": 0},
+        consumed={"a": 0, "b": 50, "c": 0},
+    )
+
+    out = build_leaderboard(engine, users, cycle_id="cyc1")
+
+    assert [s["name"] for s in out["standings"]] == ["Alice", "Bob", "Cara"]
+    assert out["standings"][0] == {"name": "Alice", "net": 300, "tier": "aristocrat"}
+    assert out["standings"][1] == {"name": "Bob", "net": -50, "tier": "beggar"}
+    assert out["standings"][2]["tier"] == "newcomer"
+    # existing tracks unchanged
+    assert out["generous"] == [{"name": "Alice", "value": 300}]
+    assert "topPro" in out and "topNoob" in out
