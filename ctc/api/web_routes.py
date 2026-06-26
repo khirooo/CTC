@@ -160,6 +160,33 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             donations_received=donations_received,
         )
 
+        # Aristocracy tier (givers-only) — computed over all givers this cycle so
+        # the profile badge matches the leaderboard standings exactly.
+        tier = net = net_to_next = None
+        if is_giver:
+            from ..accounting.tiers import TierInput, assign_tiers
+            giver_users = [u for u in _leaderboard_users() if u.is_giver]
+            ranked = assign_tiers([
+                TierInput(
+                    gu.user_id, gu.name,
+                    engine.donated_live(cycle.id, gu.user_id),
+                    engine.consumed_total(cycle.id, gu.user_id),
+                )
+                for gu in giver_users
+            ])
+            for idx, r in enumerate(ranked):
+                if r.user_id == uid:
+                    tier, net = r.tier, r.net
+                    # next-higher giver is the previous ranked entry (net desc),
+                    # but only if they are also net-ranked (not a newcomer above us,
+                    # which cannot happen since newcomers sort last)
+                    if idx > 0 and r.tier != "newcomer":
+                        net_to_next = max(1, ranked[idx - 1].net - r.net)
+                    break
+        common["tier"] = tier
+        common["net"] = net
+        common["net_to_next"] = net_to_next
+
         if not is_giver:
             allowance = engine.allowance_remaining(cycle.id, uid)
             mx = engine.config.free_allowance

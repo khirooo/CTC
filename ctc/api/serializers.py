@@ -98,6 +98,9 @@ class OwnProfileDTO(CamelModel):
     reset_date: str | None = None
     unlimited: bool = False
     quota_stale: bool = False
+    tier: str | None = None         # aristocracy tier; None for consumers
+    net: int | None = None          # nano-AIU donated - consumed; None for consumers
+    net_to_next: int | None = None  # nano-AIU to overtake next-higher giver; None if top/newcomer
 
 
 ROLE_TO_REQUESTER: dict[Role, str] = {Role.GIVER: "pro", Role.CONSUMER: "noob"}

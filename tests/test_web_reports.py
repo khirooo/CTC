@@ -152,6 +152,24 @@ async def test_profile_consumer_shows_allowance_and_donations():
 
 
 @pytest.mark.asyncio
+async def test_profile_includes_tier_for_giver():
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        octo = store.get_user_by_login("octocat")["id"]
+        await cli.post("/api/pat", json={"pat": "ghp_x"})   # octocat -> giver, quota 4000 AIU
+        # donate some, consume some so tier is deterministic
+        engine.record_consumption("c1", octo, octo, Bucket.OWN, 1 * NANO_PER_AIU, ts=1, allow_overshoot=True)
+
+        p = await (await cli.get("/api/profile")).json()
+        assert p["tier"] in {
+            "aristocrat", "baron", "bourgeois", "commoner", "peasant", "beggar", "newcomer",
+        }
+        assert p["net"] == p["donatedSoFar"] - p["consumed"]
+        assert "netToNext" in p
+
+
+@pytest.mark.asyncio
 async def test_history_lists_active_cycle():
     app, store, engine = _build()
     async with TestClient(TestServer(app)) as cli:
