@@ -10,6 +10,7 @@ import { LeaderboardScreen } from '@/screens/Leaderboard/LeaderboardScreen';
 import { HistoryScreen } from '@/screens/History/HistoryScreen';
 import { ProfileScreen } from '@/screens/Profile/ProfileScreen';
 import { AdminScreen } from '@/screens/Admin/AdminScreen';
+import { PublicProfileScreen } from '@/screens/PublicProfile/PublicProfileScreen';
 
 /**
  * The full route tree, mounted under whatever router context is provided.
@@ -44,6 +45,7 @@ export function AppRoutes() {
           <Route path="leaderboard" element={<LeaderboardScreen />} />
           <Route path="history" element={<HistoryScreen />} />
           <Route path="profile" element={<ProfileScreen />} />
+          <Route path="users/:id" element={<PublicProfileScreen />} />
           {/* Settings merged into Profile; keep the path as a redirect for old links */}
           <Route path="settings" element={<Navigate to="/app/profile" replace />} />
           <Route element={<RequireAdmin />}>
