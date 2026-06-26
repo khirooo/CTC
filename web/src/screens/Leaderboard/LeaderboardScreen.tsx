@@ -121,7 +121,7 @@ export function LeaderboardScreen() {
   const tracks: TrackConfig[] = [
     {
       label: 'Most generous',
-      subtitle: 'most chipped in to Guests',
+      subtitle: 'most chipped in overall',
       icon: '♥',
       color: 'var(--give)',
       softColor: 'var(--give-soft)',

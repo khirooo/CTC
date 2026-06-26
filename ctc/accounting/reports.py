@@ -77,10 +77,20 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         int(fulfilled_count * 100 // total_requests) if total_requests > 0 else 0
     )
 
+    # --- distinct consumers this cycle (used by both tallies below) ---
+    all_consumer_rows = conn.execute(
+        "SELECT DISTINCT consumer_id FROM consumption_events WHERE cycle_id=?",
+        (cycle_id,),
+    ).fetchall()
+    all_consumers = {r["consumer_id"] for r in all_consumer_rows}
+
     # --- activeGivers: a giver is an "active host" if they have a license (PAT)
-    # connected, OR pledged>0, OR appear as a source in consumption events. The
-    # PAT clause is what matters when the shared pool is off (pledge is forced to
-    # 0 then), so a connected host counts before it has run anything. ---
+    # connected, OR pledged>0, OR appear as a source in consumption events, OR
+    # consumed anything this cycle. The PAT clause matters when the shared pool
+    # is off (pledge is forced to 0 then), so a connected host counts before it
+    # has run anything. The consumed clause catches a host who exhausted their
+    # own quota and used the marketplace (0 credits left, never sourced/pledged):
+    # they are still a host and must not vanish from both tallies. ---
     givers_with_pat_rows = conn.execute("SELECT user_id FROM giver_pats").fetchall()
     givers_with_pat = {r["user_id"] for r in givers_with_pat_rows}
     givers_with_pledge = {r["giver_id"] for r in giver_rows if r["pledge"] > 0}
@@ -91,17 +101,12 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     givers_with_activity = {r["source_giver_id"] for r in givers_with_activity_rows}
     # Only count users that are actually givers (have giver_cycle records)
     active_givers = len(
-        (givers_with_pat | givers_with_pledge | givers_with_activity) & giver_ids
+        (givers_with_pat | givers_with_pledge | givers_with_activity | all_consumers)
+        & giver_ids
     )
 
     # --- activeConsumers: distinct consumer_ids in events that are NOT givers ---
-    all_consumer_rows = conn.execute(
-        "SELECT DISTINCT consumer_id FROM consumption_events WHERE cycle_id=?",
-        (cycle_id,),
-    ).fetchall()
-    active_consumers = sum(
-        1 for r in all_consumer_rows if r["consumer_id"] not in giver_ids
-    )
+    active_consumers = sum(1 for cid in all_consumers if cid not in giver_ids)
 
     # --- activity: up to 8 most recent consumption events ---
     activity_rows = conn.execute(

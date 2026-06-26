@@ -158,6 +158,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
             "participants_mode": _effective_config.participants_mode,
             "shared_pool_enabled": _effective_config.shared_pool_enabled,
             "credit_to_euro_rate": _effective_config.credit_to_euro_rate,
+            "default_chip_in_aiu": _effective_config.default_chip_in_aiu,
         })
 
     async def api_pat(req):

@@ -5,6 +5,7 @@ from .config import NANO_PER_AIU, config as _env_config
 EFFECTIVE_KEYS = [
     "free_allowance_aiu", "default_pledge_pct",
     "request_expiry_hours", "request_expiry_max_hours", "credit_to_euro_rate",
+    "default_chip_in_aiu",
     "participants_mode", "shared_pool_enabled",
 ]
 
@@ -64,6 +65,11 @@ class EffectiveConfig:
         v = self._raw("credit_to_euro_rate")
         return float(v) if v is not None else self.base.credit_to_euro_rate
 
+    @property
+    def default_chip_in_aiu(self) -> int:
+        v = self._raw("default_chip_in_aiu")
+        return int(v) if v is not None else self.base.default_chip_in_aiu
+
 
 def effective_view(ec: EffectiveConfig, store) -> dict:
     """Per-key {value, is_override}; free_allowance reported in AIU."""
@@ -79,6 +85,8 @@ def effective_view(ec: EffectiveConfig, store) -> dict:
                                      "is_override": "request_expiry_max_hours" in raw},
         "credit_to_euro_rate": {"value": ec.credit_to_euro_rate,
                                 "is_override": "credit_to_euro_rate" in raw},
+        "default_chip_in_aiu": {"value": ec.default_chip_in_aiu,
+                                "is_override": "default_chip_in_aiu" in raw},
         "participants_mode": {"value": ec.participants_mode,
                               "is_override": "participants_mode" in raw},
         "shared_pool_enabled": {"value": ec.shared_pool_enabled,
@@ -122,6 +130,8 @@ def validate_patch(patch: dict, current: dict | None = None) -> dict[str, str]:
             coerced[k] = n
             if k == "free_allowance_aiu" and n <= 0:
                 raise ValueError("free_allowance_aiu must be > 0")
+            if k == "default_chip_in_aiu" and n <= 0:
+                raise ValueError("default_chip_in_aiu must be > 0")
             if k == "default_pledge_pct" and not (0 <= n <= 100):
                 raise ValueError("default_pledge_pct must be between 0 and 100")
             if k in ("request_expiry_hours", "request_expiry_max_hours") and n < 1:

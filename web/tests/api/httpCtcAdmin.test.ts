@@ -39,11 +39,13 @@ describe('HttpCtcApi admin', () => {
       request_expiry_hours: { value: 24, is_override: false },
       request_expiry_max_hours: { value: 168, is_override: false },
       credit_to_euro_rate: { value: 0.1, is_override: false },
+      default_chip_in_aiu: { value: 25, is_override: false },
     }));
     const api = new HttpCtcApi(BASE);
     const s = await api.getAdminSettings();
     expect(s.freeAllowanceAiu).toEqual({ value: 300, isOverride: false });
     expect(s.creditToEuroRate.value).toBe(0.1);
+    expect(s.defaultChipInAiu).toEqual({ value: 25, isOverride: false });
   });
 
   it('updateAdminSettings sends shared_pool_enabled as "on"/"off" string', async () => {
@@ -53,6 +55,7 @@ describe('HttpCtcApi admin', () => {
       request_expiry_hours: { value: 24, is_override: false },
       request_expiry_max_hours: { value: 168, is_override: false },
       credit_to_euro_rate: { value: 0.1, is_override: false },
+      default_chip_in_aiu: { value: 25, is_override: false },
     });
     vi.stubGlobal('fetch', fetchMock);
     const api = new HttpCtcApi(BASE);
@@ -67,6 +70,7 @@ describe('HttpCtcApi admin', () => {
       request_expiry_hours: { value: 24, is_override: false },
       request_expiry_max_hours: { value: 168, is_override: false },
       credit_to_euro_rate: { value: 0.1, is_override: false },
+      default_chip_in_aiu: { value: 25, is_override: false },
     });
     vi.stubGlobal('fetch', fetchMock2);
     await api.updateAdminSettings({ sharedPoolEnabled: false });

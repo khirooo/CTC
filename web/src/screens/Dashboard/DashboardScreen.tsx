@@ -309,7 +309,7 @@ export function DashboardScreen() {
               marginBottom: 8,
             }}
           >
-            Top Guests
+            Top users
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {topConsumers.slice(0, 3).map((entry, i) => (
