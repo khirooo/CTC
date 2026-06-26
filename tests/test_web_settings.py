@@ -22,7 +22,7 @@ async def test_settings_consumer_then_giver_after_pat():
 
 @pytest.mark.asyncio
 async def test_patch_pledge_persists_in_nano():
-    async with TestClient(TestServer(_make())) as cli:
+    async with TestClient(TestServer(_make(shared_pool=True))) as cli:
         await _login(cli)
         await cli.post("/api/pat", json={"pat": "ghp_x"})   # quota 4000 AIU
         pledge = 1500 * NANO_PER_AIU
@@ -30,6 +30,19 @@ async def test_patch_pledge_persists_in_nano():
         assert r.status == 200
         assert (await r.json())["pledgedSurplus"] == pledge
         assert (await (await cli.get("/api/settings")).json())["pledgedSurplus"] == pledge
+
+
+@pytest.mark.asyncio
+async def test_patch_pledge_rejected_when_pool_off():
+    # Shared pool off (the default) → pledging is locked at 0; any non-zero
+    # pledge is rejected with 422.
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})
+        r = await cli.patch("/api/settings", json={"pledgedSurplus": 1500 * NANO_PER_AIU})
+        assert r.status == 422
+        # a 0 pledge is still accepted (idempotent no-op)
+        assert (await cli.patch("/api/settings", json={"pledgedSurplus": 0})).status == 200
 
 
 @pytest.mark.asyncio

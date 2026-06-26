@@ -27,10 +27,18 @@ async def _giver_user(pat):
     return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
 
 
-def _make(now=lambda: 1000):
+def _make(now=lambda: 1000, shared_pool=False):
     conn = connect(":memory:"); init_db(conn)
     store = AuthStore(conn)
-    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10**12)
+    config = None
+    if shared_pool:
+        from ctc.store.settings_store import SettingsStore
+        from ctc.domain.settings import EffectiveConfig
+        s = SettingsStore(conn)
+        s.set_many({"shared_pool_enabled": "on"}, "admin", now())
+        config = EffectiveConfig(s)
+    eng = AccountingEngine(AccountingStore(conn), config=config)
+    eng.start_cycle("c1", "June", 0, 10**12)
     reg = AuthRegistry(store, derive_key("k"))
     sess = SessionService(store, secret="sek", ttl_s=10**9)  # large so clock-advancing tests keep the session
     return make_app(store=store, engine=eng, registry=reg, sessions=sess,

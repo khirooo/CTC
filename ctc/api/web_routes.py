@@ -100,6 +100,13 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         cycle = _cycle()
         body = SettingsPatchDTO.model_validate(await req.json())
         if body.pledged_surplus is not None and user["role"] == "giver":
+            # Pledging is a pool-only concept; with the shared pool off it is
+            # locked at 0. Reject any attempt to set a pledge (defense in depth:
+            # the UI already hides the slider when the pool is off).
+            if not getattr(engine.config, "shared_pool_enabled", True) \
+                    and body.pledged_surplus != 0:
+                raise web.HTTPUnprocessableEntity(
+                    text="pledging is disabled while the shared pool is off")
             try:
                 engine.set_pledge(cycle.id, user["id"], body.pledged_surplus)
             except InvalidPledge as e:

@@ -76,7 +76,13 @@ export function OnboardingScreen() {
       // Start the slider at the default pledge the backend already applied
       // (CTC_DEFAULT_PLEDGE_PCT% of remaining), not an arbitrary fraction.
       setPledgedSurplus(id.pledgedNano ?? 0);
-      setStep('pledge');
+      // Pledging is a pool-only concept. With the shared pool off there is
+      // nothing to pledge to — skip the step and go straight to CLI setup.
+      if (session?.sharedPoolEnabled === false) {
+        await loadCli();
+      } else {
+        setStep('pledge');
+      }
     } catch (e) {
       setError(e instanceof CtcApiError ? e.message : 'Validation failed — try again.');
     } finally {

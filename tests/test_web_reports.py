@@ -25,11 +25,18 @@ _DEFAULT_DEPLOYMENT = DeploymentConfig(auth_mode="ghe_oauth", web_transport="htt
                                        email_backend="console")
 
 
-def _build(now=lambda: 1000):
+def _build(now=lambda: 1000, shared_pool=False):
     """Build the app and expose store+engine so tests can seed engine state."""
     conn = connect(":memory:"); init_db(conn)
     store = AuthStore(conn)
-    engine = AccountingEngine(AccountingStore(conn))
+    config = None
+    if shared_pool:
+        from ctc.store.settings_store import SettingsStore
+        from ctc.domain.settings import EffectiveConfig
+        s = SettingsStore(conn)
+        s.set_many({"shared_pool_enabled": "on"}, "admin", now())
+        config = EffectiveConfig(s)
+    engine = AccountingEngine(AccountingStore(conn), config=config)
     engine.start_cycle("c1", "June", 0, 10**12)
     reg = AuthRegistry(store, derive_key("k"))
     sess = SessionService(store, secret="sek", ttl_s=10**9)
@@ -71,7 +78,7 @@ async def test_leaderboard_tracks_in_nano():
 
 @pytest.mark.asyncio
 async def test_dashboard_shape_and_units():
-    app, store, engine = _build()
+    app, store, engine = _build(shared_pool=True)
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)
         octo = store.get_user_by_login("octocat")["id"]
@@ -91,7 +98,7 @@ async def test_dashboard_shape_and_units():
 
 @pytest.mark.asyncio
 async def test_profile_giver_in_nano():
-    app, store, engine = _build()
+    app, store, engine = _build(shared_pool=True)
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)
         octo = store.get_user_by_login("octocat")["id"]
