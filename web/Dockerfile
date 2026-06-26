@@ -40,11 +40,18 @@ COPY cli/ctc /srv/www/ctc
 # runtime with CTC_HOST=… / GHE_DOMAIN=….
 ARG CTC_DOMAIN
 ARG GHE_DOMAIN
+# The web transport (http|https). The served launcher scripts default to https;
+# rewrite that default so the install one-liner and `ctc login` cert download use
+# the same scheme Caddy actually serves (http-mode would otherwise hit :443).
+ARG CTC_WEB_SCHEME
 RUN if [ -n "$CTC_DOMAIN" ]; then \
       sed -i "s/ctc\.local/$CTC_DOMAIN/g" /srv/www/install.sh /srv/www/ctc; \
     fi; \
     if [ -n "$GHE_DOMAIN" ]; then \
       sed -i "s/example\.ghe\.com/$GHE_DOMAIN/g" /srv/www/ctc; \
+    fi; \
+    if [ -n "$CTC_WEB_SCHEME" ]; then \
+      sed -i "s/CTC_SCHEME:-https/CTC_SCHEME:-$CTC_WEB_SCHEME/g" /srv/www/install.sh /srv/www/ctc; \
     fi
 # Routing / TLS config.
 COPY Caddyfile /etc/caddy/Caddyfile

@@ -123,6 +123,9 @@ services:
         # Baked into the served `ctc` so GH_HOST points at the real GHE host, not
         # the example.ghe.com placeholder (else Copilot validation fetch-fails).
         GHE_DOMAIN: ${GHE_DOMAIN}
+        # Scheme the launcher scripts use to reach Caddy. Must match the transport
+        # (http-mode Caddy has no :443, so an https install one-liner refuses).
+        CTC_WEB_SCHEME: ${CTC_WEB_TRANSPORT:-http}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]

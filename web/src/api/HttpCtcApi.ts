@@ -118,10 +118,13 @@ export class HttpCtcApi implements CtcApi {
   async getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null }> {
     const minted = await apiFetch(this.base, '', '/proxy-token', { method: 'POST' });
     const ctcHost = (import.meta.env.VITE_CTC_HOST as string | undefined) ?? 'localhost';
+    // Match the scheme the app was actually loaded over: an http-mode deployment
+    // has no :443, so an https one-liner would refuse to connect.
+    const scheme = window.location.protocol === 'http:' ? 'http' : 'https';
     return {
       token: minted.token,
       proxyHost: (import.meta.env.VITE_PROXY_HOST as string | undefined) ?? 'localhost:8080',
-      installCommand: `curl -fsSLk https://${ctcHost}/install.sh | sh -s -- --token ${minted.token}`,
+      installCommand: `curl -fsSLk ${scheme}://${ctcHost}/install.sh | sh -s -- --token ${minted.token}`,
       caFingerprint: minted.ca_fingerprint ?? null,
     };
   }

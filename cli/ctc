@@ -2,6 +2,7 @@
 set -euo pipefail
 
 CTC_HOST="${CTC_HOST:-ctc.local}"
+CTC_SCHEME="${CTC_SCHEME:-https}"   # rewritten to the deployment's web transport at build time
 CTC_PROXY_PORT="${CTC_PROXY_PORT:-8080}"
 # Your GitHub Enterprise domain. Override per deployment (must match the proxy's
 # GHE_DOMAIN). Defaults to a neutral placeholder so this script carries no
@@ -51,9 +52,9 @@ cmd_login() {
 
   mkdir -p "$cfg" "$iso"
 
-  echo "Downloading CA cert from https://$CTC_HOST/ctc-ca.pem ..." >&2
-  if ! curl -fsSLk "https://$CTC_HOST/ctc-ca.pem" -o "$cert"; then
-    echo "ctc: failed to download CA cert from https://$CTC_HOST/ctc-ca.pem" >&2; exit 1
+  echo "Downloading CA cert from $CTC_SCHEME://$CTC_HOST/ctc-ca.pem ..." >&2
+  if ! curl -fsSLk "$CTC_SCHEME://$CTC_HOST/ctc-ca.pem" -o "$cert"; then
+    echo "ctc: failed to download CA cert from $CTC_SCHEME://$CTC_HOST/ctc-ca.pem" >&2; exit 1
   fi
 
   fp="$(openssl x509 -in "$cert" -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//')"

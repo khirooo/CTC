@@ -18,7 +18,8 @@ if [ "$(uname)" != "Darwin" ]; then
 fi
 
 CTC_HOST="${CTC_HOST:-ctc.local}"
-CTC_SRC="${CTC_SRC:-https://$CTC_HOST/ctc}"
+CTC_SCHEME="${CTC_SCHEME:-https}"   # rewritten to the deployment's web transport at build time
+CTC_SRC="${CTC_SRC:-$CTC_SCHEME://$CTC_HOST/ctc}"
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 
