@@ -36,6 +36,24 @@ function fp(id: string): string {
   return (h >>> 0).toString(16).padStart(8, '0').slice(0, 8);
 }
 
+// DEV-ONLY mirror of backend assign_tiers (ctc/accounting/tiers.py).
+// The real app gets standings/tier from the API; this only powers the mock.
+function mockAssignTiers(
+  givers: { name: string; net: number; active: boolean }[],
+): { name: string; net: number; tier: string }[] {
+  const pos = givers.filter(g => g.active && g.net >= 0).sort((a, b) => b.net - a.net || a.name.localeCompare(b.name));
+  const neg = givers.filter(g => g.active && g.net < 0).sort((a, b) => a.net - b.net || a.name.localeCompare(b.name));
+  const newc = givers.filter(g => !g.active).sort((a, b) => a.name.localeCompare(b.name));
+  const POS = ['aristocrat', 'baron', 'bourgeois', 'commoner'];
+  const NEG = ['beggar', 'peasant'];
+  const out: { name: string; net: number; tier: string }[] = [];
+  pos.forEach((g, i) => out.push({ name: g.name, net: g.net, tier: POS[Math.floor((i * 4) / pos.length)] }));
+  neg.forEach((g, j) => out.push({ name: g.name, net: g.net, tier: NEG[Math.floor((j * 2) / neg.length)] }));
+  out.sort((a, b) => b.net - a.net || a.name.localeCompare(b.name));
+  newc.forEach(g => out.push({ name: g.name, net: 0, tier: 'newcomer' }));
+  return out;
+}
+
 const DEFAULT_BOOT_CONFIG: AdminBootConfig = {
   authMode: 'email',
   webTransport: 'http',
@@ -437,7 +455,16 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         .slice(0, 5)
         .map(u => ({ name: u.name, value: u.consumed }));
 
-      const result: Leaderboard = { generous, topPro, topNoob };
+      const givers = state.users
+        .filter(u => u.role === 'giver')
+        .map(u => ({
+          name: u.name,
+          net: u.donatedSoFar - u.consumed,
+          active: u.donatedSoFar > 0 || u.consumed > 0,
+        }));
+      const standings = mockAssignTiers(givers);
+
+      const result: Leaderboard = { generous, topPro, topNoob, standings };
       return delay(result);
     },
 
@@ -484,6 +511,23 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         allowanceLeft = Math.max(0, user.allowance - user.consumed);
       }
 
+      // tier for the current user (givers only)
+      let tier: string | null = null;
+      let net: number | null = null;
+      let netToNext: number | null = null;
+      if (user.role === 'giver') {
+        const givers = state.users
+          .filter(u => u.role === 'giver')
+          .map(u => ({ name: u.name, net: u.donatedSoFar - u.consumed, active: u.donatedSoFar > 0 || u.consumed > 0 }));
+        const ranked = mockAssignTiers(givers);
+        const idx = ranked.findIndex(r => r.name === user.name);
+        if (idx >= 0) {
+          tier = ranked[idx].tier;
+          net = ranked[idx].net;
+          if (idx > 0 && tier !== 'newcomer') netToNext = Math.max(1, ranked[idx - 1].net - ranked[idx].net);
+        }
+      }
+
       const result: OwnProfile = {
         user: {
           id: user.id,
@@ -512,6 +556,9 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         resetDate,
         unlimited: false,
         quotaStale: false,
+        tier,
+        net,
+        netToNext,
       };
       return delay(result);
     },
