@@ -85,6 +85,7 @@ export class HttpCtcApi implements CtcApi {
       hasPat: Boolean(me.has_pat),
       participantsMode: me.participants_mode,
       sharedPoolEnabled: me.shared_pool_enabled !== undefined ? Boolean(me.shared_pool_enabled) : undefined,
+      creditToEuroRate: me.credit_to_euro_rate !== undefined ? Number(me.credit_to_euro_rate) : undefined,
       authMode: me.auth_mode,
       webTransport: me.web_transport,
     };

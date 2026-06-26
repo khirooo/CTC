@@ -157,6 +157,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
             "web_transport": deployment.web_transport,
             "participants_mode": _effective_config.participants_mode,
             "shared_pool_enabled": _effective_config.shared_pool_enabled,
+            "credit_to_euro_rate": _effective_config.credit_to_euro_rate,
         })
 
     async def api_pat(req):

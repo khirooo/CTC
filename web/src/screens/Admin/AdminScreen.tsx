@@ -492,7 +492,7 @@ export function AdminScreen() {
           )}
         </div>
         <p style={{ marginTop: 12, fontSize: 11, color: 'var(--text-faint)', fontFamily: "'JetBrains Mono', monospace" }}>
-          credit_to_euro_rate is stored and editable here; it has no live consumer in this release (reserved for future billing).
+          credit_to_euro_rate drives the euro (€) figures shown across the app; changes take effect on each user&apos;s next page load.
         </p>
       </div>
 

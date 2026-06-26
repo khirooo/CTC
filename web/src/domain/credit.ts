@@ -11,8 +11,12 @@ export const aiu = (nano: number): string =>
     maximumFractionDigits: 2,
   }) + ' AIU';
 
-export const euros = (nano: number): string =>
-  '€' + Math.round((Number(nano || 0) / NANO_PER_AIU) * config.creditToEuroRate).toLocaleString('en-US');
+export const euros = (nano: number, rate: number = config.creditToEuroRate): string =>
+  '€' +
+  ((Number(nano || 0) / NANO_PER_AIU) * rate).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 export const pct = (funded: number, needed: number): number =>
   Math.max(0, Math.min(100, Math.round((funded / Math.max(1, needed)) * 100)));

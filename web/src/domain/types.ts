@@ -167,6 +167,8 @@ export interface Session {
   /** Deployment-level flags from /api/me */
   participantsMode?: 'givers_only' | 'givers_and_consumers';
   sharedPoolEnabled?: boolean;
+  /** Effective euros-per-AIU rate, live from /api/me (admin-editable). */
+  creditToEuroRate?: number;
   authMode?: 'email' | 'ghe_oauth';
   webTransport?: 'http' | 'https';
   hasPat?: boolean;

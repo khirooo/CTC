@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import type { DashboardData } from '@/domain/types';
 import { aiu, euros } from '@/domain/credit';
+import { useApp } from '@/store/AppContext';
 
 interface Props {
   data: DashboardData;
@@ -32,6 +33,8 @@ const connectorMix = (a: string, b: string) => ({
 
 export function MarketplaceHero({ data, closedCount, activeNonPatCount }: Props) {
   const navigate = useNavigate();
+  const { session } = useApp();
+  const eur = (nano: number) => euros(nano, session?.creditToEuroRate);
   const _closedCount = closedCount ?? data.closedCount ?? 0;
   const _activeNonPatCount = activeNonPatCount ?? data.activeConsumers;
 
@@ -150,7 +153,7 @@ export function MarketplaceHero({ data, closedCount, activeNonPatCount }: Props)
                 color: 'var(--text-faint)',
               }}
             >
-              ≈ {euros(data.pledged)}
+              ≈ {eur(data.pledged)}
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
               free allowance for Guests
@@ -188,7 +191,7 @@ export function MarketplaceHero({ data, closedCount, activeNonPatCount }: Props)
                 color: 'var(--text-faint)',
               }}
             >
-              ≈ {euros(data.retained)}
+              ≈ {eur(data.retained)}
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
               the Host&apos;s own credit — kept out of the pool
@@ -412,7 +415,7 @@ export function MarketplaceHero({ data, closedCount, activeNonPatCount }: Props)
                 color: 'var(--give)',
               }}
             >
-              ≈ {euros(data.rotated)} saved
+              ≈ {eur(data.rotated)} saved
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
               surplus passed between Hosts
@@ -464,7 +467,7 @@ export function MarketplaceHero({ data, closedCount, activeNonPatCount }: Props)
                 color: 'var(--give)',
               }}
             >
-              ≈ {euros(data.donatedToNonPat)} saved
+              ≈ {eur(data.donatedToNonPat)} saved
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
               given to Guests

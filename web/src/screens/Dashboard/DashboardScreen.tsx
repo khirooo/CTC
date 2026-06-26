@@ -102,7 +102,7 @@ export function DashboardScreen() {
           value={
             <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
               {aiu(data.donatedThisWeek)}{' '}
-              <span style={{ fontSize: 12, color: 'var(--give)' }}>≈ {euros(data.donatedThisWeek)}</span>
+              <span style={{ fontSize: 12, color: 'var(--give)' }}>≈ {euros(data.donatedThisWeek, session?.creditToEuroRate)}</span>
             </span>
           }
         />

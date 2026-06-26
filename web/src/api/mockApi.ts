@@ -159,6 +159,7 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       hasPat: Boolean(user.hasPat),
       participantsMode: deployParticipantsMode,
       sharedPoolEnabled: deploySharedPoolEnabled,
+      creditToEuroRate: (state.adminSettings ?? DEFAULT_ADMIN_SETTINGS).creditToEuroRate.value,
       authMode: 'email',
       webTransport: 'http',
     };
