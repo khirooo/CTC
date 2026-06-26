@@ -21,6 +21,12 @@ class EffectiveConfig:
 
     @property
     def free_allowance(self) -> int:            # nano-AIU
+        # No shared pool → no free allowance to spend (the allowance only ever
+        # grants credit through the pool path in attribution). Mirror
+        # default_pledge_pct so display, routing, and the admin view stay
+        # consistent when the pool is off.
+        if not self.shared_pool_enabled:
+            return 0
         v = self._raw("free_allowance_aiu")
         return int(v) * NANO_PER_AIU if v is not None else self.base.free_allowance
 

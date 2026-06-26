@@ -381,7 +381,7 @@ export function OnboardingScreen() {
             <h2 style={{ fontSize: 22, fontWeight: 600, margin: '0 0 12px', letterSpacing: '-.01em' }}>
               Set up the CLI
             </h2>
-            {role === 'consumer' && (
+            {role === 'consumer' && session.sharedPoolEnabled !== false && (
               <p style={{ color: 'var(--text-dim)', fontSize: 14, margin: '0 0 14px' }}>
                 You start with {aiu(config.freeAllowance)} free credits.
               </p>

@@ -4,7 +4,6 @@ import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
 import { CtcApiError } from '@/api/http';
 import { aiu } from '@/domain/credit';
-import { config } from '@/domain/config';
 import { Card } from '@/components';
 import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar';
 import { CopyButton } from '@/components/CopyButton';
@@ -263,7 +262,7 @@ export function ProfileScreen() {
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 18 }}>
             <span style={monoLabel}>Credits used</span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text-dim)' }}>
-              {p.allowance != null ? aiu(p.allowance) : aiu(config.freeAllowance)} free + chip-ins
+              {(p.allowance ?? 0) > 0 ? `${aiu(p.allowance ?? 0)} free + chip-ins` : 'chip-ins'}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>

@@ -60,6 +60,8 @@ async def test_admin_settings_get_and_patch():
         got = await (await cli.get("/api/admin/settings")).json()
         assert got["free_allowance_aiu"]["is_override"] is False
 
+        # pool on so the effective allowance reflects the override (it's 0 when off)
+        await cli.patch("/api/admin/settings", json={"shared_pool_enabled": "on"})
         r = await cli.patch("/api/admin/settings", json={"free_allowance_aiu": 50})
         assert r.status == 200
         body = await r.json()
