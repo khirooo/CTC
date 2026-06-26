@@ -51,6 +51,9 @@ class AccountingEngine:
     def consumed_total(self, cycle_id: str, user_id: str) -> int:
         return self.store.consumed_total(cycle_id, user_id)
 
+    def pool_consumed_by(self, cycle_id: str, user_id: str) -> int:
+        return self.store.pool_consumed_by(cycle_id, user_id)
+
     def givers_with_pool_capacity(self, cycle_id: str) -> list[tuple[str, int]]:
         out = []
         for gc in self.store.all_giver_cycles(cycle_id):

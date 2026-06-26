@@ -12,6 +12,20 @@ class LeaderboardUser:
     is_giver: bool
 
 
+def giver_tier_inputs(engine, users, cycle_id):
+    """TierInput for every giver. net = donated_live - pool_consumed_by:
+    'taken' is POOL draws only — a giver's own quota usage never drained the
+    shared pool, and donated_live already excludes self, so this is symmetric."""
+    return [
+        TierInput(
+            u.user_id, u.name,
+            engine.donated_live(cycle_id, u.user_id),
+            engine.pool_consumed_by(cycle_id, u.user_id),
+        )
+        for u in users if u.is_giver
+    ]
+
+
 def build_leaderboard(engine, users: list[LeaderboardUser], cycle_id: str, top_n: int = 5) -> dict:
     """
     Compute the 3-track leaderboard from the accounting engine.
@@ -61,19 +75,9 @@ def build_leaderboard(engine, users: list[LeaderboardUser], cycle_id: str, top_n
     top_noob = [{"name": name, "value": value} for name, value in noob_candidates[:top_n]]
 
     # Standings: aristocracy tiers over all givers (givers-only feature)
-    giver_inputs = [
-        TierInput(
-            user.user_id,
-            user.name,
-            engine.donated_live(cycle_id, user.user_id),
-            engine.consumed_total(cycle_id, user.user_id),
-        )
-        for user in users
-        if user.is_giver
-    ]
     standings = [
         {"name": r.name, "net": r.net, "tier": r.tier}
-        for r in assign_tiers(giver_inputs)
+        for r in assign_tiers(giver_tier_inputs(engine, users, cycle_id))
     ]
 
     return {

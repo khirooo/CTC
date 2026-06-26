@@ -20,7 +20,7 @@ function resetLine(resetDate: string | null | undefined): string | null {
 
 function nudgeLine(tier: string | null, netToNext: number | null): string | null {
   if (!tier || tier === 'newcomer') return 'Donate some credit to claim a rank.';
-  if (netToNext != null) return `Donate ${aiu(netToNext)} more to climb a rank.`;
+  if (netToNext != null) return `Donate ${aiu(netToNext)} more to overtake the next host.`;
   if (tier === 'aristocrat') return 'You top the standings. Noblesse oblige. 👑';
   return null;
 }

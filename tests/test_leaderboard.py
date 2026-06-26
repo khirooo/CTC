@@ -10,14 +10,18 @@ from ctc.domain.types import Cycle, GiverCycle, Bucket
 
 
 class FakeEngine:
-    def __init__(self, donated, consumed):
+    def __init__(self, donated, consumed, pool_consumed=None):
         self._d, self._c = donated, consumed
+        self._p = pool_consumed if pool_consumed is not None else {}
 
     def donated_live(self, cycle_id, uid):
         return self._d.get(uid, 0)
 
     def consumed_total(self, cycle_id, uid):
         return self._c.get(uid, 0)
+
+    def pool_consumed_by(self, cycle_id, uid):
+        return self._p.get(uid, 0)
 
 CYC = "2026-06"
 
@@ -274,10 +278,11 @@ def test_standings_present_sorted_and_tracks_unchanged():
         LeaderboardUser("b", "Bob", True),
         LeaderboardUser("c", "Cara", True),
     ]
-    # Alice net +300, Bob net -50, Cara zero activity (newcomer)
+    # Alice net +300, Bob net -50 (via pool draw), Cara zero activity (newcomer)
     engine = FakeEngine(
         donated={"a": 300, "b": 0, "c": 0},
         consumed={"a": 0, "b": 50, "c": 0},
+        pool_consumed={"b": 50},
     )
 
     out = build_leaderboard(engine, users, cycle_id="cyc1")

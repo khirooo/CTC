@@ -519,7 +519,10 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         const givers = state.users
           .filter(u => u.role === 'giver')
           .map(u => ({ name: u.name, net: u.donatedSoFar - u.consumed, active: u.donatedSoFar > 0 || u.consumed > 0 }));
+        // dev-only: mock fixtures don't model credit buckets, so mock net uses the
+        // user's consumed as a rough stand-in for pool draws (prod uses pool_consumed_by)
         const ranked = mockAssignTiers(givers);
+        // dev-only: match by name (backend matches by user_id)
         const idx = ranked.findIndex(r => r.name === user.name);
         if (idx >= 0) {
           tier = ranked[idx].tier;

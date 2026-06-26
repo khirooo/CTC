@@ -165,8 +165,40 @@ async def test_profile_includes_tier_for_giver():
         assert p["tier"] in {
             "aristocrat", "baron", "bourgeois", "commoner", "peasant", "beggar", "newcomer",
         }
-        assert p["net"] == p["donatedSoFar"] - p["consumed"]
+        assert isinstance(p["net"], int)
         assert "netToNext" in p
+
+
+@pytest.mark.asyncio
+async def test_profile_tier_matches_leaderboard_standings():
+    """profile tier must equal the tier shown for the same user in leaderboard standings."""
+    from ctc.domain.types import GiverCycle
+    app, store, engine = _build(shared_pool=True)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        octo = store.get_user_by_login("octocat")["id"]
+        await cli.post("/api/pat", json={"pat": "ghp_x"})  # octocat -> giver, quota 4000 AIU
+
+        # Seed a second giver directly (different net so tiers diverge)
+        store.upsert_user("g2", "givertwo", "Giver Two", "giver", 1000)
+        engine.store.upsert_giver_cycle(GiverCycle("c1", "g2", 1000 * NANO_PER_AIU, 500 * NANO_PER_AIU))
+
+        # g2 draws from the pool (sourced by octocat) → octocat donated_live > 0, g2 pool_consumed_by > 0
+        engine.record_consumption("c1", "g2", octo, Bucket.POOL, 200 * NANO_PER_AIU, ts=2, allow_overshoot=True)
+
+        # Get profile tier for octocat
+        p = await (await cli.get("/api/profile")).json()
+        profile_tier = p["tier"]
+        assert profile_tier is not None
+
+        # Get leaderboard standings tier for octocat
+        lb = await (await cli.get("/api/leaderboard")).json()
+        octo_name = p["user"]["name"]
+        standings_entry = next((s for s in lb["standings"] if s["name"] == octo_name), None)
+        assert standings_entry is not None, f"{octo_name!r} not found in standings"
+        assert profile_tier == standings_entry["tier"], (
+            f"profile tier {profile_tier!r} != leaderboard tier {standings_entry['tier']!r}"
+        )
 
 
 @pytest.mark.asyncio
