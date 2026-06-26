@@ -64,10 +64,17 @@ export interface LeaderboardEntry {
   value: number;
 }
 
+export interface StandingEntry {
+  name: string;
+  net: number;   // nano-AIU
+  tier: string;
+}
+
 export interface Leaderboard {
   generous: LeaderboardEntry[];
   topPro: LeaderboardEntry[];
   topNoob: LeaderboardEntry[];
+  standings: StandingEntry[];
 }
 
 export interface DashboardData {
@@ -137,6 +144,9 @@ export interface OwnProfile {
   resetDate: string | null;
   unlimited: boolean;
   quotaStale: boolean;
+  tier: string | null;
+  net: number | null;
+  netToNext: number | null;
 }
 
 export interface SettingsData {
