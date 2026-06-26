@@ -140,13 +140,20 @@ export function ProfileScreen() {
 
   // Giver credit bar segments (striped = consumed/locked; solid = reserved/available)
   const E = p?.entitlement ?? 0;
+  // Pledging is a pool-only concept. When the shared pool is off, a giver still
+  // has a credit cycle (entitlement / used / available) — only the pledge slider
+  // and pool/surplus framing drop out.
+  const poolOn = session?.sharedPoolEnabled !== false;
+  const effPledged = poolOn ? pledgedValue : 0;
   const giverSegs: BarSegment[] = [
     { key: 'used', label: 'used', value: p?.used ?? 0, color: 'var(--text-dim)', pattern: 'striped' as const },
     { key: 'donatedC', label: 'chipped in', value: p?.donatedConsumed ?? 0, color: 'var(--give)', pattern: 'striped' as const },
     { key: 'donatedR', label: 'chipped in', value: Math.max(0, (p?.donated ?? 0) - (p?.donatedConsumed ?? 0)), color: 'var(--give)' },
-    { key: 'pledgedC', label: 'pledged', value: Math.min(pledgedValue, p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
-    { key: 'pledgedR', label: 'pledged', value: Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)), color: 'var(--accent)' },
-    { key: 'left', label: 'left', value: Math.max(0, E - (p?.used ?? 0) - (p?.donated ?? 0) - pledgedValue), color: 'var(--reroute)' },
+    ...(poolOn ? [
+      { key: 'pledgedC', label: 'pledged', value: Math.min(pledgedValue, p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
+      { key: 'pledgedR', label: 'pledged', value: Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)), color: 'var(--accent)' },
+    ] : []),
+    { key: 'left', label: 'left', value: Math.max(0, E - (p?.used ?? 0) - (p?.donated ?? 0) - effPledged), color: 'var(--reroute)' },
   ].filter((s) => s.value > 0);
 
   return (
@@ -183,14 +190,14 @@ export function ProfileScreen() {
         </span>
       </div>
 
-      {/* Credit cycle — giver: interactive pledge bar; consumer: allowance bar */}
-      {/* When pool is off, hide the pledge slider and pool/surplus display for givers */}
-      {isGiver && p && session?.sharedPoolEnabled !== false && (
+      {/* Credit cycle — giver: entitlement/used/available, plus the interactive
+          pledge bar when the shared pool is on. Consumer: allowance bar below. */}
+      {isGiver && p && (
         <div style={{ ...card, padding: '22px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
             <span style={monoLabel}>Credit cycle</span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 18, color: 'var(--accent)' }}>
-              {p.unlimited ? '∞' : aiu(pledgedValue)}
+              {p.unlimited ? '∞' : aiu(poolOn ? pledgedValue : Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0)))}
             </span>
           </div>
 
@@ -200,7 +207,7 @@ export function ProfileScreen() {
                 Unlimited entitlement
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6 }}>
-                chipped in {aiu(p.donated ?? 0)} · pledged {aiu(pledgedValue)}
+                chipped in {aiu(p.donated ?? 0)}{poolOn ? ` · pledged ${aiu(pledgedValue)}` : ''}
               </div>
             </div>
           ) : (
@@ -209,7 +216,7 @@ export function ProfileScreen() {
                 <CreditBar
                   max={E}
                   segments={giverSegs}
-                  slider={{
+                  slider={poolOn ? {
                     value: pledgedValue,
                     min: p.pledgedConsumed ?? 0,
                     max: Math.max(p.pledgedConsumed ?? 0, E - (p.used ?? 0) - (p.donated ?? 0)),
@@ -217,7 +224,7 @@ export function ProfileScreen() {
                     trackStart: E > 0 ? ((p.used ?? 0) + (p.donated ?? 0) + (p.pledgedConsumed ?? 0)) / E : 0,
                     onChange: handlePledgedChange,
                     onCommit: handlePledgedSave,
-                  }}
+                  } : undefined}
                 />
               </div>
 
@@ -225,8 +232,8 @@ export function ProfileScreen() {
                 <CreditLegend items={[
                   { label: 'used', value: aiu(p.used ?? 0), color: 'var(--text-dim)', pattern: 'striped' },
                   ...((p.donated ?? 0) > 0 ? [{ label: 'chipped in', value: aiu(p.donated ?? 0), color: 'var(--give)' }] : []),
-                  { label: 'pledged', value: aiu(pledgedValue), color: 'var(--accent)' },
-                  { label: 'available', value: aiu(Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - pledgedValue)), color: 'var(--reroute)' },
+                  ...(poolOn ? [{ label: 'pledged', value: aiu(pledgedValue), color: 'var(--accent)' }] : []),
+                  { label: 'available', value: aiu(Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - effPledged)), color: 'var(--reroute)' },
                 ]} />
                 {p.quotaStale && (
                   <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)', marginTop: 6, opacity: 0.7 }}>
@@ -243,12 +250,14 @@ export function ProfileScreen() {
             </>
           )}
 
-          <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '14px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
-            <span style={{ color: 'var(--accent)' }}>🔒 private</span> — the surplus you pledge
-            to the common pool; Guests draw from it directly. Not a cap on giving: you can
-            still chip in more to specific requests from your retained balance. Never shown
-            publicly.
-          </p>
+          {poolOn && (
+            <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '14px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
+              <span style={{ color: 'var(--accent)' }}>🔒 private</span> — the surplus you pledge
+              to the common pool; Guests draw from it directly. Not a cap on giving: you can
+              still chip in more to specific requests from your retained balance. Never shown
+              publicly.
+            </p>
+          )}
           {saveError && (
             <p role="alert" style={{ color: 'var(--consume)', fontSize: 13, margin: '12px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
               {saveError}
