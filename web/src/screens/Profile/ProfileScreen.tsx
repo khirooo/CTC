@@ -8,6 +8,7 @@ import { Card } from '@/components';
 import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar';
 import { CopyButton } from '@/components/CopyButton';
 import { PatHelp } from '@/components/PatHelp';
+import { TierBadge } from '@/components/TierBadge';
 
 function resetLine(resetDate: string | null | undefined): string | null {
   if (!resetDate) return null;
@@ -15,6 +16,13 @@ function resetLine(resetDate: string | null | undefined): string | null {
   const days = Math.max(0, Math.ceil((reset - Date.now()) / 86_400_000));
   const d = new Date(reset).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   return days === 0 ? `Resets ${d} · resets today` : `Resets ${d} · in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function nudgeLine(tier: string | null, netToNext: number | null): string | null {
+  if (!tier || tier === 'newcomer') return 'Donate some credit to claim a rank.';
+  if (netToNext != null) return `Donate ${aiu(netToNext)} more to climb a rank.`;
+  if (tier === 'aristocrat') return 'You top the standings. Noblesse oblige. 👑';
+  return null;
 }
 
 const monoLabel: React.CSSProperties = {
@@ -177,6 +185,16 @@ export function ProfileScreen() {
           <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text-dim)', marginTop: 3 }}>
             {isGiver ? 'Host' : 'Guest'} account
           </div>
+          {p?.tier && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+              <TierBadge tier={p.tier} />
+              {nudgeLine(p.tier, p.netToNext) && (
+                <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                  {nudgeLine(p.tier, p.netToNext)}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <span
           style={{
