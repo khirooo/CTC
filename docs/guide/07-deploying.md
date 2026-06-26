@@ -86,6 +86,41 @@ flowchart TB
 
 ---
 
+## Quick deploy (copy-paste)
+
+The whole sequence, front to back:
+
+```bash
+# 1. Configure
+cp .env.example .env
+# edit .env: CTC_DOMAIN, CTC_SECRET_KEY (openssl rand -hex 32), GHE_DOMAIN,
+#            PROXY_BIND, CTC_ADMINS, and GHE_OAUTH_* (only if CTC_AUTH_MODE=ghe_oauth)
+
+# 2. Validate config (fails loudly on missing/inconsistent vars)
+sh scripts/preflight.sh
+
+# 3. Build + start everything (gencert runs first; proxy/caddy wait for health)
+docker compose up -d --build
+
+# 4. Verify all services are healthy
+docker compose ps
+
+# 5. Tail logs if anything is unhealthy
+docker compose logs -f proxy controlplane caddy
+```
+
+Operating it afterwards:
+
+```bash
+docker compose logs -f proxy                 # follow one service
+git pull && docker compose up -d --build     # update to a new version
+docker compose down                          # stop (the ctcdata/ctccerts volumes persist)
+```
+
+The sections below explain each step in detail.
+
+---
+
 ## Layer 2 — One-time setup
 
 You need, before you start:

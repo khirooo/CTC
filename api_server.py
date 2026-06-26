@@ -175,7 +175,8 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         try:
             res = await validate_and_store_pat(registry, engine, http_get_user,
                                                live_cycle_id, user["id"], user["ghe_login"], pat,
-                                               now(), effective_config=getattr(engine, "config", None))
+                                               now(), effective_config=getattr(engine, "config", None),
+                                               enforce_identity=(deployment.auth_mode == "ghe_oauth"))
         except PatIdentityMismatch as e:
             raise web.HTTPConflict(text=str(e))
         except PatInvalid as e:

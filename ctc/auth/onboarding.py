@@ -8,14 +8,17 @@ class PatIdentityMismatch(Exception): ...
 
 
 async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user_id,
-                                 ghe_login, pat, now, effective_config=None) -> dict:
+                                 ghe_login, pat, now, effective_config=None,
+                                 enforce_identity=True) -> dict:
     try:
         user = await http_get_user(pat)
     except PatIdentityMismatch:
         raise
     except Exception as e:  # network / non-200 surfaced by the caller's fetcher
         raise PatInvalid(str(e))
-    if user.get("login") != ghe_login:
+    # Only ghe_oauth identities are GHE logins; an email identity can't match a
+    # PAT's GHE username, so the ownership check is skipped in email auth mode.
+    if enforce_identity and user.get("login") != ghe_login:
         raise PatIdentityMismatch(f"PAT belongs to {user.get('login')}, not {ghe_login}")
     pi = user.get("quota_snapshots", {}).get("premium_interactions", {})
     ent = pi.get("entitlement")

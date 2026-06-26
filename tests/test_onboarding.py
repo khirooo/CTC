@@ -57,6 +57,18 @@ async def test_identity_mismatch_rejected():
 
 
 @pytest.mark.asyncio
+async def test_identity_not_enforced_in_email_mode():
+    # In email auth mode the identity is an email, never a GHE login, so the
+    # ownership check is skipped: a PAT owned by a different GHE login is accepted.
+    store, eng, reg = _setup()
+    res = await validate_and_store_pat(reg, eng, _user_mismatch, "c1", "u1",
+                                       "octocat@example.com", "github_pat_X", now=2,
+                                       enforce_identity=False)
+    assert res["quota_aiu"] == 4000
+    assert reg.pat_for("u1") == "github_pat_X"
+
+
+@pytest.mark.asyncio
 async def test_invalid_pat_rejected():
     store, eng, reg = _setup()
     with pytest.raises(PatInvalid):
