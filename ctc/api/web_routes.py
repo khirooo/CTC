@@ -8,8 +8,9 @@ from ..accounting.reports import build_dashboard, build_history
 from ..domain.config import NANO_PER_AIU
 from ..domain.types import Role
 from .serializers import (CreateRequestDTO, DonateDTO, ListRequestsDTO, OwnProfileDTO,
-                          PublicRequestDTO, PublicUserDTO, PublicUserHitDTO, RoleCountsDTO,
-                          SettingsDTO, SettingsPatchDTO, build_public_request, initials)
+                          PublicProfileDTO, PublicRequestDTO, PublicUserDTO, PublicUserHitDTO,
+                          RoleCountsDTO, SettingsDTO, SettingsPatchDTO, build_public_request,
+                          initials)
 
 
 def register_web_routes(app, *, store, engine, current_user, now, live_quota):
@@ -242,8 +243,34 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         ]
         return web.json_response({"users": users})
 
+    async def get_public_user(req):
+        await _require_user(req)
+        uid = req.match_info["id"]
+        u = store.get_user_by_id(uid)
+        if u is None:
+            return web.json_response({"error": "not found"}, status=404)
+        cycle = _cycle()
+        name = u["display_name"] or u["ghe_login"]
+        tier = net = donated = donations_made = None
+        if u["role"] == "giver":
+            from ..accounting.leaderboard import giver_tier_inputs
+            from ..accounting.tiers import assign_tiers
+            ranked = assign_tiers(giver_tier_inputs(engine, _leaderboard_users(), cycle.id))
+            entry = next((r for r in ranked if r.user_id == uid), None)
+            tier = entry.tier if entry else None
+            net = entry.net if entry else 0
+            donated = engine.donated_live(cycle.id, uid)
+            donations_made = acct.grants_count_by(cycle.id, uid)
+        dto = PublicProfileDTO(
+            id=uid, name=name, login=u["ghe_login"], initials=initials(name),
+            role=u["role"], tier=tier, net=net, donated=donated,
+            donations_made=donations_made,
+        )
+        return web.json_response(dto.model_dump(by_alias=True))
+
     app.add_routes([
         web.get("/api/users/search", search_users),
+        web.get("/api/users/{id}", get_public_user),
         web.get("/api/requests", list_requests),
         web.post("/api/requests", create_request),
         web.post("/api/requests/{id}/donate", donate),

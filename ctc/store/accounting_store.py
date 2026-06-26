@@ -126,6 +126,12 @@ class AccountingStore:
             (cycle_id, donor_id),
         )
 
+    def grants_count_by(self, cycle_id: str, donor_id: str) -> int:
+        return self._sum(
+            "SELECT COUNT(*) FROM grants WHERE cycle_id=? AND donor_id=?",
+            (cycle_id, donor_id),
+        )
+
     def grants_consumed_from(self, cycle_id: str, giver_id: str) -> int:
         # Credit actually drawn by recipients from THIS giver's grants (solid green).
         return self._sum(

@@ -282,3 +282,71 @@ async def test_search_users_requires_session():
         # no login
         r = await cli.get("/api/users/search?q=alice")
         assert r.status == 401
+
+
+# ---------------------------------------------------------------------------
+# Public profile endpoint  GET /api/users/{id}
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_public_profile_giver_exact_keys_and_matches_leaderboard():
+    """Public profile has EXACTLY the allowed keys, no sensitive fields, and
+    tier/net must match the leaderboard standings entry for the same user."""
+    from ctc.domain.types import Bucket
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)  # logs in as octocat (consumer by default)
+        octo = store.get_user_by_login("octocat")["id"]
+        await cli.post("/api/pat", json={"pat": "ghp_x"})  # octocat -> giver, quota 4000 AIU
+        # give octocat some usage so tier is deterministic
+        engine.record_consumption("c1", octo, octo, Bucket.OWN, 1 * NANO_PER_AIU, ts=1, allow_overshoot=True)
+
+        r = await cli.get(f"/api/users/{octo}")
+        assert r.status == 200
+        body = await r.json()
+
+        # exact public field set — no more, no less
+        assert set(body.keys()) == {"id", "name", "login", "initials", "role",
+                                    "tier", "net", "donated", "donationsMade"}
+
+        # deny-list: none of these may ever appear
+        for forbidden in ("totalCredit", "pledgedSurplus", "entitlement", "remaining",
+                          "allowance", "allowanceMax", "allowanceLeft", "resetDate", "email"):
+            assert forbidden not in body, f"forbidden field {forbidden!r} present in public profile"
+
+        # tier and net must match the leaderboard standings for the same user
+        lb = await (await cli.get("/api/leaderboard")).json()
+        entry = next((s for s in lb["standings"] if s["userId"] == octo), None)
+        assert entry is not None, f"user {octo!r} not in leaderboard standings"
+        assert body["tier"] == entry["tier"]
+        assert body["net"] == entry["net"]
+
+
+@pytest.mark.asyncio
+async def test_public_profile_unknown_id_404():
+    """Requesting a non-existent user id returns 404."""
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        r = await cli.get("/api/users/does-not-exist")
+        assert r.status == 404
+
+
+@pytest.mark.asyncio
+async def test_public_profile_consumer_has_null_reputation():
+    """Consumer profile is served but tier/net/donated/donationsMade are null."""
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)  # octocat stays a consumer (no PAT)
+        octo = store.get_user_by_login("octocat")["id"]
+
+        r = await cli.get(f"/api/users/{octo}")
+        assert r.status == 200
+        body = await r.json()
+
+        assert set(body.keys()) == {"id", "name", "login", "initials", "role",
+                                    "tier", "net", "donated", "donationsMade"}
+        assert body["tier"] is None
+        assert body["net"] is None
+        assert body["donated"] is None
+        assert body["donationsMade"] is None

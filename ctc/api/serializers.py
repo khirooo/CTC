@@ -81,6 +81,18 @@ class PublicUserHitDTO(CamelModel):
     role: str                    # 'giver' | 'consumer'
 
 
+class PublicProfileDTO(CamelModel):
+    id: str
+    name: str
+    login: str
+    initials: str
+    role: str                        # 'giver' | 'consumer'
+    tier: str | None = None          # null for non-givers
+    net: int | None = None           # nano-AIU
+    donated: int | None = None       # nano-AIU
+    donations_made: int | None = None
+
+
 class OwnProfileDTO(CamelModel):
     # Credit fields are RAW nano-AIU (the frontend `aiu()` helper divides by
     # NANO_PER_AIU for display).
