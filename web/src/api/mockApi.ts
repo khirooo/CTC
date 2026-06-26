@@ -188,6 +188,9 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
     };
   }
 
+  // dev-only: SeedUser has no GHE login; synthesize a stable handle from the name.
+  const loginOf = (u: SeedUser) => u.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
   const api: CtcApi & { _state(): StoreState } = {
     _state(): StoreState {
       return state;
@@ -738,7 +741,7 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       return delay(updated);
     },
 
-    // --- Public profiles ---
+  // --- Public profiles ---
 
     async getUserProfile(id: string): Promise<PublicProfile> {
       const u = state.users.find(u => u.id === id);
@@ -755,30 +758,27 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         if (entry) tier = entry.tier;
       }
 
-      // donationsMade = donatedSoFar in nano-AIU (dev stub — real backend counts grants)
-      let donationsMade = 0; // dev stub
-      if (u.role === 'giver') donationsMade = u.donatedSoFar;
-
       const profile: PublicProfile = {
         id: u.id,
         name: u.name,
+        login: loginOf(u),
         initials: u.initials,
         role: u.role,
-        tier,
-        donationsMade,
+        tier,                                   // already computed (null for consumers)
+        net: u.role === 'giver' ? u.donatedSoFar - u.consumed : null,
+        donated: u.role === 'giver' ? u.donatedSoFar : null,
+        donationsMade: u.role === 'giver' ? 0 : null,
       };
       return delay(profile);
     },
 
     async searchUsers(q: string): Promise<PublicUserHit[]> {
-      // Blank query returns empty (not a full dump)
       if (!q.trim()) return delay([]);
-
       const lower = q.toLowerCase();
       const hits: PublicUserHit[] = state.users
-        .filter(u => u.name.toLowerCase().includes(lower))
-        .slice(0, 8)   // cap at 8
-        .map(u => ({ id: u.id, name: u.name, initials: u.initials, role: u.role }));
+        .filter(u => u.name.toLowerCase().includes(lower) || loginOf(u).includes(lower))
+        .slice(0, 8)
+        .map(u => ({ id: u.id, name: u.name, login: loginOf(u), initials: u.initials, role: u.role }));
       return delay(hits);
     },
   };

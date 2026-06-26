@@ -17,16 +17,20 @@ export interface PublicUser {
 export interface PublicProfile {
   id: string;
   name: string;
+  login: string;
   initials: string;
   role: Role;
-  tier: string | null;      // giver tier (null for consumers or newcomers without tier)
-  donationsMade: number;    // count of grants made (nano-AIU donated so far)
+  tier: string | null;
+  net: number | null;        // nano-AIU
+  donated: number | null;    // nano-AIU
+  donationsMade: number | null;
 }
 
 /** Lightweight hit returned by the user search endpoint */
 export interface PublicUserHit {
   id: string;
   name: string;
+  login: string;
   initials: string;
   role: Role;
 }

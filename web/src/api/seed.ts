@@ -141,6 +141,7 @@ export function makeSeed(now: number): StoreState {
   const requests: SeedRequest[] = [
     {
       id: 'req_1',
+      requesterId: 'u_lh',
       requesterName: 'Lena Hoffmann',
       initials: 'LH',
       requesterRole: 'noob',
@@ -154,6 +155,7 @@ export function makeSeed(now: number): StoreState {
     },
     {
       id: 'req_2',
+      requesterId: 'u_dr',
       requesterName: 'Diego Ramirez',
       initials: 'DR',
       requesterRole: 'noob',
@@ -167,6 +169,7 @@ export function makeSeed(now: number): StoreState {
     },
     {
       id: 'req_3',
+      requesterId: 'u_pn',
       requesterName: 'Priya Nair',
       initials: 'PN',
       requesterRole: 'noob',
@@ -180,6 +183,7 @@ export function makeSeed(now: number): StoreState {
     },
     {
       id: 'req_4',
+      requesterId: 'u_at',
       requesterName: 'Amine Tazi',
       initials: 'AT',
       requesterRole: 'pro',
