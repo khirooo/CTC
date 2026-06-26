@@ -3,9 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-_AUTH_MODES = ("email", "ghe_oauth")
 _WEB_TRANSPORTS = ("http", "https")
-_EMAIL_BACKENDS = ("console", "smtp")
 
 
 def _pick(env: Mapping, key: str, allowed: tuple[str, ...], default: str) -> str:
@@ -17,14 +15,10 @@ def _pick(env: Mapping, key: str, allowed: tuple[str, ...], default: str) -> str
 
 @dataclass(frozen=True)
 class DeploymentConfig:
-    auth_mode: str = "email"
     web_transport: str = "http"
-    email_backend: str = "console"
 
     @classmethod
     def from_env(cls, env: Mapping) -> "DeploymentConfig":
         return cls(
-            auth_mode=_pick(env, "CTC_AUTH_MODE", _AUTH_MODES, "email"),
             web_transport=_pick(env, "CTC_WEB_TRANSPORT", _WEB_TRANSPORTS, "http"),
-            email_backend=_pick(env, "CTC_EMAIL_BACKEND", _EMAIL_BACKENDS, "console"),
         )
