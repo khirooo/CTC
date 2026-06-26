@@ -14,6 +14,12 @@
 http://{$CTC_DOMAIN} {
 	encode gzip
 
+	# Access log for every request (off by default in Caddy — must be explicit).
+	log {
+		output stdout
+		format console
+	}
+
 	# The proxy's CA cert, so `ctc login` can fetch it from http://<domain>/ctc-ca.pem.
 	# Served from the shared cert volume mounted at /certs.
 	handle /ctc-ca.pem {

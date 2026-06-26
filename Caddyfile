@@ -5,6 +5,12 @@
 
 {$CTC_DOMAIN} {
 	encode gzip
+
+	# Access log for every request (off by default in Caddy — must be explicit).
+	log {
+		output stdout
+		format console
+	}
 	# Use the shared self-signed proxy cert (not Caddy's internal CA) so the cert
 	# `ctc login` trusts also fronts the dashboard — no separate trust, no warning
 	# after install. /certs is the same volume the proxy and gencert write.
