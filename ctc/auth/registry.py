@@ -53,3 +53,6 @@ class AuthRegistry:
     def store_pat(self, user_id: str, pat: str, now: int) -> None:
         ct, nonce = encrypt(pat, self.key)
         self.store.set_giver_pat(user_id, ct, nonce, fingerprint(pat), now)
+
+    def delete_pat(self, user_id: str) -> None:
+        self.store.delete_giver_pat(user_id)

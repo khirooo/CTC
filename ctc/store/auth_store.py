@@ -74,6 +74,9 @@ class AuthStore:
         r = self.conn.execute("SELECT * FROM giver_pats WHERE user_id=?", (user_id,)).fetchone()
         return dict(r) if r else None
 
+    def delete_giver_pat(self, user_id):
+        self.conn.execute("DELETE FROM giver_pats WHERE user_id=?", (user_id,))
+
     def set_giver_quota_snapshot(self, user_id, entitlement, remaining, reset_date, now):
         self.conn.execute(
             "UPDATE giver_pats SET entitlement=?, remaining_at_submit=?, quota_reset_date=? "

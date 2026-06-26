@@ -63,6 +63,8 @@ export function ProfileScreen() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [patSaveError, setPatSaveError] = useState<string | null>(null);
   const [patInput, setPatInput] = useState('');
+  const [rotating, setRotating] = useState(false);
+  const [revoking, setRevoking] = useState(false);
 
   if (settings.loading || !settings.data) {
     return (
@@ -105,12 +107,30 @@ export function ProfileScreen() {
     try {
       await api.updateSettings({ pat: patInput.trim() });
       setPatInput('');
+      setRotating(false);
       settings.reload();
       profile.reload();
     } catch (e) {
       setPatSaveError(e instanceof CtcApiError ? e.message : 'Could not validate that license — check it and try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRevoke() {
+    if (!window.confirm('Revoke your Copilot license? This removes your stored PAT and zeroes your credit this cycle.')) return;
+    setRevoking(true);
+    setPatSaveError(null);
+    try {
+      await api.revokePat();
+      setPatInput('');
+      setRotating(false);
+      settings.reload();
+      profile.reload();
+    } catch (e) {
+      setPatSaveError(e instanceof CtcApiError ? e.message : 'Could not revoke the license — please try again.');
+    } finally {
+      setRevoking(false);
     }
   }
 
@@ -288,20 +308,64 @@ export function ProfileScreen() {
       {isGiver && data.hasPat && (
         <div style={card}>
           <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 18 }}>Copilot license</div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <input
-              type="text"
-              readOnly
-              value="github_pat_••••••••••••••••"
-              style={{ ...inputStyle, flex: 1, color: 'var(--text-dim)', fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
-            />
-            <button style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '0 16px', color: 'var(--text)', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-              Rotate
-            </button>
-            <button style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 10, padding: '0 16px', color: '#ff6b6b', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-              Revoke
-            </button>
-          </div>
+          {patSaveError && (
+            <p role="alert" style={{ color: 'var(--consume)', fontSize: 13, margin: '0 0 12px', fontFamily: "'JetBrains Mono', monospace" }}>
+              {patSaveError}
+            </p>
+          )}
+          {rotating ? (
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input
+                type="text"
+                autoFocus
+                placeholder="github_pat_… (new license)"
+                value={patInput}
+                onChange={(e) => setPatInput(e.target.value)}
+                style={{ ...inputStyle, flex: 1, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
+              />
+              <button
+                type="button"
+                disabled={saving || !patInput.trim()}
+                onClick={handlePatSave}
+                style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, padding: '0 18px', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => { setRotating(false); setPatInput(''); setPatSaveError(null); }}
+                style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 10, padding: '0 16px', color: 'var(--text-dim)', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 10 }}>
+              <input
+                type="text"
+                readOnly
+                value="github_pat_••••••••••••••••"
+                style={{ ...inputStyle, flex: 1, color: 'var(--text-dim)', fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
+              />
+              <button
+                type="button"
+                disabled={revoking}
+                onClick={() => { setRotating(true); setPatSaveError(null); }}
+                style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '0 16px', color: 'var(--text)', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+              >
+                Rotate
+              </button>
+              <button
+                type="button"
+                disabled={revoking}
+                onClick={handleRevoke}
+                style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 10, padding: '0 16px', color: '#ff6b6b', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+              >
+                {revoking ? 'Revoking…' : 'Revoke'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

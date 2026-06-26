@@ -90,6 +90,52 @@ async def test_donate_requires_session():
 
 
 @pytest.mark.asyncio
+async def test_revoke_pat_full_disconnect():
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)
+    app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   deployment=_DEFAULT_DEPLOYMENT)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})       # become a giver
+        uid = store.get_user_by_login("octocat")["id"]
+        assert reg.pat_for(uid) == "ghp_x"
+        me = await (await cli.get("/api/me")).json()
+        assert me["role"] == "giver" and me["has_pat"] is True
+
+        r = await cli.delete("/api/pat")
+        assert r.status == 204
+
+        # PAT gone, role reverted, cycle credit zeroed
+        assert reg.pat_for(uid) is None
+        gc = eng.store.get_giver_cycle("c1", uid)
+        assert gc.quota == 0 and gc.pledge == 0
+        me = await (await cli.get("/api/me")).json()
+        assert me["role"] == "consumer" and me["has_pat"] is False
+
+
+@pytest.mark.asyncio
+async def test_revoke_pat_idempotent_without_pat():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)                                       # consumer, no PAT
+        r = await cli.delete("/api/pat")
+        assert r.status == 204
+        me = await (await cli.get("/api/me")).json()
+        assert me["role"] == "consumer" and me["has_pat"] is False
+
+
+@pytest.mark.asyncio
+async def test_revoke_pat_requires_session():
+    async with TestClient(TestServer(_make())) as cli:
+        assert (await cli.delete("/api/pat")).status == 401
+
+
+@pytest.mark.asyncio
 async def test_giver_without_pat_cannot_fund():
     async with TestClient(TestServer(_make())) as cli:
         await _login(cli)

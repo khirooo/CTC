@@ -183,6 +183,25 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
             raise web.HTTPBadRequest(text=str(e))
         return web.json_response(res)
 
+    async def api_pat_delete(req):
+        # Revoke = full disconnect. Deleting the PAT is the real enforcement: with
+        # no stored PAT, attribution can forward neither the user's own calls nor
+        # the pool, so the cycle credit becomes inert. We still zero the cycle
+        # credit for cleanliness, floored at already-consumed pool spend so the
+        # accounting invariants (engine guards) hold; in the common no-consumption
+        # case the floor is 0.
+        user = await current_user(req)
+        if not user:
+            raise web.HTTPUnauthorized(text="no session")
+        registry.delete_pat(user["id"])
+        cycle = engine.current_cycle()
+        if cycle is not None:
+            floor = engine.store.pool_consumed_from(cycle.id, user["id"])
+            engine.set_pledge(cycle.id, user["id"], floor)
+            engine.set_quota(cycle.id, user["id"], floor)
+        store.set_user_role(user["id"], "consumer")
+        return web.Response(status=204)
+
     async def api_token_create(req):
         user = await current_user(req)
         if not user:
@@ -289,6 +308,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         web.post("/auth/logout", auth_logout),
         web.get("/api/me", api_me),
         web.post("/api/pat", api_pat),
+        web.delete("/api/pat", api_pat_delete),
         web.post("/api/proxy-token", api_token_create),
         web.get("/api/proxy-token", api_token_list),
         web.delete("/api/proxy-token/{id}", api_token_delete),

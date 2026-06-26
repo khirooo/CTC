@@ -234,6 +234,16 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         pledgedNano: Math.floor(quotaAiu / 10) * NANO_PER_AIU,
       });
     },
+    async revokePat(): Promise<void> {
+      const user = requireSession();
+      // Full disconnect: drop the PAT, zero credit, revert to consumer.
+      const idx = state.users.findIndex(u => u.id === user.id);
+      const users = [...state.users];
+      users[idx] = { ...user, role: 'consumer', hasPat: false, totalCredit: 0 };
+      state = { ...state, users };
+      persistState();
+      return delay(undefined);
+    },
     async markOnboarded(): Promise<void> {
       requireSession();
       session = { ...session!, onboarded: true };

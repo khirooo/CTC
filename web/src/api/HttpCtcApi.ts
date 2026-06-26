@@ -107,6 +107,9 @@ export class HttpCtcApi implements CtcApi {
              entitlementAiu: res.entitlement_aiu, remainingAiu: res.remaining_aiu,
              resetDate: res.reset_date ?? null, pledgedNano: res.pledged_nano ?? 0 };
   }
+  async revokePat(): Promise<void> {
+    await apiFetch(this.base, '', '/pat', { method: 'DELETE' });
+  }
   async markOnboarded(): Promise<void> {
     await apiFetch(this.base, '', '/onboarding/complete', { method: 'POST' });
   }
