@@ -13,6 +13,7 @@ class CamelModel(BaseModel):
 
 class PublicRequestDTO(CamelModel):
     id: str
+    requester_id: str
     requester_name: str
     initials: str
     requester_role: str          # 'pro' | 'noob'
@@ -140,7 +141,7 @@ def build_public_request(store, get_user, r: Request, now: int, viewer_id: str |
     name = user["display_name"] if user else r.requester_id
     status = derive_status(funded, r.amount_needed, r.expires_at, now)
     return PublicRequestDTO(
-        id=r.id, requester_name=name, initials=initials(name),
+        id=r.id, requester_id=r.requester_id, requester_name=name, initials=initials(name),
         requester_role=ROLE_TO_REQUESTER[r.requester_role],
         amount_needed=r.amount_needed, amount_funded=funded,
         reason=r.reason, target=r.target, created_at=r.created_at,
