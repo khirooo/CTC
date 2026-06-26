@@ -223,6 +223,25 @@ def strip_bearer(auth: str) -> str:
     return auth.strip()
 
 
+_HTTP_REASON = {401: "Unauthorized", 402: "Payment Required", 503: "Service Unavailable"}
+
+def _ctc_block_response(path: str, status: int, message: str) -> bytes:
+    """Render a CTC pre-forward rejection in the upstream endpoint's *native*
+    error envelope, so the Copilot CLI surfaces our message the same way it shows
+    a real GHE quota error. A bare status code (the old empty-body 402) showed the
+    user nothing useful. Billable paths are /chat/completions (OpenAI shape) and
+    /v1/messages (Anthropic shape)."""
+    if path.split("?", 1)[0] == "/v1/messages":
+        payload = {"type": "error", "error": {"type": "ctc_error", "message": message}}
+    else:
+        payload = {"error": {"message": message, "type": "ctc_error", "code": "ctc"}}
+    body = json.dumps(payload).encode()
+    head = (f"HTTP/1.1 {status} {_HTTP_REASON.get(status, 'Error')}\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n\r\n").encode()
+    return head + body
+
+
 def _now() -> int:
     return int(time.time())
 
@@ -420,12 +439,21 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 # Pre-gate failed: no eligible credit. Block BEFORE forwarding.
                 # Log the specific cause so operators can distinguish misconfigurations.
                 if cycle is None:
-                    log.warning("[402] no active cycle (accounting DB misconfigured?)")
+                    log.warning("[503] no active cycle (accounting DB misconfigured?)")
+                    resp = _ctc_block_response(
+                        path, 503,
+                        "CTC has no active billing cycle. Contact your CTC operator.")
                 elif consumer is None:
-                    log.warning("[402] unknown consumer token (session=%s)", session)
+                    log.warning("[401] unknown consumer token (session=%s)", session)
+                    resp = _ctc_block_response(
+                        path, 401,
+                        "Your CTC proxy token was not recognized. Run `ctc login` to refresh it.")
                 else:
                     log.warning("[402] no eligible credit for session=%s", session)
-                writer.write(b"HTTP/1.1 402 Payment Required\r\nContent-Length: 0\r\n\r\n")
+                    resp = _ctc_block_response(
+                        path, 402,
+                        "You have exceeded your monthly quota (CTC credit pool).")
+                writer.write(resp)
                 await writer.drain()
                 continue
             # INVARIANT: engine calls here must stay synchronous; the shared sqlite
