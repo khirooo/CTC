@@ -211,3 +211,73 @@ async def test_history_lists_active_cycle():
         assert hist[0]["id"] == "c1" and hist[0]["label"] == "June"
         # CycleReport shape sanity
         assert {"pledged", "donated", "toPat", "toNonPat", "fills", "winners"} <= set(hist[0])
+
+
+@pytest.mark.asyncio
+async def test_search_users_blank_q_returns_empty():
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        store.upsert_user("u1", "alice", "Alice Smith", "consumer", 1000)
+        store.upsert_user("u2", "bobdev", "Bob Jones", "giver", 1001)
+
+        r = await cli.get("/api/users/search?q=")
+        assert r.status == 200
+        body = await r.json()
+        assert body == {"users": []}
+
+
+@pytest.mark.asyncio
+async def test_search_users_matches_name_and_login_case_insensitive():
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        store.upsert_user("u1", "alice", "Alice Smith", "consumer", 1000)
+        store.upsert_user("u2", "bobdev", "Bob Jones", "giver", 1001)
+
+        # case-insensitive name match
+        r = await cli.get("/api/users/search?q=ALICE")
+        assert r.status == 200
+        body = await r.json()
+        assert len(body["users"]) == 1
+        hit = body["users"][0]
+        assert set(hit.keys()) == {"id", "login", "name", "initials", "role"}
+        assert hit["login"] == "alice"
+        assert hit["name"] == "Alice Smith"
+        assert hit["initials"] == "AS"
+        assert hit["role"] == "consumer"
+
+        # login match
+        r2 = await cli.get("/api/users/search?q=bobdev")
+        body2 = await r2.json()
+        assert len(body2["users"]) == 1
+        assert body2["users"][0]["login"] == "bobdev"
+
+        # substring matching both name and login
+        r3 = await cli.get("/api/users/search?q=ob")
+        body3 = await r3.json()
+        logins = {u["login"] for u in body3["users"]}
+        # "bobdev" has "ob" in login; "Bob Jones" has "ob" in name
+        assert "bobdev" in logins
+
+
+@pytest.mark.asyncio
+async def test_search_users_caps_at_8():
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        for i in range(10):
+            store.upsert_user(f"u{i}", f"user{i}", f"Alpha User {i}", "consumer", 1000 + i)
+
+        r = await cli.get("/api/users/search?q=alpha")
+        body = await r.json()
+        assert len(body["users"]) <= 8
+
+
+@pytest.mark.asyncio
+async def test_search_users_requires_session():
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        # no login
+        r = await cli.get("/api/users/search?q=alice")
+        assert r.status == 401

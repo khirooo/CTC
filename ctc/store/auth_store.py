@@ -34,6 +34,16 @@ class AuthStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def search_users(self, q, limit=8):
+        like = f"%{q}%"
+        rows = self.conn.execute(
+            "SELECT id, ghe_login, display_name, role FROM users "
+            "WHERE display_name LIKE ? COLLATE NOCASE OR ghe_login LIKE ? COLLATE NOCASE "
+            "ORDER BY created_at, id LIMIT ?",
+            (like, like, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def add_proxy_token(self, id, token_hash, user_id, fingerprint, now):
         self.conn.execute(
             "INSERT INTO proxy_tokens (id, token_hash, user_id, fingerprint, created_at) "

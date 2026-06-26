@@ -8,8 +8,8 @@ from ..accounting.reports import build_dashboard, build_history
 from ..domain.config import NANO_PER_AIU
 from ..domain.types import Role
 from .serializers import (CreateRequestDTO, DonateDTO, ListRequestsDTO, OwnProfileDTO,
-                          PublicRequestDTO, PublicUserDTO, RoleCountsDTO, SettingsDTO,
-                          SettingsPatchDTO, build_public_request, initials)
+                          PublicRequestDTO, PublicUserDTO, PublicUserHitDTO, RoleCountsDTO,
+                          SettingsDTO, SettingsPatchDTO, build_public_request, initials)
 
 
 def register_web_routes(app, *, store, engine, current_user, now, live_quota):
@@ -225,7 +225,25 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             reset_date=reset, unlimited=False, quota_stale=stale, **common)
         return web.json_response(dto.model_dump(by_alias=True))
 
+    async def search_users(req):
+        await _require_user(req)
+        q = (req.query.get("q") or "").strip()
+        if not q:
+            return web.json_response({"users": []})
+        hits = store.search_users(q, 8)
+        users = [
+            PublicUserHitDTO(
+                id=u["id"], login=u["ghe_login"],
+                name=u["display_name"] or u["ghe_login"],
+                initials=initials(u["display_name"] or u["ghe_login"]),
+                role=u["role"],
+            ).model_dump(by_alias=True)
+            for u in hits
+        ]
+        return web.json_response({"users": users})
+
     app.add_routes([
+        web.get("/api/users/search", search_users),
         web.get("/api/requests", list_requests),
         web.post("/api/requests", create_request),
         web.post("/api/requests/{id}/donate", donate),

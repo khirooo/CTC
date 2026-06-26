@@ -73,6 +73,14 @@ class PublicUserDTO(CamelModel):
     role: str                    # 'giver' | 'consumer'
 
 
+class PublicUserHitDTO(CamelModel):
+    id: str
+    login: str
+    name: str
+    initials: str
+    role: str                    # 'giver' | 'consumer'
+
+
 class OwnProfileDTO(CamelModel):
     # Credit fields are RAW nano-AIU (the frontend `aiu()` helper divides by
     # NANO_PER_AIU for display).
