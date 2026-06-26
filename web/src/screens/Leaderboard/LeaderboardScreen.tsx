@@ -2,6 +2,7 @@ import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
 import { aiu } from '@/domain/credit';
 import type { LeaderboardEntry } from '@/domain/types';
+import { TierBadge } from '@/components/TierBadge';
 
 interface TrackConfig {
   label: string;
@@ -155,6 +156,51 @@ export function LeaderboardScreen() {
         {tracks.map((track) => (
           <TrackCard key={track.label} {...track} />
         ))}
+      </div>
+      <div
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 16,
+          padding: '22px 24px',
+        }}
+      >
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Standings</div>
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 18 }}>
+          Net contribution this cycle — given minus taken. Nobody hides.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {data.standings.map((s, i) => (
+            <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontWeight: 600,
+                  color: 'var(--text-faint)',
+                  width: 18,
+                }}
+              >
+                {i + 1}
+              </span>
+              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{s.name}</span>
+              <TierBadge tier={s.tier} />
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontWeight: 600,
+                  width: 110,
+                  textAlign: 'right',
+                  color: s.net < 0 ? 'var(--consume)' : 'var(--give)',
+                }}
+              >
+                {s.net >= 0 ? '+' : ''}{aiu(s.net)}
+              </span>
+            </div>
+          ))}
+          {data.standings.length === 0 && (
+            <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>No standings yet</div>
+          )}
+        </div>
       </div>
     </div>
   );
