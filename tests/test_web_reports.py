@@ -71,9 +71,10 @@ async def test_leaderboard_tracks_in_nano():
         engine.record_consumption("c1", "bob", octo, Bucket.POOL, 3 * NANO_PER_AIU, ts=2, allow_overshoot=True)
 
         lb = await (await cli.get("/api/leaderboard")).json()
-        assert lb["generous"] == [{"name": "Octo", "value": 3 * NANO_PER_AIU}]
-        assert lb["topPro"] == [{"name": "Octo", "value": 2 * NANO_PER_AIU}]
-        assert lb["topNoob"] == [{"name": "Bob", "value": 3 * NANO_PER_AIU}]
+        assert lb["generous"] == [{"userId": octo, "name": "Octo", "value": 3 * NANO_PER_AIU}]
+        assert lb["topPro"] == [{"userId": octo, "name": "Octo", "value": 2 * NANO_PER_AIU}]
+        bob_id = store.get_user_by_login("bob")["id"]
+        assert lb["topNoob"] == [{"userId": bob_id, "name": "Bob", "value": 3 * NANO_PER_AIU}]
 
 
 @pytest.mark.asyncio
