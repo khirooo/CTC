@@ -17,6 +17,8 @@ import type {
   AdminSettings,
   AdminSettingsPatch,
   AdminBootConfig,
+  PublicProfile,
+  PublicUserHit,
 } from '@/domain/types';
 import { deriveStatus, donationKind, NANO_PER_AIU } from '@/domain/credit';
 import { CtcApiError } from './http';
@@ -66,6 +68,7 @@ const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   requestExpiryHours:    { value: 24,    isOverride: false },
   requestExpiryMaxHours: { value: 168,   isOverride: false },
   creditToEuroRate:      { value: 0.1,   isOverride: false },
+  defaultChipInAiu:      { value: 25,    isOverride: false },
   participantsMode:      { value: 'givers_and_consumers', isOverride: false },
   sharedPoolEnabled:     { value: true,  isOverride: false },
   boot:                  DEFAULT_BOOT_CONFIG,
@@ -83,6 +86,7 @@ interface MockApiOpts {
 function toPublic(r: SeedRequest, now: number, viewerId?: string): PublicRequest {
   return {
     id: r.id,
+    requesterId: r.requesterId ?? '',
     requesterName: r.requesterName,
     initials: r.initials,
     requesterRole: r.requesterRole,
@@ -178,6 +182,7 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       participantsMode: deployParticipantsMode,
       sharedPoolEnabled: deploySharedPoolEnabled,
       creditToEuroRate: (state.adminSettings ?? DEFAULT_ADMIN_SETTINGS).creditToEuroRate.value,
+      defaultChipInAiu: (state.adminSettings ?? DEFAULT_ADMIN_SETTINGS).defaultChipInAiu.value,
       authMode: 'email',
       webTransport: 'http',
     };
@@ -402,17 +407,31 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       }).length;
 
       // Fixed activity log rows for the dashboard
+      // actorId is set to the initiating user's id for rows with a clear actor (click-through demo)
       const activity: ActivityEntry[] = [
-        { time: '12:48:02', kind: 'donate',  detail: 'ada → lena',          amount: '+25' },
-        { time: '12:47:30', kind: 'request', detail: 'priya → @ada',        amount: '90' },
-        { time: '12:46:30', kind: 'fulfill', detail: 'amine · auto-closed', amount: '120 ✓' },
-        { time: '12:45:12', kind: 'donate',  detail: 'yuki → diego',       amount: '+30' },
-        { time: '12:44:01', kind: 'request', detail: 'lena · open to all',  amount: '60' },
-        { time: '12:42:48', kind: 'rotate',  detail: 'sofia → amine',       amount: '+40' },
+        { time: '12:48:02', kind: 'donate',  detail: 'ada → lena',          amount: '+25',   actorId: 'u_ada' },
+        { time: '12:47:30', kind: 'request', detail: 'priya → @ada',        amount: '90',    actorId: 'u_pn' },
+        { time: '12:46:30', kind: 'fulfill', detail: 'amine · auto-closed', amount: '120 ✓', actorId: undefined },
+        { time: '12:45:12', kind: 'donate',  detail: 'yuki → diego',        amount: '+30',   actorId: 'u_kef' },
+        { time: '12:44:01', kind: 'request', detail: 'lena · open to all',  amount: '60',    actorId: 'u_lh' },
+        { time: '12:42:48', kind: 'rotate',  detail: 'sofia → amine',       amount: '+40',   actorId: 'u_sl' },
       ];
 
-      // Leaderboard snapshot
+      // Leaderboard snapshot. "Top users" merges hosts + guests by usage,
+      // mirroring the real backend (reports.py build_dashboard).
       const lb = await api.getLeaderboard();
+      const topUsersMap = new Map<string, { value: number; userId: string }>();
+      for (const entry of [...lb.topPro, ...lb.topNoob]) {
+        const existing = topUsersMap.get(entry.name);
+        topUsersMap.set(entry.name, {
+          value: (existing?.value ?? 0) + entry.value,
+          userId: entry.userId,
+        });
+      }
+      const topUsers: LeaderboardEntry[] = [...topUsersMap.entries()]
+        .map(([name, { value, userId }]) => ({ name, value, userId }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5);
 
       // Strip private fields — DashboardData only has public shapes
       const result: DashboardData = {
@@ -429,7 +448,7 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         activity,
         leaderboardSnapshot: {
           generous: lb.generous,
-          topConsumers: lb.topNoob,
+          topConsumers: topUsers,
         },
       };
       return delay(result);
@@ -441,19 +460,19 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         .filter(u => u.donatedSoFar > 0)
         .sort((a, b) => b.donatedSoFar - a.donatedSoFar)
         .slice(0, 5)
-        .map(u => ({ name: u.name, value: u.donatedSoFar }));
+        .map(u => ({ name: u.name, value: u.donatedSoFar, userId: u.id }));
 
       const topPro: LeaderboardEntry[] = state.users
         .filter(u => u.role === 'giver' && u.consumed > 0)
         .sort((a, b) => b.consumed - a.consumed)
         .slice(0, 5)
-        .map(u => ({ name: u.name, value: u.consumed }));
+        .map(u => ({ name: u.name, value: u.consumed, userId: u.id }));
 
       const topNoob: LeaderboardEntry[] = state.users
         .filter(u => u.role === 'consumer')
         .sort((a, b) => b.consumed - a.consumed)
         .slice(0, 5)
-        .map(u => ({ name: u.name, value: u.consumed }));
+        .map(u => ({ name: u.name, value: u.consumed, userId: u.id }));
 
       const givers = state.users
         .filter(u => u.role === 'giver')
@@ -462,7 +481,11 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
           net: u.donatedSoFar - u.consumed,
           active: u.donatedSoFar > 0 || u.consumed > 0,
         }));
-      const standings = mockAssignTiers(givers);
+      const tiered = mockAssignTiers(givers);
+      const standings = tiered.map(s => ({
+        ...s,
+        userId: state.users.find(u => u.name === s.name)?.id ?? '',
+      }));
 
       const result: Leaderboard = { generous, topPro, topNoob, standings };
       return delay(result);
@@ -701,6 +724,9 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       if (patch.creditToEuroRate !== undefined) {
         updated.creditToEuroRate = { value: patch.creditToEuroRate, isOverride: true };
       }
+      if (patch.defaultChipInAiu !== undefined) {
+        updated.defaultChipInAiu = { value: patch.defaultChipInAiu, isOverride: true };
+      }
       if (patch.participantsMode !== undefined) {
         updated.participantsMode = { value: patch.participantsMode, isOverride: true };
       }
@@ -710,6 +736,50 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       state = { ...state, adminSettings: updated };
       persistState();
       return delay(updated);
+    },
+
+    // --- Public profiles ---
+
+    async getUserProfile(id: string): Promise<PublicProfile> {
+      const u = state.users.find(u => u.id === id);
+      if (!u) throw new CtcApiError('not_found', 'not found', 404);
+
+      // Compute tier for givers
+      let tier: string | null = null;
+      if (u.role === 'giver') {
+        const givers = state.users
+          .filter(g => g.role === 'giver')
+          .map(g => ({ name: g.name, net: g.donatedSoFar - g.consumed, active: g.donatedSoFar > 0 || g.consumed > 0 }));
+        const ranked = mockAssignTiers(givers);
+        const entry = ranked.find(r => r.name === u.name);
+        if (entry) tier = entry.tier;
+      }
+
+      // donationsMade = donatedSoFar in nano-AIU (dev stub — real backend counts grants)
+      let donationsMade = 0; // dev stub
+      if (u.role === 'giver') donationsMade = u.donatedSoFar;
+
+      const profile: PublicProfile = {
+        id: u.id,
+        name: u.name,
+        initials: u.initials,
+        role: u.role,
+        tier,
+        donationsMade,
+      };
+      return delay(profile);
+    },
+
+    async searchUsers(q: string): Promise<PublicUserHit[]> {
+      // Blank query returns empty (not a full dump)
+      if (!q.trim()) return delay([]);
+
+      const lower = q.toLowerCase();
+      const hits: PublicUserHit[] = state.users
+        .filter(u => u.name.toLowerCase().includes(lower))
+        .slice(0, 8)   // cap at 8
+        .map(u => ({ id: u.id, name: u.name, initials: u.initials, role: u.role }));
+      return delay(hits);
     },
   };
 

@@ -3,6 +3,7 @@ import type {
   PublicRequest, CreateRequestInput, DashboardData, Leaderboard, OwnProfile,
   SettingsData, SettingsPatch, Session, OnboardingInput, CycleReport,
   AdminUser, AdminUserDetail, AdminSettings, AdminSettingsPatch, AdminBootConfig,
+  PublicProfile, PublicUserHit,
 } from '@/domain/types';
 import { apiFetch, CtcApiError } from './http';
 
@@ -86,6 +87,7 @@ export class HttpCtcApi implements CtcApi {
       participantsMode: me.participants_mode,
       sharedPoolEnabled: me.shared_pool_enabled !== undefined ? Boolean(me.shared_pool_enabled) : undefined,
       creditToEuroRate: me.credit_to_euro_rate !== undefined ? Number(me.credit_to_euro_rate) : undefined,
+      defaultChipInAiu: me.default_chip_in_aiu !== undefined ? Number(me.default_chip_in_aiu) : undefined,
       authMode: me.auth_mode,
       webTransport: me.web_transport,
     };
@@ -144,6 +146,15 @@ export class HttpCtcApi implements CtcApi {
     });
   }
 
+  // --- Public profiles ---
+  async getUserProfile(id: string): Promise<PublicProfile> {
+    return this.getJson(`/users/${encodeURIComponent(id)}`);
+  }
+  async searchUsers(q: string): Promise<PublicUserHit[]> {
+    const result = await this.getJson(`/users/search?q=${encodeURIComponent(q)}`);
+    return result.users;
+  }
+
   // --- Admin ---
   async listAllUsers(): Promise<AdminUser[]> {
     const rows = await apiFetch(this.base, '', '/admin/users');
@@ -173,6 +184,7 @@ export class HttpCtcApi implements CtcApi {
     if (patch.requestExpiryHours !== undefined) body.request_expiry_hours = patch.requestExpiryHours;
     if (patch.requestExpiryMaxHours !== undefined) body.request_expiry_max_hours = patch.requestExpiryMaxHours;
     if (patch.creditToEuroRate !== undefined) body.credit_to_euro_rate = patch.creditToEuroRate;
+    if (patch.defaultChipInAiu !== undefined) body.default_chip_in_aiu = patch.defaultChipInAiu;
     if (patch.participantsMode !== undefined) body.participants_mode = patch.participantsMode;
     if (patch.sharedPoolEnabled !== undefined) body.shared_pool_enabled = patch.sharedPoolEnabled ? 'on' : 'off';
     return mapAdminSettings(await apiFetch(this.base, '', '/admin/settings', {
@@ -200,6 +212,7 @@ function mapAdminSettings(s: any): AdminSettings {
     requestExpiryHours: field(s.request_expiry_hours),
     requestExpiryMaxHours: field(s.request_expiry_max_hours),
     creditToEuroRate: field(s.credit_to_euro_rate),
+    defaultChipInAiu: field(s.default_chip_in_aiu),
     participantsMode: s.participants_mode ? field(s.participants_mode) : { value: 'givers_only', isOverride: false },
     sharedPoolEnabled: s.shared_pool_enabled ? field(s.shared_pool_enabled) : { value: false, isOverride: false },
     boot,

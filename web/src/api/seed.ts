@@ -82,10 +82,10 @@ export function makeSeed(now: number): StoreState {
       ],
       winners: {
         // rotator key kept per brief — History screen won't render it but it must be preserved
-        rotator: { name: 'Yuki Tanaka', value: 640 * N },
-        generous: { name: 'Marco Bianchi', value: 1540 * N },
-        pro: { name: 'Yuki Tanaka', value: 1240 * N },
-        noob: { name: 'Lena Hoffmann', value: 412 * N },
+        rotator: { name: 'Yuki Tanaka', value: 640 * N, userId: 'u_kef' },
+        generous: { name: 'Marco Bianchi', value: 1540 * N, userId: 'u_mb' },
+        pro: { name: 'Yuki Tanaka', value: 1240 * N, userId: 'u_kef' },
+        noob: { name: 'Lena Hoffmann', value: 412 * N, userId: 'u_lh' },
       },
     },
     {
@@ -106,10 +106,10 @@ export function makeSeed(now: number): StoreState {
         { who: 'Yuki Tanaka', amount: 480 * N, count: 4 },
       ],
       winners: {
-        rotator: { name: 'Sofia Lindqvist', value: 520 * N },
-        generous: { name: 'Yuki Tanaka', value: 1480 * N },
-        pro: { name: 'Amine Tazi', value: 1080 * N },
-        noob: { name: 'Diego Ramirez', value: 388 * N },
+        rotator: { name: 'Sofia Lindqvist', value: 520 * N, userId: 'u_sl' },
+        generous: { name: 'Yuki Tanaka', value: 1480 * N, userId: 'u_kef' },
+        pro: { name: 'Amine Tazi', value: 1080 * N, userId: 'u_at' },
+        noob: { name: 'Diego Ramirez', value: 388 * N, userId: 'u_dr' },
       },
     },
     {
@@ -130,10 +130,10 @@ export function makeSeed(now: number): StoreState {
         { who: 'Marco Bianchi', amount: 320 * N, count: 2 },
       ],
       winners: {
-        rotator: { name: 'Amine Tazi', value: 410 * N },
-        generous: { name: 'Sofia Lindqvist', value: 880 * N },
-        pro: { name: 'Yuki Tanaka', value: 920 * N },
-        noob: { name: 'Priya Nair', value: 276 * N },
+        rotator: { name: 'Amine Tazi', value: 410 * N, userId: 'u_at' },
+        generous: { name: 'Sofia Lindqvist', value: 880 * N, userId: 'u_sl' },
+        pro: { name: 'Yuki Tanaka', value: 920 * N, userId: 'u_kef' },
+        noob: { name: 'Priya Nair', value: 276 * N, userId: 'u_pn' },
       },
     },
   ];

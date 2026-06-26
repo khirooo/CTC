@@ -13,8 +13,27 @@ export interface PublicUser {
   role: Role;
 }
 
+/** Public profile for a user — NO financial fields (no credits, no pledgedSurplus, etc.) */
+export interface PublicProfile {
+  id: string;
+  name: string;
+  initials: string;
+  role: Role;
+  tier: string | null;      // giver tier (null for consumers or newcomers without tier)
+  donationsMade: number;    // count of grants made (nano-AIU donated so far)
+}
+
+/** Lightweight hit returned by the user search endpoint */
+export interface PublicUserHit {
+  id: string;
+  name: string;
+  initials: string;
+  role: Role;
+}
+
 export interface PublicRequest {
   id: string;
+  requesterId: string;      // owner user id (drives click-through to profile)
   requesterName: string;
   initials: string;
   requesterRole: RequesterRole;
@@ -57,17 +76,20 @@ export interface ActivityEntry {
   kind: 'donate' | 'request' | 'fulfill' | 'rotate';
   detail: string;
   amount: string;
+  actorId?: string | null;  // user id of the actor (undefined when no clear actor)
 }
 
 export interface LeaderboardEntry {
   name: string;
   value: number;
+  userId: string;  // user id for click-through to public profile
 }
 
 export interface StandingEntry {
   name: string;
   net: number;   // nano-AIU
   tier: string;
+  userId: string;  // user id for click-through to public profile
 }
 
 export interface Leaderboard {
@@ -179,6 +201,8 @@ export interface Session {
   sharedPoolEnabled?: boolean;
   /** Effective euros-per-AIU rate, live from /api/me (admin-editable). */
   creditToEuroRate?: number;
+  /** Effective default chip-in amount in AIU, live from /api/me (admin-editable). */
+  defaultChipInAiu?: number;
   authMode?: 'email' | 'ghe_oauth';
   webTransport?: 'http' | 'https';
   hasPat?: boolean;
@@ -233,6 +257,7 @@ export interface AdminSettings {
   requestExpiryHours: AdminSettingField<number>;
   requestExpiryMaxHours: AdminSettingField<number>;
   creditToEuroRate: AdminSettingField<number>;
+  defaultChipInAiu: AdminSettingField<number>;
   participantsMode: AdminSettingField<string>;
   sharedPoolEnabled: AdminSettingField<boolean>;
   boot: AdminBootConfig | null;
@@ -244,6 +269,7 @@ export type AdminSettingsPatch = Partial<{
   requestExpiryHours: number;
   requestExpiryMaxHours: number;
   creditToEuroRate: number;
+  defaultChipInAiu: number;
   participantsMode: 'givers_only' | 'givers_and_consumers';
   sharedPoolEnabled: boolean;
 }>;

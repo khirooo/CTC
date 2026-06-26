@@ -14,6 +14,8 @@ import type {
   AdminUserDetail,
   AdminSettings,
   AdminSettingsPatch,
+  PublicProfile,
+  PublicUserHit,
 } from '@/domain/types';
 
 export interface ListRequestsResult {
@@ -61,6 +63,10 @@ export interface CtcApi {
   // Config
   getConfig(): Promise<{ authMode: 'email' | 'ghe_oauth' }>;
   startEmailLogin(email: string): Promise<void>;
+
+  // Public profiles
+  getUserProfile(id: string): Promise<PublicProfile>;
+  searchUsers(q: string): Promise<PublicUserHit[]>;
 
   // Admin
   listAllUsers(): Promise<AdminUser[]>;
