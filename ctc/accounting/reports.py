@@ -77,7 +77,12 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         int(fulfilled_count * 100 // total_requests) if total_requests > 0 else 0
     )
 
-    # --- activeGivers: givers with pledge>0 OR appearing as source_giver_id in events ---
+    # --- activeGivers: a giver is an "active host" if they have a license (PAT)
+    # connected, OR pledged>0, OR appear as a source in consumption events. The
+    # PAT clause is what matters when the shared pool is off (pledge is forced to
+    # 0 then), so a connected host counts before it has run anything. ---
+    givers_with_pat_rows = conn.execute("SELECT user_id FROM giver_pats").fetchall()
+    givers_with_pat = {r["user_id"] for r in givers_with_pat_rows}
     givers_with_pledge = {r["giver_id"] for r in giver_rows if r["pledge"] > 0}
     givers_with_activity_rows = conn.execute(
         "SELECT DISTINCT source_giver_id FROM consumption_events WHERE cycle_id=?",
@@ -85,7 +90,9 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     ).fetchall()
     givers_with_activity = {r["source_giver_id"] for r in givers_with_activity_rows}
     # Only count users that are actually givers (have giver_cycle records)
-    active_givers = len((givers_with_pledge | givers_with_activity) & giver_ids)
+    active_givers = len(
+        (givers_with_pat | givers_with_pledge | givers_with_activity) & giver_ids
+    )
 
     # --- activeConsumers: distinct consumer_ids in events that are NOT givers ---
     all_consumer_rows = conn.execute(

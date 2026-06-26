@@ -97,6 +97,18 @@ async def test_dashboard_shape_and_units():
 
 
 @pytest.mark.asyncio
+async def test_active_host_counts_connected_pat_with_pool_off():
+    # Pool off (default), giver connects a PAT but has run nothing yet.
+    # An "active host" = license connected, so it counts as 1 (not 0).
+    app, store, engine = _build()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})   # octocat -> giver, no usage
+        d = await (await cli.get("/api/dashboard")).json()
+        assert d["activeGivers"] == 1
+
+
+@pytest.mark.asyncio
 async def test_profile_giver_in_nano():
     app, store, engine = _build(shared_pool=True)
     async with TestClient(TestServer(app)) as cli:
