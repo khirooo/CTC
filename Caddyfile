@@ -3,6 +3,16 @@
 # CTC_DOMAIN comes from .env (use "localhost" for a local test — Caddy then uses
 # its internal CA).
 
+{
+	# Browsers send NO SNI when connecting to a bare IP (SNI carries hostnames
+	# only, per RFC 6066). Without a default, Caddy can't choose a cert for a
+	# no-SNI handshake and aborts it with a TLS "internal error" — so an IP-valued
+	# CTC_DOMAIN fails in the browser (hard ERR_SSL_PROTOCOL_ERROR, no "proceed")
+	# even when the cert is valid. Naming the default makes no-SNI handshakes
+	# resolve to our site. Harmless for hostname deploys (browsers send SNI there).
+	default_sni {$CTC_DOMAIN}
+}
+
 {$CTC_DOMAIN} {
 	encode gzip
 
