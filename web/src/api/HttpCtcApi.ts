@@ -58,7 +58,7 @@ export class HttpCtcApi implements CtcApi {
     return apiFetch(this.base, '', '/settings');
   }
 
-  // --- auth: OAuth-only (signIn redirects to GHE; accounts created on first login) ---
+  // --- auth: OAuth-only (signIn redirects to GitLab; accounts created on first login) ---
   signIn(_email: string, _password: string): Promise<Session> {
     window.location.href = this.authBase() + '/auth/login';
     return new Promise<Session>(() => {}); // never resolves; the page unloads

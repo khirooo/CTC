@@ -16,8 +16,9 @@ async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user
         raise
     except Exception as e:  # network / non-200 surfaced by the caller's fetcher
         raise PatInvalid(str(e))
-    # Only ghe_oauth identities are GHE logins; an email identity can't match a
-    # PAT's GHE username, so the ownership check is skipped in email auth mode.
+    # Under GitLab auth the CTC login is a GitLab username, which can never match a
+    # PAT's GHE owner, so the ownership check is always skipped (enforce_identity=False).
+    # The branch is retained for tests that exercise identity enforcement directly.
     if enforce_identity and user.get("login") != ghe_login:
         raise PatIdentityMismatch(f"PAT belongs to {user.get('login')}, not {ghe_login}")
     pi = user.get("quota_snapshots", {}).get("premium_interactions", {})

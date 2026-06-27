@@ -50,7 +50,7 @@ describe('HttpCtcApi', () => {
         user_id: 'u1', ghe_login: 'octocat', display_name: 'Octo', role: 'giver',
         has_pat: true, onboarded: true,
         participants_mode: 'givers_and_consumers', shared_pool_enabled: true,
-        auth_mode: 'ghe_oauth', web_transport: 'https',
+        web_transport: 'https',
       }),
     })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', f);

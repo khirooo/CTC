@@ -18,7 +18,7 @@ from ctc.auth.crypto import derive_key
 from ctc.auth.registry import AuthRegistry
 from ctc.auth.sessions import SessionService
 from ctc.auth.oauth import GitLabOAuth, AiohttpJson
-from ctc.auth.onboarding import validate_and_store_pat, PatInvalid, PatIdentityMismatch
+from ctc.auth.onboarding import validate_and_store_pat, PatInvalid
 from ctc.auth.admin import is_admin as _is_admin
 from ctc.domain.deployment import DeploymentConfig
 
@@ -180,8 +180,6 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
                                                live_cycle_id, user["id"], user["ghe_login"], pat,
                                                now(), effective_config=getattr(engine, "config", None),
                                                enforce_identity=False)
-        except PatIdentityMismatch as e:
-            raise web.HTTPConflict(text=str(e))
         except PatInvalid as e:
             raise web.HTTPBadRequest(text=str(e))
         return web.json_response(res)
