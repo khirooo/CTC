@@ -25,8 +25,6 @@ fi
 set -a; . ./.env; set +a
 
 # Apply the same defaults compose/the app use, so we validate what will run.
-CTC_AUTH_MODE="${CTC_AUTH_MODE:-email}"
-CTC_EMAIL_BACKEND="${CTC_EMAIL_BACKEND:-console}"
 CTC_WEB_TRANSPORT="${CTC_WEB_TRANSPORT:-http}"
 CADDYFILE="${CADDYFILE:-Caddyfile}"
 PROXY_BIND="${PROXY_BIND:-127.0.0.1}"
@@ -44,17 +42,11 @@ fi
 [ -n "${GHE_API_BASE:-}" ]  || fail "GHE_API_BASE is unset"
 [ -n "${REAL_GHE_HOST:-}" ] || fail "REAL_GHE_HOST is unset"
 
-# --- mode-specific required vars ---
-if [ "$CTC_AUTH_MODE" = "ghe_oauth" ]; then
-  [ -n "${GHE_OAUTH_CLIENT_ID:-}" ]     || fail "CTC_AUTH_MODE=ghe_oauth but GHE_OAUTH_CLIENT_ID is unset"
-  [ -n "${GHE_OAUTH_CLIENT_SECRET:-}" ] || fail "CTC_AUTH_MODE=ghe_oauth but GHE_OAUTH_CLIENT_SECRET is unset"
-  [ -n "${GHE_OAUTH_BASE:-}" ]          || fail "CTC_AUTH_MODE=ghe_oauth but GHE_OAUTH_BASE is unset"
-fi
-
-if [ "$CTC_EMAIL_BACKEND" = "smtp" ]; then
-  [ -n "${CTC_SMTP_HOST:-}" ] || fail "CTC_EMAIL_BACKEND=smtp but CTC_SMTP_HOST is unset"
-  [ -n "${CTC_SMTP_FROM:-}" ] || fail "CTC_EMAIL_BACKEND=smtp but CTC_SMTP_FROM is unset"
-fi
+# --- GitLab OAuth required vars ---
+[ -n "${GITLAB_BASE:-}" ]                || fail "GITLAB_BASE is unset"
+[ -n "${GITLAB_OAUTH_CLIENT_ID:-}" ]     || fail "GITLAB_OAUTH_CLIENT_ID is unset"
+[ -n "${GITLAB_OAUTH_CLIENT_SECRET:-}" ] || fail "GITLAB_OAUTH_CLIENT_SECRET is unset"
+[ -n "${GITLAB_OAUTH_REDIRECT_URI:-}" ]  || fail "GITLAB_OAUTH_REDIRECT_URI is unset"
 
 # --- transport consistency ---
 case "$CTC_WEB_TRANSPORT" in

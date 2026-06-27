@@ -12,9 +12,9 @@ This document specifies the API contract for the control-plane server (`api_serv
 
 ## Authentication & Session Lifecycle
 
-### POST /auth/login
+### GET /auth/login
 
-Start the GHE OAuth flow.
+Start the GitLab OAuth flow.
 
 | | |
 |---|---|
@@ -22,14 +22,14 @@ Start the GHE OAuth flow.
 | **Path** | `/auth/login` |
 | **Auth** | none |
 | **Request body** | — |
-| **Success response** | 302 redirect to `GHE_OAUTH_BASE/authorize?...&state=...` |
+| **Success response** | 302 redirect to `GITLAB_BASE/oauth/authorize?...&state=...` |
 | **Side effects** | Sets `ctc_oauth_state` cookie (httpOnly, SameSite=Lax, short-lived 10 min) containing signed OAuth state. |
 
 ---
 
 ### GET /auth/callback
 
-Complete the GHE OAuth flow.
+Complete the GitLab OAuth flow.
 
 | | |
 |---|---|
@@ -37,12 +37,12 @@ Complete the GHE OAuth flow.
 | **Path** | `/auth/callback?code=<code>&state=<state>` |
 | **Auth** | none (but verifies `state` against `ctc_oauth_state` cookie) |
 | **Request body** | — |
-| **Query params** | `code` (from GHE), `state` (CSRF token) |
+| **Query params** | `code` (from GitLab), `state` (CSRF token) |
 | **Success response** | 302 redirect to `CTC_APP_ORIGIN` |
-| **Side effects** | On valid `state`: upserts user (if new), creates session record, sets `ctc_session` cookie. Deletes `ctc_oauth_state` cookie. |
+| **Side effects** | On valid `state`: exchanges code for GitLab access token, fetches GitLab identity (`read_user` scope), upserts user (if new), creates session record, sets `ctc_session` cookie. Deletes `ctc_oauth_state` cookie. |
 | **Error (400)** | Bad/missing `state` or state signature mismatch: `{ "error": "bad oauth state", "message": "..." }` |
 
-User is created as a `consumer` on first login. The `user_id` is an opaque uuid hex string, reused for accounting.
+User is created as a `consumer` on first login. The `user_id` is an opaque uuid hex string, reused for accounting. The `ghe_login` field stores the GitLab username.
 
 ---
 
@@ -91,8 +91,8 @@ Fetch the authenticated user's profile.
 | Field | Type | Description |
 |---|---|---|
 | `user_id` | string (uuid hex) | Opaque internal user ID, used by accounting. |
-| `ghe_login` | string | GitHub Enterprise login (identity). |
-| `display_name` | string | User's display name from GHE. |
+| `ghe_login` | string | GitLab username (identity; the field name is kept for compatibility). |
+| `display_name` | string | User's display name from GitLab. |
 | `role` | string | `"consumer"` (default) or `"giver"` (after storing a PAT). |
 | `has_pat` | boolean | Whether the user has stored a valid PAT. |
 
@@ -279,7 +279,7 @@ The control plane allows:
 
 The following secrets are never logged, returned in responses, or sent to the client:
 - `CTC_SECRET_KEY` (symmetric key for PAT encryption + cookie/state signing)
-- `GHE_OAUTH_CLIENT_SECRET` (OAuth app secret)
+- `GITLAB_OAUTH_CLIENT_SECRET` (OAuth app secret)
 - User PATs (encrypted, decrypted only in-process at proxy-routing time)
 - Raw proxy tokens (shown only in the `POST /api/proxy-token` response)
 - OAuth access tokens (used only to read identity, never stored or returned)
@@ -290,16 +290,16 @@ The following secrets are never logged, returned in responses, or sent to the cl
 
 1. **User opens the React app.**
    - React redirects to `GET /auth/login`.
-   - Server responds 302 to GHE's authorize endpoint (with signed state cookie).
+   - Server responds 302 to GitLab's authorize endpoint (with signed state cookie).
 
-2. **User authenticates on GHE.**
-   - GHE redirects to `GET /auth/callback?code=...&state=...`.
-   - Server verifies state, exchanges code for OAuth token, fetches identity, upserts user, creates session, sets `ctc_session` cookie, redirects to the app origin.
+2. **User authenticates on GitLab.**
+   - GitLab redirects to `GET /auth/callback?code=...&state=...`.
+   - Server verifies state, exchanges code for GitLab OAuth token, fetches GitLab identity (`read_user` scope), upserts user, creates session, sets `ctc_session` cookie, redirects to the app origin.
    - Browser now has the session cookie in its jar.
 
 3. **React calls `GET /api/me`.**
    - Request includes `ctc_session` cookie.
-   - Server responds with user profile: `{ user_id, ghe_login, display_name, role: "consumer", has_pat: false }`.
+   - Server responds with user profile: `{ user_id, ghe_login, display_name, role: "consumer", has_pat: false }` (where `ghe_login` is the GitLab username).
 
 4. **(If giver) React prompts for PAT; calls `POST /api/pat { pat: "github_pat_..." }`.**
    - Server validates against `/copilot_internal/user`, confirms login matches, sets quota, stores encrypted PAT, sets role to `"giver"`.

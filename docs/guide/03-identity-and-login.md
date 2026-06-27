@@ -8,19 +8,11 @@
 
 ## Layer 1 — The idea
 
-CTC supports two login methods, selected by `CTC_AUTH_MODE`:
+CTC uses **GitLab OAuth** as its sole login path. You log in with your existing
+company GitLab account. Your identity is your GitLab username.
 
-- **`email` (default)** — magic-link login. You enter your email address, CTC
-  emails you a one-time sign-in link, and clicking it logs you in. No GitHub
-  account or password required. Your identity *is* your email address.
-- **`ghe_oauth`** — GitHub Enterprise OAuth login. You log in with your existing
-  company GitHub account. Your identity is your GHE login name.
-
-In both cases, after login the website remembers you with a small signed cookie.
-The two different kinds of token that often cause confusion are the same regardless
-of which login method you use.
-
-Two things can identify you in CTC, and they're easy to mix up:
+After login, the website remembers you with a small signed cookie. Two things can
+identify you in CTC, and they're easy to mix up:
 
 ```mermaid
 flowchart LR
@@ -38,58 +30,34 @@ valuable secret CTC guards.
 
 ## Layer 2 — Logging in
 
-### Email magic-link (`CTC_AUTH_MODE=email`, default)
+### GitLab OAuth
 
-You enter your email address; CTC sends you a one-time sign-in link. Clicking it
-logs you in — no password, no GitHub account.
-
-```mermaid
-sequenceDiagram
-    participant B as Your browser
-    participant CTC as CTC server
-    participant M as Email / console
-
-    B->>CTC: Enter email address, click "Send sign-in link"
-    CTC-->>M: Send magic-link (one-time token, short-lived)
-    Note over CTC,M: Dev / console backend: link is printed to server stdout
-    M-->>B: You click the link in your email
-    B->>CTC: GET /auth/magic?token=...
-    Note over CTC: Verify token, create/lookup user by email, mint session
-    CTC-->>B: Set 🍪 session cookie, send you in
-```
-
-**Backend selection:** `CTC_EMAIL_BACKEND=console` (default) prints the sign-in
-link to the server's stdout — useful for dev and test (check `docker compose logs
-controlplane`). Set `CTC_EMAIL_BACKEND=smtp` and configure the `CTC_SMTP_*` vars
-to send real email in production.
-
-**Identity:** in email mode, your identity *is* your email address. `CTC_ADMINS`
-must list email addresses, not GHE logins.
-
-### GitHub Enterprise OAuth (`CTC_AUTH_MODE=ghe_oauth`)
-
-"OAuth" just means: CTC sends you to GitHub to prove who you are, and GitHub
-sends you back with a stamp of approval. CTC never sees your GitHub password.
+"OAuth" just means: CTC sends you to GitLab to prove who you are, and GitLab
+sends you back with a stamp of approval. CTC never sees your GitLab password.
 
 ```mermaid
 sequenceDiagram
     participant B as Your browser
     participant CTC as CTC server
-    participant GH as Company GitHub
+    participant GL as Company GitLab
 
-    B->>CTC: Click "Continue with GitHub Enterprise"
-    CTC-->>B: Redirect to GitHub (with a one-time anti-forgery code)
-    B->>GH: Approve access (you log in to GitHub if needed)
-    GH-->>B: Redirect back to CTC (with a temporary code)
-    CTC->>GH: Exchange the code → "who is this?" → your login + name
+    B->>CTC: Click "Continue with GitLab"
+    CTC-->>B: Redirect to GitLab (with a one-time anti-forgery code)
+    B->>GL: Approve access (you log in to GitLab if needed)
+    GL-->>B: Redirect back to CTC (with a temporary code)
+    CTC->>GL: Exchange the code → "who is this?" → your username + name
     Note over CTC: Create/lookup your user, mint a signed session
     CTC-->>B: Set 🍪 session cookie, send you in
 ```
 
-**Requires** `GHE_OAUTH_CLIENT_ID`, `GHE_OAUTH_CLIENT_SECRET`, `GHE_OAUTH_BASE`,
-and an OAuth app registered on your GHE with the correct callback URL.
+**Requires** `GITLAB_BASE`, `GITLAB_OAUTH_CLIENT_ID`, `GITLAB_OAUTH_CLIENT_SECRET`,
+`GITLAB_OAUTH_REDIRECT_URI`, and a GitLab OAuth application registered with the
+correct callback URL (see the deployment guide for registration steps).
 
-### After login (both modes)
+**Identity:** your identity is your GitLab username. `CTC_ADMINS` must list GitLab
+usernames (the `ghe_login` field stores the GitLab username).
+
+### After login
 
 From then on, your browser sends that cookie with every request, and the server
 knows it's you. The cookie is **signed** (so it can't be forged) and **expires**
@@ -105,8 +73,8 @@ A consumer becomes a giver by submitting their real Copilot **PAT** — either d
 the first-run walkthrough or later on the Settings page (same call either way). CTC
 then:
 
-1. **Checks it's really yours** — it calls GitHub with the PAT and confirms the
-   GitHub login matches the account you're logged in as. (You can't register
+1. **Checks it's really yours** — it calls GitHub Enterprise with the PAT and confirms the
+   GHE login matches the account you're logged in as. (You can't register
    someone else's token.)
 2. **Reads your capacity** — how much Copilot quota that PAT has.
 3. **Stores it encrypted** and flips your role to **giver**.
@@ -166,18 +134,14 @@ fresh random nonce, so even identical PATs produce different ciphertext. The PAT
 is decrypted only for the instant the Proxy needs to forward a request.
 
 ### The relevant files
-- `ctc/auth/oauth.py` — the GitHub Enterprise OAuth dance (ghe_oauth mode).
-- `ctc/auth/magic_link.py` — magic-link generation and verification (email mode).
-- `ctc/auth/email_sender.py` — email dispatch (console + SMTP backends).
+- `ctc/auth/oauth.py` — the GitLab OAuth dance.
 - `ctc/auth/sessions.py` — signed-cookie sessions.
 - `ctc/auth/registry.py` — minting/looking up proxy tokens, storing PATs.
 - `ctc/auth/crypto.py` — the AES-GCM encryption.
 - `ctc/auth/onboarding.py` — validating a submitted PAT and promoting to giver.
-- `ctc/domain/deployment.py` — `DeploymentConfig.from_env()` parses `CTC_AUTH_MODE`,
-  `CTC_WEB_TRANSPORT`, `CTC_EMAIL_BACKEND`.
 - `api_server.py` — the HTTP endpoints that tie it together (`/auth/login`,
-  `/auth/callback`, `/auth/magic`, `/auth/logout`, `/api/me` (now reports `onboarded`),
-  `/api/pat`, `/api/proxy-token`, `/api/onboarding/complete`).
+  `/auth/callback`, `/auth/logout`, `/api/me`, `/api/pat`, `/api/proxy-token`,
+  `/api/onboarding/complete`).
 
 **Next:** what "credit" actually means and how it's tracked →
 [04 · Credits & accounting](04-credits-and-accounting.md).

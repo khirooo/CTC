@@ -7,16 +7,13 @@
 
 ## Layer 0 — Deployment shapes
 
-CTC ships with defaults that target the "license-holders trade credits" use-case
-(email magic-link auth, plain HTTP transport, givers-only pool, shared pool off).
-The legacy "all-GHE" configuration (ghe_oauth + HTTPS + givers_and_consumers +
-pool on) is still fully supported — just set the right env vars.
+CTC uses **GitLab OAuth** as its sole login path. You configure the web transport
+and participation model; auth is always GitLab OAuth.
 
 ### Configuration knobs
 
-| Knob | Default (shipped) | Legacy / alternative |
+| Knob | Default (shipped) | Alternative |
 |---|---|---|
-| `CTC_AUTH_MODE` | `email` — magic-link, no GHE account needed | `ghe_oauth` — GitHub Enterprise OAuth |
 | `CTC_WEB_TRANSPORT` | `http` — plain HTTP (VPN/LAN only) | `https` — TLS via Caddy |
 | `CADDYFILE` | `Caddyfile.http` | `Caddyfile` (HTTPS with TLS) |
 | `CTC_PARTICIPANTS_MODE` | `givers_only` — anyone who uploads a PAT is a giver | `givers_and_consumers` |
@@ -24,17 +21,10 @@ pool on) is still fully supported — just set the right env vars.
 
 ### Deployment shapes at a glance
 
-| Shape | Auth | Transport | Participants | Pool | Key env vars |
-|---|---|---|---|---|---|
-| **Default (shipped)** | `email` | `http` | `givers_only` | `off` | `CTC_AUTH_MODE=email`, `CTC_WEB_TRANSPORT=http`, `CADDYFILE=Caddyfile.http` |
-| **Legacy / public** | `ghe_oauth` | `https` | `givers_and_consumers` | `on` | `CTC_AUTH_MODE=ghe_oauth`, `CTC_WEB_TRANSPORT=https`, `CADDYFILE=Caddyfile`, `GHE_OAUTH_*` set |
-
-> **Upgrading from an earlier version? Read this.**
-> Before this release CTC only supported ghe_oauth + HTTPS. The shipped defaults
-> have changed: if you deploy a new image without explicitly setting the env vars,
-> auth becomes `email` (magic-link), the website becomes plain HTTP, participants
-> mode becomes `givers_only`, and the shared pool turns off. Set the env vars
-> from the "Legacy / public" row above to preserve the old behavior.
+| Shape | Transport | Participants | Pool | Key env vars |
+|---|---|---|---|---|
+| **Default (shipped)** | `http` | `givers_only` | `off` | `CTC_WEB_TRANSPORT=http`, `CADDYFILE=Caddyfile.http`, `GITLAB_*` set |
+| **Public / HTTPS** | `https` | `givers_and_consumers` | `on` | `CTC_WEB_TRANSPORT=https`, `CADDYFILE=Caddyfile`, `GITLAB_*` set |
 
 ### Selecting the Caddy config (HTTP vs HTTPS)
 
@@ -94,7 +84,7 @@ The whole sequence, front to back:
 # 1. Configure
 cp .env.example .env
 # edit .env: CTC_DOMAIN, CTC_SECRET_KEY (openssl rand -hex 32), GHE_DOMAIN,
-#            PROXY_BIND, CTC_ADMINS, and GHE_OAUTH_* (only if CTC_AUTH_MODE=ghe_oauth)
+#            PROXY_BIND, CTC_ADMINS, and GITLAB_* (all four required)
 
 # 2. Validate config (fails loudly on missing/inconsistent vars)
 sh scripts/preflight.sh
@@ -128,17 +118,28 @@ You need, before you start:
 1. **A VM** with Docker + the Docker Compose plugin, reachable by your team on
    ports **80/443** (web) and **8080** (proxy). A public domain is **optional** —
    a raw internal IP works too (see "Internal server with no domain" below).
-2. **A GHE OAuth app** registered on your GitHub Enterprise, with the callback URL
-   `https://<CTC_DOMAIN>/auth/callback` (where `<CTC_DOMAIN>` is your hostname *or*
-   IP, e.g. `https://10.0.0.5/auth/callback`).
+2. **A GitLab OAuth application** registered on your company GitLab instance (see
+   "Registering the GitLab OAuth app" below).
 3. **A VPN / private network** your teammates are on (the proxy binds to it).
+
+### Registering the GitLab OAuth app
+
+1. In GitLab, go to **User Settings → Applications → New application**.
+2. Name: anything (e.g. `CTC`).
+3. Redirect URI: set to exactly the value you'll use for `GITLAB_OAUTH_REDIRECT_URI`
+   (e.g. `https://<CTC_DOMAIN>/auth/callback`). GitLab rejects plain-HTTP redirect
+   URIs that are not `localhost`; use `https` for a real deployment.
+4. Confidential: **yes**.
+5. Scopes: **`read_user` only**.
+6. Save — copy the **Application ID** → `GITLAB_OAUTH_CLIENT_ID` and the
+   **Secret** → `GITLAB_OAUTH_CLIENT_SECRET`.
 
 Then:
 
 1. Copy `.env.example` to `.env` and fill it in.
    Set `CTC_DOMAIN`, `CTC_SECRET_KEY` (`openssl rand -hex 32`),
    `GHE_DOMAIN` (your real GitHub Enterprise domain, e.g. `example.ghe.com`),
-   the `GHE_OAUTH_*` values (if using `ghe_oauth` mode), and `PROXY_BIND`
+   all four `GITLAB_*` values (see above), and `PROXY_BIND`
    (your VM's VPN-facing IP).
 
 2. Run the preflight check: `sh scripts/preflight.sh` — it validates required
@@ -160,20 +161,19 @@ created/migrated on first start.
 |---|---|
 | `CTC_DOMAIN` | **The one host knob** — a hostname *or* a raw IP. Sets the web/API origin and is the source the CLI install command, the proxy host, and the launcher's default all derive from. `localhost` for a local test. |
 | `CTC_SECRET_KEY` | One secret, shared by proxy + control-plane. Encrypts stored PATs, signs cookies. **Never change it** once set (it would orphan stored PATs). |
-| `CTC_AUTH_MODE` | `email` (default) — magic-link login, no GHE account required. `ghe_oauth` — GitHub Enterprise OAuth login. |
 | `CTC_WEB_TRANSPORT` | `http` (default) — plain HTTP, VPN/LAN only. `https` — TLS via Caddy. Must match `CTC_APP_ORIGIN` scheme. |
 | `CADDYFILE` | Caddyfile to mount. Default (unset) = `Caddyfile` (HTTPS). Set `Caddyfile.http` for plain HTTP. |
 | `CTC_PARTICIPANTS_MODE` | `givers_only` (default) or `givers_and_consumers`. Seeds the admin-panel default on first boot. |
 | `CTC_SHARED_POOL` | `off` (default) or `on`. Seeds the admin-panel default on first boot. |
-| `CTC_EMAIL_BACKEND` | `console` (default, logs link to stdout) or `smtp` (sends real email). |
-| `CTC_SMTP_HOST` / `_PORT` / `_USER` / `_PASS` / `_FROM` / `_STARTTLS` | SMTP credentials (only used when `CTC_EMAIL_BACKEND=smtp`). |
+| `GITLAB_BASE` | Base URL of your company GitLab instance (e.g. `https://gitlab.company.com`). |
+| `GITLAB_OAUTH_CLIENT_ID` | Application ID from the GitLab OAuth app registration. **Required.** |
+| `GITLAB_OAUTH_CLIENT_SECRET` | Secret from the GitLab OAuth app registration. **Required.** |
+| `GITLAB_OAUTH_REDIRECT_URI` | Callback URL registered in GitLab (e.g. `https://<CTC_DOMAIN>/auth/callback`). Must match exactly. **Required.** |
 | `GHE_DOMAIN` | Your GitHub Enterprise domain (e.g. `example.ghe.com`). The proxy derives the hosts it decrypts + the cert SANs from this; the CLI launcher uses it for `GH_HOST`. The code default is the neutral placeholder `example.ghe.com` — override it here. |
-| `GHE_OAUTH_CLIENT_ID` / `_SECRET` | GHE OAuth app credentials. **Only required when `CTC_AUTH_MODE=ghe_oauth`.** |
-| `GHE_OAUTH_BASE` | GHE **web** host (login). Only used in `ghe_oauth` mode. |
-| `GHE_API_BASE` | GHE **API** host (Copilot quota / PAT validation). **Required in both auth modes** — PAT validation always hits the API host. Note: no longer defaults to `GHE_OAUTH_BASE`; must be set explicitly. |
+| `GHE_API_BASE` | GHE **API** host (Copilot quota / PAT validation). **Required** — PAT validation always hits the API host. Set to `https://api.example.ghe.com`. |
 | `REAL_GHE_HOST` | API host the proxy forwards Copilot traffic to. |
 | `PROXY_BIND` | The VM's **VPN-facing IP** for port 8080. Keep proxy off the public internet. |
-| `CTC_ADMINS` | Comma-separated identities that get the admin panel (all users, PAT reveal, runtime defaults). Case-insensitive. Lock down like a secret — an admin can reveal any giver's PAT. Empty = no admin. **In email mode: email addresses. In ghe_oauth mode: GHE login names.** |
+| `CTC_ADMINS` | Comma-separated **GitLab usernames** that get the admin panel (all users, PAT reveal, runtime defaults). Case-insensitive. Lock down like a secret — an admin can reveal any giver's PAT. Empty = no admin. |
 
 ---
 
@@ -186,15 +186,16 @@ Everything keys off `CTC_DOMAIN`, so just set it to the IP:
 CTC_DOMAIN=10.0.0.5          # your server's internal IP (web + proxy live here)
 GHE_DOMAIN=example.ghe.com
 PROXY_BIND=10.0.0.5          # bind the proxy to the same internal interface
-# …plus CTC_SECRET_KEY, GHE_OAUTH_* as usual
+# …plus CTC_SECRET_KEY, GITLAB_* as usual
 ```
 
 Then `sh scripts/preflight.sh && docker compose up -d --build` as normal. With an IP, **Caddy can't get a Let's Encrypt cert** (those are
 domain-only), so it serves HTTPS using its **own internal CA**. That's fine — it's
 real HTTPS — but nothing trusts that CA yet, which means two one-time trust steps:
 
-1. **OAuth callback:** register `https://10.0.0.5/auth/callback` in your GHE OAuth
-   app (your GHE admin must allow a non-public callback host).
+1. **OAuth callback:** set `GITLAB_OAUTH_REDIRECT_URI=https://10.0.0.5/auth/callback`
+   and register that same URI in your GitLab OAuth application. Note GitLab rejects
+   plain-HTTP non-localhost redirect URIs, so HTTPS is required here.
 2. **Trust Caddy's CA on each machine.** Until it's trusted, the browser warns on
    `https://10.0.0.5`, and the `curl -fsSL https://10.0.0.5/install.sh …`
    one-liner fails cert verification. Distribute Caddy's root CA to the team and
@@ -226,13 +227,13 @@ if the name is a public subdomain).
 Don't invite the team until all of these pass. The first four are setup; the last
 one is the real proof — the tests cover the parts, not the live wiring.
 
-- [ ] **GHE OAuth app registered** with the exact callback `https://<CTC_DOMAIN>/auth/callback`,
-      and `GHE_OAUTH_CLIENT_ID` / `_SECRET` set in `.env`. (A mismatched callback is
+- [ ] **GitLab OAuth app registered** with the exact redirect URI matching `GITLAB_OAUTH_REDIRECT_URI`,
+      and all four `GITLAB_*` vars set in `.env`. (A mismatched redirect URI is
       the #1 cause of a broken login.)
 - [ ] **`CTC_SECRET_KEY` generated** (`openssl rand -hex 32`) and stored safely.
       **Never change it** once givers have uploaded PATs — it would orphan them.
-      Also set **`CTC_ADMINS`** to the operator GHE login(s) — an admin can reveal
-      any giver's PAT in cleartext, so treat it like a secret and keep the list short.
+      Also set **`CTC_ADMINS`** to the operator's GitLab username(s) — an admin can
+      reveal any giver's PAT in cleartext, so treat it like a secret and keep the list short.
 - [ ] **Proxy locked down** — `PROXY_BIND` on the VPN/internal interface and port
       **8080 firewalled** from the public internet. It blind-tunnels unknown hosts,
       so a public proxy is an open relay.
@@ -247,7 +248,7 @@ Run this yourself with **two** GHE accounts (or one giver + one teammate) before
 handing it out. It exercises the whole chain the unit tests can't.
 
 **As a giver:**
-1. Open `https://<CTC_DOMAIN>`, log in with GitHub Enterprise → you land in the
+1. Open `https://<CTC_DOMAIN>`, click **Continue with GitLab** → you land in the
    first-run walkthrough.
 2. Choose **giver**, paste a real Copilot PAT → it should verify (`✓ belongs to
    @you · N AIU`) and read your quota. Set a pledge. Copy the install one-liner.
@@ -271,7 +272,7 @@ isn't trusted (see cert trust above); if login bounces, re-check the OAuth callb
 
 Once it's up, a teammate:
 
-1. opens `https://<your-domain>`, logs in with GitHub, and is walked through a
+1. opens `https://<your-domain>`, logs in with GitLab, and is walked through a
    short **first-run setup** (or later, the Settings → "Set up CLI" panel) that
    hands them a ready-to-run install one-liner with their token baked in;
 2. runs that one-liner —
@@ -303,9 +304,10 @@ See [02 · The `ctc` command](02-the-cli-launcher.md) for that side.
 - **`CTC_SECRET_KEY` and `.env` are secrets.** `.env` is gitignored; keep it off
   git and out of images. Treat the `ctcdata` volume as sensitive (it contains
   encrypted PATs — encrypted, but still).
-- **HTTPS is required for login.** Session cookies are `Secure` and the OAuth
-  redirect is `https`, so the control-plane must be reached over HTTPS (Caddy
-  handles this for a real domain).
+- **HTTPS is required for production login.** Session cookies are `Secure` and
+  GitLab rejects plain-HTTP OAuth redirect URIs (except `localhost`), so the
+  control-plane must be reached over HTTPS for real deployments (Caddy handles
+  this for a real domain). For local dev, `localhost` redirect URIs are accepted.
 
 ---
 

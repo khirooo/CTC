@@ -71,26 +71,18 @@ services:
       # and refuses to start on a mismatch.
       CTC_WEB_TRANSPORT: ${CTC_WEB_TRANSPORT:-http}
       CTC_APP_ORIGIN: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}
-      GHE_OAUTH_CLIENT_ID: ${GHE_OAUTH_CLIENT_ID}
-      GHE_OAUTH_CLIENT_SECRET: ${GHE_OAUTH_CLIENT_SECRET}
-      GHE_OAUTH_REDIRECT_URI: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}/auth/callback
-      GHE_OAUTH_BASE: ${GHE_OAUTH_BASE}
+      GITLAB_BASE: ${GITLAB_BASE}
+      GITLAB_OAUTH_CLIENT_ID: ${GITLAB_OAUTH_CLIENT_ID}
+      GITLAB_OAUTH_CLIENT_SECRET: ${GITLAB_OAUTH_CLIENT_SECRET}
+      GITLAB_OAUTH_REDIRECT_URI: ${GITLAB_OAUTH_REDIRECT_URI}
       GHE_API_BASE: ${GHE_API_BASE}
       CTC_ADMINS: ${CTC_ADMINS:-}
       CTC_CA_CERT: /certs/cert.pem
       # Deployment mode knobs — all optional, defaults shown
-      CTC_AUTH_MODE: ${CTC_AUTH_MODE:-email}
       CTC_PARTICIPANTS_MODE: ${CTC_PARTICIPANTS_MODE:-givers_only}
       CTC_SHARED_POOL: ${CTC_SHARED_POOL:-off}
-      CTC_EMAIL_BACKEND: ${CTC_EMAIL_BACKEND:-console}
-      CTC_SMTP_HOST: ${CTC_SMTP_HOST:-}
-      CTC_SMTP_PORT: ${CTC_SMTP_PORT:-587}
-      CTC_SMTP_USER: ${CTC_SMTP_USER:-}
-      CTC_SMTP_PASS: ${CTC_SMTP_PASS:-}
-      CTC_SMTP_FROM: ${CTC_SMTP_FROM:-}
-      CTC_SMTP_STARTTLS: ${CTC_SMTP_STARTTLS:-1}
     healthcheck:
-      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/api/config', timeout=3).status==200 else 1)"]
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=3).status==200 else 1)"]
       interval: 15s
       timeout: 5s
       retries: 5
