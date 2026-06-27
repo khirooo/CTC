@@ -167,8 +167,9 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         user = await current_user(req)
         if not user:
             raise web.HTTPUnauthorized(text="no session")
-        # Resolve cycle per-request so it reflects the live DB state
-        cycle = engine.current_cycle()
+        # Resolve cycle per-request so it reflects the live DB state (also rolls a
+        # month-ended cycle over to the new month on first access).
+        cycle = engine.ensure_active_cycle(now())
         if cycle is None:
             raise web.HTTPServiceUnavailable(text="no active cycle")
         live_cycle_id = cycle.id
@@ -196,7 +197,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         if not user:
             raise web.HTTPUnauthorized(text="no session")
         registry.delete_pat(user["id"])
-        cycle = engine.current_cycle()
+        cycle = engine.ensure_active_cycle(now())
         if cycle is not None:
             floor = engine.store.pool_consumed_from(cycle.id, user["id"])
             engine.set_pledge(cycle.id, user["id"], floor)

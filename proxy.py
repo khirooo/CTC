@@ -432,7 +432,11 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         pat_to_use = REAL_PAT
         billable = ATTRIBUTION is not None and is_billable(upstream_host, method, path)
         if billable:
-            cycle = ATTRIBUTION.engine.current_cycle()
+            # ensure_active_cycle also rolls a month-ended cycle over (archive +
+            # open + seed) on first access. It is fully synchronous — no `await`
+            # between its BEGIN IMMEDIATE and COMMIT — so it respects the no-await
+            # invariant documented below for select_source/debit.
+            cycle = ATTRIBUTION.engine.ensure_active_cycle(_now())
             consumer = ATTRIBUTION.resolve_consumer(strip_bearer(auth)) if cycle else None
             source = ATTRIBUTION.select_source(cycle.id, consumer) if (cycle and consumer) else None
             if source is None:

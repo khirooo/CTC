@@ -14,7 +14,7 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
         """Giver balances from the active cycle, or (None, None, None)."""
         if role != "giver":
             return None, None, None
-        cycle = engine.current_cycle()
+        cycle = engine.ensure_active_cycle(now())
         if cycle is None:
             return None, None, None
         gc = acct.get_giver_cycle(cycle.id, user_id)

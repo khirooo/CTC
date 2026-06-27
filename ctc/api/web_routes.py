@@ -26,7 +26,9 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         return user
 
     def _cycle():
-        c = engine.current_cycle()
+        # ensure_active_cycle also rolls a month-ended cycle over to the new month
+        # (archive + open + seed) on first access — see AccountingEngine.
+        c = engine.ensure_active_cycle(now())
         if c is None:
             raise web.HTTPServiceUnavailable(text="no active cycle")
         return c
