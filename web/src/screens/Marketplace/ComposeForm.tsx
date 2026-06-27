@@ -4,6 +4,7 @@ import { NANO_PER_AIU } from '@/domain/credit';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
 import { Input } from '@/components/Input';
+import { NumberInput } from '@/components/NumberInput';
 import { config } from '@/domain/config';
 
 interface ComposeFormProps {
@@ -50,11 +51,10 @@ export function ComposeForm({ onSubmit, onCancel }: ComposeFormProps) {
       <div style={{ fontWeight: 600, fontSize: 14 }}>New request</div>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <Field label="Amount">
-          <Input
-            type="number"
+          <NumberInput
             min={1}
             value={amount}
-            onChange={e => setAmount(Number(e.target.value))}
+            onChange={setAmount}
             style={{ width: 140 }}
           />
         </Field>

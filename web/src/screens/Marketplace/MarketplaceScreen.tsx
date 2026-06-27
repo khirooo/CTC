@@ -30,7 +30,8 @@ const SEG_IDLE: React.CSSProperties = {
 };
 
 export function MarketplaceScreen() {
-  const { api } = useApp();
+  const { api, session } = useApp();
+  const chipInAiu = session?.defaultChipInAiu ?? 25;
   const [filter, setFilter] = useState<Filter>('all');
   const [compose, setCompose] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -43,7 +44,7 @@ export function MarketplaceScreen() {
   async function handleDonate(id: string) {
     setActionError(null);
     try {
-      await api.donate(id, 25 * 1_000_000_000);  // 25 AIU in nano-AIU
+      await api.donate(id, chipInAiu * 1_000_000_000);  // configured chip-in, AIU → nano-AIU
       reload();
     } catch (e) {
       setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
@@ -166,6 +167,7 @@ export function MarketplaceScreen() {
             <RequestCard
               key={r.id}
               request={r}
+              chipInAiu={chipInAiu}
               onDonate={handleDonate}
             />
           ))}

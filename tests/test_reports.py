@@ -8,8 +8,8 @@ import pytest
 from ctc.store.db import connect, init_db
 from ctc.store.accounting_store import AccountingStore
 from ctc.accounting.engine import AccountingEngine
-from ctc.accounting.leaderboard import LeaderboardUser
-from ctc.accounting.reports import build_dashboard
+from ctc.accounting.leaderboard import LeaderboardUser, build_leaderboard
+from ctc.accounting.reports import build_dashboard, build_cycle_report
 from ctc.domain.types import Bucket, Cycle, GiverCycle, Role
 
 CYC = "2026-06"
@@ -150,7 +150,7 @@ def test_open_closed_count():
 
 
 def test_activity_structure():
-    """activity = up to 8 most recent events, each with time/kind/detail/amount."""
+    """activity = up to 8 most recent events, each with time/kind/actorId/detail/amount."""
     e, users, giver_ids, req1, req2 = seed_full()
     dash = build_dashboard(e, users, CYC, NOW)
     activity = dash["activity"]
@@ -161,6 +161,7 @@ def test_activity_structure():
         assert "time" in item
         assert "kind" in item
         assert item["kind"] == "consume"
+        assert "actorId" in item
         assert "detail" in item
         assert "amount" in item
     # Most recent event should come first
@@ -169,13 +170,18 @@ def test_activity_structure():
 
 
 def test_activity_detail_format():
-    """Each activity detail is '{consumer_id[:8]} via {bucket}'."""
+    """Each activity detail uses display name (or id[:8] fallback) + ' via {bucket}'."""
     e, users, giver_ids, req1, req2 = seed_full()
     dash = build_dashboard(e, users, CYC, NOW)
+    # Build a name lookup to verify resolved names
+    name_by_id = {u.user_id: u.name for u in users}
     for item in dash["activity"]:
         detail = item["detail"]
         # Should contain " via " and a bucket name
         assert " via " in detail
+        actor_id = item["actorId"]
+        expected_name = name_by_id.get(actor_id, actor_id[:8])
+        assert detail.startswith(expected_name + " via ")
 
 
 def test_leaderboard_snapshot_keys():
@@ -226,3 +232,82 @@ def test_empty_cycle():
     assert dash["openCount"] == 0
     assert dash["closedCount"] == 0
     assert dash["activity"] == []
+
+
+def test_active_host_who_only_consumed_counts():
+    """A giver who only consumed this cycle (no pledge, no PAT, never sourced
+    credits) is still a host and must count as an active host — not vanish from
+    both the host and guest tallies.
+
+    Scenario from the field: a host exhausted their own quota (0 credits left)
+    and used the pool/grant of another host via the marketplace. They have a
+    giver_cycles row (role=giver) but pledge=0, no giver_pats row, and they only
+    ever appear as a *consumer*, never as source_giver_id.
+    """
+    e, s = make_engine()
+    s.add_cycle(Cycle(CYC, "June 2026", 0, 2_000_000_000, "active"))
+
+    # g1: the lender — pledges to the pool (active by pledge).
+    e.set_quota(CYC, "g1", 1000)
+    e.set_pledge(CYC, "g1", 300)
+
+    # g2: a host who consumed from g1's pool but never pledged, never sourced,
+    # and has no PAT row. Give them a giver_cycles row via set_quota only.
+    e.set_quota(CYC, "g2", 500)
+    e.set_pledge(CYC, "g2", 0)
+
+    # g2 consumes 50 from g1's pool (g2 is consumer_id, g1 is source_giver_id).
+    e.record_consumption(CYC, "g2", "g1", Bucket.POOL, 50, ts=NOW - 1000)
+
+    users = [
+        LeaderboardUser("g1", "Lender", is_giver=True),
+        LeaderboardUser("g2", "Borrower Host", is_giver=True),
+    ]
+
+    dash = build_dashboard(e, users, CYC, NOW)
+    # Both g1 and g2 are hosts participating this cycle.
+    assert dash["activeGivers"] == 2
+    # g2 is a giver, so they must NOT be counted as a guest.
+    assert dash["activeConsumers"] == 0
+
+
+def test_dashboard_top_consumers_carry_userid():
+    """Dashboard "Top users" entries must keep userId so the names stay
+    clickable through to /app/users/:id (regression: the merge dropped it)."""
+    e, users, giver_ids, req1, req2 = seed_full()
+    dash = build_dashboard(e, users, CYC, NOW)
+    tc = dash["leaderboardSnapshot"]["topConsumers"]
+    assert tc, "expected some top consumers"
+    for entry in tc:
+        assert entry.get("userId"), f"topConsumers entry missing userId: {entry}"
+
+
+def test_cycle_report_unused_budget_is_quota_minus_all_consumption():
+    """Unused budget = total company budget (Σ giver quota) − total credit used
+    (ALL consumption: own + pool + grant)."""
+    e, users, giver_ids, req1, req2 = seed_full()
+    rep = build_cycle_report(e, users, CYC, NOW)
+    # budget = Σ giver quota = 1000 + 800
+    assert rep["budgetTotal"] == 1800
+    # used = ALL consumption incl own = 50 + 30 + 20 + 100(own) + 15
+    assert rep["usedTotal"] == 215
+    assert rep["budgetTotal"] - rep["usedTotal"] == 1585
+
+
+def test_giver_who_only_consumed_a_grant_is_not_newcomer():
+    """A host who received a marketplace grant and consumed it has participated;
+    their tier must reflect that (grant 'taken' counts), not 'newcomer'."""
+    e, s = make_engine()
+    s.add_cycle(Cycle(CYC, "June 2026", 0, 2_000_000_000, "active"))
+    e.set_quota(CYC, "g1", 1000); e.set_pledge(CYC, "g1", 0)
+    e.set_quota(CYC, "g2", 500);  e.set_pledge(CYC, "g2", 0)
+    # g2 (a giver) posts a request, g1 funds it (grant), g2 consumes the grant.
+    req = e.create_request(CYC, "g2", Role.GIVER, 100, "need", None,
+                           created_at=NOW - 1000, expires_at=NOW + 100000)
+    g = e.fund_request(req.id, "g1", 100, NOW - 500)
+    e.record_consumption(CYC, "g2", "g1", Bucket.GRANT, 80, grant_id=g.id, ts=NOW - 400)
+    users = [LeaderboardUser("g1", "Lender", is_giver=True),
+             LeaderboardUser("g2", "Borrower", is_giver=True)]
+    tiers = {row["name"]: row["tier"] for row in build_leaderboard(e, users, CYC)["standings"]}
+    assert tiers["Borrower"] != "newcomer"   # consumed a grant → active
+    assert tiers["Lender"] != "newcomer"     # their gift was burned → donated

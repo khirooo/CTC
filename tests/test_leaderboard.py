@@ -23,6 +23,10 @@ class FakeEngine:
     def pool_consumed_by(self, cycle_id, uid):
         return self._p.get(uid, 0)
 
+    def consumed_from_others(self, cycle_id, uid):
+        # In the fake, the "taken from others" map stands in for pool+grant draws.
+        return self._p.get(uid, 0)
+
 CYC = "2026-06"
 
 
@@ -60,8 +64,8 @@ def test_generous_sorted_by_donated_live_desc():
     lb = build_leaderboard(e, users, CYC, top_n=5)
 
     assert lb["generous"] == [
-        {"name": "Alice", "value": 100},
-        {"name": "Bob", "value": 50},
+        {"userId": "g1", "name": "Alice", "value": 100},
+        {"userId": "g2", "name": "Bob", "value": 50},
     ]
     # g3 excluded because donated_live = 0
 
@@ -92,8 +96,8 @@ def test_top_pro_only_givers_sorted_by_consumed_total():
     # topPro: only givers, ranked by consumed_total (what they consumed as consumers)
     # g1 consumed 200 own, g2 consumed 150 own
     assert lb["topPro"] == [
-        {"name": "Alice", "value": 200},
-        {"name": "Bob", "value": 150},
+        {"userId": "g1", "name": "Alice", "value": 200},
+        {"userId": "g2", "name": "Bob", "value": 150},
     ]
     # c1 excluded (not a giver)
 
@@ -122,8 +126,8 @@ def test_top_noob_only_non_givers_sorted_by_consumed_total():
 
     # topNoob: only non-givers
     assert lb["topNoob"] == [
-        {"name": "Chris", "value": 200},
-        {"name": "Dana", "value": 100},
+        {"userId": "c1", "name": "Chris", "value": 200},
+        {"userId": "c2", "name": "Dana", "value": 100},
     ]
     # g1 excluded (giver)
 
@@ -145,7 +149,7 @@ def test_excludes_zero_consumption():
 
     lb = build_leaderboard(e, users, CYC)
 
-    assert lb["topPro"] == [{"name": "Alice", "value": 100}]
+    assert lb["topPro"] == [{"userId": "g1", "name": "Alice", "value": 100}]
     assert lb["topNoob"] == []
 
 
@@ -172,8 +176,8 @@ def test_respects_top_n():
     # topPro limited to 2
     assert len(lb["topPro"]) == 2
     assert lb["topPro"] == [
-        {"name": "Alice", "value": 300},
-        {"name": "Bob", "value": 200},
+        {"userId": "g1", "name": "Alice", "value": 300},
+        {"userId": "g2", "name": "Bob", "value": 200},
     ]
 
 
@@ -205,7 +209,8 @@ def test_entry_shape():
 
     assert len(lb["generous"]) == 1
     entry = lb["generous"][0]
-    assert set(entry.keys()) == {"name", "value"}
+    assert set(entry.keys()) == {"userId", "name", "value"}
+    assert entry["userId"] == "g1"
     assert entry["name"] == "Alice"
     assert entry["value"] == 100
 
@@ -250,23 +255,23 @@ def test_mixed_giver_consumption_ranking():
     # generous: donated_live = consumption from non-self
     # g1: donated to c1 (300) + c3 (250) = 550, g2: donated to c2 (200) = 200
     assert lb["generous"] == [
-        {"name": "Alice", "value": 550},
-        {"name": "Bob", "value": 200},
+        {"userId": "g1", "name": "Alice", "value": 550},
+        {"userId": "g2", "name": "Bob", "value": 200},
     ]
 
     # topPro: only givers, ranked by consumed_total (total consumption as consumers)
     # g1 consumed 100 own = 100, g2 consumed 150 own = 150
     assert lb["topPro"] == [
-        {"name": "Bob", "value": 150},
-        {"name": "Alice", "value": 100},
+        {"userId": "g2", "name": "Bob", "value": 150},
+        {"userId": "g1", "name": "Alice", "value": 100},
     ]
 
     # topNoob: only non-givers, ranked by consumed_total
     # c1 consumed 300, c2 consumed 200, c3 consumed 250
     assert lb["topNoob"] == [
-        {"name": "Chris", "value": 300},
-        {"name": "Eve", "value": 250},
-        {"name": "Dana", "value": 200},
+        {"userId": "c1", "name": "Chris", "value": 300},
+        {"userId": "c3", "name": "Eve", "value": 250},
+        {"userId": "c2", "name": "Dana", "value": 200},
     ]
 
 
@@ -288,9 +293,14 @@ def test_standings_present_sorted_and_tracks_unchanged():
     out = build_leaderboard(engine, users, cycle_id="cyc1")
 
     assert [s["name"] for s in out["standings"]] == ["Alice", "Bob", "Cara"]
-    assert out["standings"][0] == {"name": "Alice", "net": 300, "tier": "aristocrat"}
-    assert out["standings"][1] == {"name": "Bob", "net": -50, "tier": "beggar"}
+    assert out["standings"][0] == {"userId": "a", "name": "Alice", "net": 300, "tier": "aristocrat"}
+    assert out["standings"][1] == {"userId": "b", "name": "Bob", "net": -50, "tier": "beggar"}
     assert out["standings"][2]["tier"] == "newcomer"
+    assert out["standings"][2]["userId"] == "c"
     # existing tracks unchanged
-    assert out["generous"] == [{"name": "Alice", "value": 300}]
+    assert out["generous"] == [{"userId": "a", "name": "Alice", "value": 300}]
     assert "topPro" in out and "topNoob" in out
+    # every entry across all four collections has a userId key
+    for collection in ("generous", "topPro", "topNoob", "standings"):
+        for entry in out[collection]:
+            assert "userId" in entry, f"missing userId in {collection} entry: {entry}"

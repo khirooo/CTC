@@ -13,6 +13,7 @@ class CamelModel(BaseModel):
 
 class PublicRequestDTO(CamelModel):
     id: str
+    requester_id: str
     requester_name: str
     initials: str
     requester_role: str          # 'pro' | 'noob'
@@ -73,6 +74,26 @@ class PublicUserDTO(CamelModel):
     role: str                    # 'giver' | 'consumer'
 
 
+class PublicUserHitDTO(CamelModel):
+    id: str
+    login: str
+    name: str
+    initials: str
+    role: str                    # 'giver' | 'consumer'
+
+
+class PublicProfileDTO(CamelModel):
+    id: str
+    name: str
+    login: str
+    initials: str
+    role: str                        # 'giver' | 'consumer'
+    tier: str | None = None          # null for non-givers
+    net: int | None = None           # nano-AIU
+    donated: int | None = None       # nano-AIU
+    donations_made: int | None = None
+
+
 class OwnProfileDTO(CamelModel):
     # Credit fields are RAW nano-AIU (the frontend `aiu()` helper divides by
     # NANO_PER_AIU for display).
@@ -120,7 +141,7 @@ def build_public_request(store, get_user, r: Request, now: int, viewer_id: str |
     name = user["display_name"] if user else r.requester_id
     status = derive_status(funded, r.amount_needed, r.expires_at, now)
     return PublicRequestDTO(
-        id=r.id, requester_name=name, initials=initials(name),
+        id=r.id, requester_id=r.requester_id, requester_name=name, initials=initials(name),
         requester_role=ROLE_TO_REQUESTER[r.requester_role],
         amount_needed=r.amount_needed, amount_funded=funded,
         reason=r.reason, target=r.target, created_at=r.created_at,

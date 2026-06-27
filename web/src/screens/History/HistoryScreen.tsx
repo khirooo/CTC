@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
-import { aiu } from '@/domain/credit';
+import { aiu, euros } from '@/domain/credit';
 import type { CycleReport } from '@/domain/types';
 
 function segBtnStyle(active: boolean): React.CSSProperties {
@@ -28,7 +28,7 @@ function segBtnStyle(active: boolean): React.CSSProperties {
       };
 }
 
-function CycleDetail({ report }: { report: CycleReport }) {
+function CycleDetail({ report, rate }: { report: CycleReport; rate?: number }) {
   const fillRate = Math.round((report.reqFilled / Math.max(1, report.reqTotal)) * 100);
   const patPct = Math.round((report.reqPat / Math.max(1, report.reqFilled)) * 100);
   const nonPatPct = Math.round((report.reqNonPat / Math.max(1, report.reqFilled)) * 100);
@@ -108,7 +108,9 @@ function CycleDetail({ report }: { report: CycleReport }) {
             >
               {aiu(report.pledged)}
             </span>
-            <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>total pledged surplus</span>
+            <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+              total pledged surplus · <span style={{ color: 'var(--give)' }}>≈ {euros(report.pledged, rate)}</span>
+            </span>
           </div>
 
           {/* Arrow */}
@@ -175,11 +177,11 @@ function CycleDetail({ report }: { report: CycleReport }) {
               <span
                 style={{
                   fontSize: 11,
-                  color: 'var(--text-faint)',
+                  color: 'var(--give)',
                   fontFamily: "'JetBrains Mono', monospace",
                 }}
               >
-                credits used
+                ≈ {euros(report.donated, rate)} saved
               </span>
             </div>
             {/* Invisible twin of the label above, so the box is the column's
@@ -363,10 +365,10 @@ function CycleDetail({ report }: { report: CycleReport }) {
               marginTop: 8,
             }}
           >
-            {aiu(report.pledged - report.donated)}
+            {aiu(report.budgetTotal - report.usedTotal)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
-            {aiu(report.donated)} actually flowed
+            {aiu(report.usedTotal)} of {aiu(report.budgetTotal)} used
           </div>
         </div>
       </div>
@@ -711,7 +713,7 @@ function CycleDetail({ report }: { report: CycleReport }) {
 }
 
 export function HistoryScreen() {
-  const { api } = useApp();
+  const { api, session } = useApp();
   const { data, loading } = useAsync(() => api.getHistory(), []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -774,7 +776,7 @@ export function HistoryScreen() {
         </div>
       </div>
 
-      {selected && <CycleDetail report={selected} />}
+      {selected && <CycleDetail report={selected} rate={session?.creditToEuroRate} />}
     </div>
   );
 }

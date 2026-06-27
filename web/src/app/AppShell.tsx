@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
+import { HeaderSearch } from '@/components/HeaderSearch';
 
 const NAV_ITEMS = [
   { path: '/app/dashboard', icon: '◧', label: 'Overview' },
@@ -19,7 +20,7 @@ const ROUTE_TITLES: Record<string, string> = {
 };
 
 export function AppShell() {
-  const { session, signOut } = useApp();
+  const { session, signOut, api } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -261,6 +262,9 @@ export function AppShell() {
           <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, letterSpacing: '-0.01em' }}>
             {pageTitle}
           </h1>
+          <div style={{ marginLeft: 'auto' }}>
+            <HeaderSearch api={api} />
+          </div>
         </header>
 
         {/* Page content */}

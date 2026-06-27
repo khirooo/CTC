@@ -3,8 +3,8 @@ import { euros, aiu, fmt, deriveStatus, donationKind, pct, NANO_PER_AIU } from '
 
 describe('credit math', () => {
   it('converts nano-AIU credits to euros at 0.10/AIU', () => {
-    expect(euros(3600 * NANO_PER_AIU)).toBe('€360');
-    expect(euros(1240 * NANO_PER_AIU)).toBe('€124');
+    expect(euros(3600 * NANO_PER_AIU)).toBe('€360.00');
+    expect(euros(1240 * NANO_PER_AIU)).toBe('€124.00');
   });
   it('formats nano-AIU to AIU string with 2dp', () => {
     expect(aiu(35 * NANO_PER_AIU)).toBe('35.00 AIU');

@@ -3,6 +3,7 @@ import { useAsync } from '@/store/useAsync';
 import { aiu } from '@/domain/credit';
 import type { LeaderboardEntry } from '@/domain/types';
 import { TierBadge } from '@/components/TierBadge';
+import { UserLink } from '@/components/UserLink';
 
 interface TrackConfig {
   label: string;
@@ -59,7 +60,7 @@ function TrackCard({ label, subtitle, icon, color, softColor, entries }: TrackCo
               {i + 1}
             </span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600 }}>{entry.name}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 600 }}><UserLink userId={entry.userId} name={entry.name} /></div>
               <div
                 style={{
                   height: 5,
@@ -120,7 +121,7 @@ export function LeaderboardScreen() {
   const tracks: TrackConfig[] = [
     {
       label: 'Most generous',
-      subtitle: 'most chipped in to Guests',
+      subtitle: 'most chipped in overall',
       icon: '♥',
       color: 'var(--give)',
       softColor: 'var(--give-soft)',
@@ -182,7 +183,7 @@ export function LeaderboardScreen() {
               >
                 {i + 1}
               </span>
-              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{s.name}</span>
+              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}><UserLink userId={s.userId} name={s.name} /></span>
               <TierBadge tier={s.tier} />
               <span
                 style={{

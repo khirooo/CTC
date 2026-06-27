@@ -77,10 +77,20 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         int(fulfilled_count * 100 // total_requests) if total_requests > 0 else 0
     )
 
+    # --- distinct consumers this cycle (used by both tallies below) ---
+    all_consumer_rows = conn.execute(
+        "SELECT DISTINCT consumer_id FROM consumption_events WHERE cycle_id=?",
+        (cycle_id,),
+    ).fetchall()
+    all_consumers = {r["consumer_id"] for r in all_consumer_rows}
+
     # --- activeGivers: a giver is an "active host" if they have a license (PAT)
-    # connected, OR pledged>0, OR appear as a source in consumption events. The
-    # PAT clause is what matters when the shared pool is off (pledge is forced to
-    # 0 then), so a connected host counts before it has run anything. ---
+    # connected, OR pledged>0, OR appear as a source in consumption events, OR
+    # consumed anything this cycle. The PAT clause matters when the shared pool
+    # is off (pledge is forced to 0 then), so a connected host counts before it
+    # has run anything. The consumed clause catches a host who exhausted their
+    # own quota and used the marketplace (0 credits left, never sourced/pledged):
+    # they are still a host and must not vanish from both tallies. ---
     givers_with_pat_rows = conn.execute("SELECT user_id FROM giver_pats").fetchall()
     givers_with_pat = {r["user_id"] for r in givers_with_pat_rows}
     givers_with_pledge = {r["giver_id"] for r in giver_rows if r["pledge"] > 0}
@@ -91,17 +101,12 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     givers_with_activity = {r["source_giver_id"] for r in givers_with_activity_rows}
     # Only count users that are actually givers (have giver_cycle records)
     active_givers = len(
-        (givers_with_pat | givers_with_pledge | givers_with_activity) & giver_ids
+        (givers_with_pat | givers_with_pledge | givers_with_activity | all_consumers)
+        & giver_ids
     )
 
     # --- activeConsumers: distinct consumer_ids in events that are NOT givers ---
-    all_consumer_rows = conn.execute(
-        "SELECT DISTINCT consumer_id FROM consumption_events WHERE cycle_id=?",
-        (cycle_id,),
-    ).fetchall()
-    active_consumers = sum(
-        1 for r in all_consumer_rows if r["consumer_id"] not in giver_ids
-    )
+    active_consumers = sum(1 for cid in all_consumers if cid not in giver_ids)
 
     # --- activity: up to 8 most recent consumption events ---
     activity_rows = conn.execute(
@@ -110,11 +115,13 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         "ORDER BY ts DESC, rowid DESC LIMIT 8",
         (cycle_id,),
     ).fetchall()
+    name_by_id = {u.user_id: u.name for u in users}
     activity = [
         {
             "time": str(row["ts"]),
             "kind": "consume",
-            "detail": f"{row['consumer_id'][:8]} via {row['bucket']}",
+            "actorId": row["consumer_id"],
+            "detail": f"{name_by_id.get(row['consumer_id'], row['consumer_id'][:8])} via {row['bucket']}",
             "amount": str(row["credits"]),
         }
         for row in activity_rows
@@ -123,12 +130,14 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     # --- leaderboardSnapshot ---
     lb = build_leaderboard(engine, users, cycle_id)
     # Expose generous + topConsumers (merge topPro + topNoob into a unified list)
-    top_consumers_map: dict[str, int] = {}
+    top_consumers_map: dict[str, dict] = {}
     for entry in lb.get("topPro", []) + lb.get("topNoob", []):
         name = entry["name"]
-        top_consumers_map[name] = top_consumers_map.get(name, 0) + entry["value"]
+        agg = top_consumers_map.setdefault(name, {"userId": entry.get("userId"), "value": 0})
+        agg["value"] += entry["value"]
     top_consumers = sorted(
-        [{"name": k, "value": v} for k, v in top_consumers_map.items()],
+        [{"userId": v["userId"], "name": k, "value": v["value"]}
+         for k, v in top_consumers_map.items()],
         key=lambda x: x["value"],
         reverse=True,
     )[:5]
@@ -175,6 +184,16 @@ def build_cycle_report(engine, users: list[LeaderboardUser], cycle_id: str, now:
     # --- pledged: Σ gc.pledge over all giver_cycles for this cycle ---
     gcs = engine.store.all_giver_cycles(cycle_id)
     pledged = sum(gc.pledge for gc in gcs)
+
+    # --- budget vs used: total credit the company had (Σ giver quota) vs total
+    # credit actually used this cycle (ALL consumption — givers' own usage plus
+    # pool/grant flowing to other givers and to consumers). Unused = budget−used
+    # = the sum of each giver's leftover credit at cycle end. ---
+    budget_total = sum(gc.quota for gc in gcs)
+    used_total = conn.execute(
+        "SELECT COALESCE(SUM(credits), 0) FROM consumption_events WHERE cycle_id=?",
+        (cycle_id,),
+    ).fetchone()[0]
 
     # --- build user lookup for O(1) is_giver checks ---
     user_map = {u.user_id: u for u in users}
@@ -294,6 +313,8 @@ def build_cycle_report(engine, users: list[LeaderboardUser], cycle_id: str, now:
         "id": cycle_id_val,
         "label": cycle_label,
         "pledged": pledged,
+        "budgetTotal": budget_total,
+        "usedTotal": used_total,
         "donated": donated,
         "toNonPat": to_non_pat,
         "toPat": to_pat,

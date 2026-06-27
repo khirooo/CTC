@@ -5,6 +5,7 @@ import { MarketplaceHero } from './MarketplaceHero';
 import { StatTile } from '@/components';
 import { aiu, euros } from '@/domain/credit';
 import { PatHelp } from '@/components/PatHelp';
+import { UserLink } from '@/components/UserLink';
 
 const kindColor: Record<string, string> = {
   donate: 'var(--give)',
@@ -210,7 +211,9 @@ export function DashboardScreen() {
                   <span style={{ color: kindColor[entry.kind] ?? 'var(--text-dim)' }}>
                     {kindLabel[entry.kind] ?? entry.kind}
                   </span>
-                  <span style={{ color: 'var(--text-dim)' }}>{entry.detail}</span>
+                  <span style={{ color: 'var(--text-dim)' }}>
+                    {entry.actorId ? <UserLink userId={entry.actorId}>{entry.detail}</UserLink> : entry.detail}
+                  </span>
                   <span style={{ color: kindColor[entry.kind] ?? 'var(--text-dim)' }}>
                     {entry.amount}
                   </span>
@@ -279,7 +282,7 @@ export function DashboardScreen() {
                 >
                   {i + 1}
                 </span>
-                <span style={{ flex: 1 }}>{entry.name}</span>
+                <span style={{ flex: 1 }}><UserLink userId={entry.userId} name={entry.name} /></span>
                 <span
                   style={{
                     fontFamily: "'JetBrains Mono', monospace",
@@ -306,7 +309,7 @@ export function DashboardScreen() {
               marginBottom: 8,
             }}
           >
-            Top Guests
+            Top users
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {topConsumers.slice(0, 3).map((entry, i) => (
@@ -323,7 +326,7 @@ export function DashboardScreen() {
                 >
                   {i + 1}
                 </span>
-                <span style={{ flex: 1 }}>{entry.name}</span>
+                <span style={{ flex: 1 }}><UserLink userId={entry.userId} name={entry.name} /></span>
                 <span
                   style={{
                     fontFamily: "'JetBrains Mono', monospace",

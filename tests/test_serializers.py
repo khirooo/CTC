@@ -20,6 +20,7 @@ def test_camel_alias_and_nano_output():
     users = {"u_ada": {"display_name": "Ada Lovelace"}}
     dto = build_public_request(store, lambda uid: users.get(uid), store.get_request("r1"), now=10)
     j = dto.model_dump(by_alias=True)
+    assert j["requesterId"] == "u_ada"
     assert j["requesterName"] == "Ada Lovelace"
     assert j["initials"] == "AL"
     assert j["requesterRole"] == "noob"        # consumer -> noob

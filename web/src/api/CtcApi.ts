@@ -14,6 +14,8 @@ import type {
   AdminUserDetail,
   AdminSettings,
   AdminSettingsPatch,
+  PublicProfile,
+  PublicUserHit,
 } from '@/domain/types';
 
 export interface ListRequestsResult {
@@ -57,6 +59,10 @@ export interface CtcApi {
 
   // CLI setup
   getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null }>;
+
+  // Public profiles
+  getUserProfile(id: string): Promise<PublicProfile>;
+  searchUsers(q: string): Promise<PublicUserHit[]>;
 
   // Admin
   listAllUsers(): Promise<AdminUser[]>;

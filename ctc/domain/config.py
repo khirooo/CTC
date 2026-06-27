@@ -30,6 +30,10 @@ class Config:
     # (givers can change it later). Override via CTC_DEFAULT_PLEDGE_PCT or admin settings.
     default_pledge_pct: int = field(
         default_factory=lambda: int(os.environ.get("CTC_DEFAULT_PLEDGE_PCT", "10")))
+    # Default chip-in amount (AIU) pre-filled on the marketplace "chip in" action.
+    # Override via CTC_DEFAULT_CHIP_IN_AIU or admin settings.
+    default_chip_in_aiu: int = field(
+        default_factory=lambda: int(os.environ.get("CTC_DEFAULT_CHIP_IN_AIU", "25")))
     participants_mode: str = field(
         default_factory=lambda: os.environ.get("CTC_PARTICIPANTS_MODE", "givers_only"))
     shared_pool_enabled: bool = field(

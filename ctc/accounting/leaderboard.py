@@ -13,14 +13,16 @@ class LeaderboardUser:
 
 
 def giver_tier_inputs(engine, users, cycle_id):
-    """TierInput for every giver. net = donated_live - pool_consumed_by:
-    'taken' is POOL draws only — a giver's own quota usage never drained the
-    shared pool, and donated_live already excludes self, so this is symmetric."""
+    """TierInput for every giver. net = donated_live - consumed_from_others:
+    'taken' counts everything this giver drew from OTHER givers (pool draws AND
+    grants received), excluding their own quota usage. This is the true mirror
+    of donated_live (others burning this giver's gifts, pool and grant alike),
+    so a host who only received a marketplace grant still counts as active."""
     return [
         TierInput(
             u.user_id, u.name,
             engine.donated_live(cycle_id, u.user_id),
-            engine.pool_consumed_by(cycle_id, u.user_id),
+            engine.consumed_from_others(cycle_id, u.user_id),
         )
         for u in users if u.is_giver
     ]
@@ -31,8 +33,9 @@ def build_leaderboard(engine, users: list[LeaderboardUser], cycle_id: str, top_n
     Compute the 3-track leaderboard from the accounting engine.
 
     Returns:
-        {"generous": [...], "topPro": [...], "topNoob": [...]}
-        where each entry is {"name": str, "value": int}.
+        {"generous": [...], "topPro": [...], "topNoob": [...], "standings": [...]}
+        where each track entry is {"userId": str, "name": str, "value": int}
+        and each standings entry is {"userId": str, "name": str, "net": int, "tier": str}.
 
     Tracks:
         - generous: users sorted by donated_live(cycle_id, user_id) descending, value > 0
@@ -47,10 +50,11 @@ def build_leaderboard(engine, users: list[LeaderboardUser], cycle_id: str, top_n
     for user in users:
         donated = engine.donated_live(cycle_id, user.user_id)
         if donated > 0:
-            generous_candidates.append((user.name, donated))
+            generous_candidates.append((user.user_id, user.name, donated))
 
-    generous_candidates.sort(key=lambda x: x[1], reverse=True)
-    generous = [{"name": name, "value": value} for name, value in generous_candidates[:top_n]]
+    generous_candidates.sort(key=lambda x: x[2], reverse=True)
+    generous = [{"userId": uid, "name": name, "value": value}
+                for uid, name, value in generous_candidates[:top_n]]
 
     # Compute topPro: givers with consumed_total > 0, sorted descending
     pro_candidates = []
@@ -58,10 +62,11 @@ def build_leaderboard(engine, users: list[LeaderboardUser], cycle_id: str, top_n
         if user.is_giver:
             consumed = engine.consumed_total(cycle_id, user.user_id)
             if consumed > 0:
-                pro_candidates.append((user.name, consumed))
+                pro_candidates.append((user.user_id, user.name, consumed))
 
-    pro_candidates.sort(key=lambda x: x[1], reverse=True)
-    top_pro = [{"name": name, "value": value} for name, value in pro_candidates[:top_n]]
+    pro_candidates.sort(key=lambda x: x[2], reverse=True)
+    top_pro = [{"userId": uid, "name": name, "value": value}
+               for uid, name, value in pro_candidates[:top_n]]
 
     # Compute topNoob: non-givers with consumed_total > 0, sorted descending
     noob_candidates = []
@@ -69,14 +74,15 @@ def build_leaderboard(engine, users: list[LeaderboardUser], cycle_id: str, top_n
         if not user.is_giver:
             consumed = engine.consumed_total(cycle_id, user.user_id)
             if consumed > 0:
-                noob_candidates.append((user.name, consumed))
+                noob_candidates.append((user.user_id, user.name, consumed))
 
-    noob_candidates.sort(key=lambda x: x[1], reverse=True)
-    top_noob = [{"name": name, "value": value} for name, value in noob_candidates[:top_n]]
+    noob_candidates.sort(key=lambda x: x[2], reverse=True)
+    top_noob = [{"userId": uid, "name": name, "value": value}
+                for uid, name, value in noob_candidates[:top_n]]
 
     # Standings: aristocracy tiers over all givers (givers-only feature)
     standings = [
-        {"name": r.name, "net": r.net, "tier": r.tier}
+        {"userId": r.user_id, "name": r.name, "net": r.net, "tier": r.tier}
         for r in assign_tiers(giver_tier_inputs(engine, users, cycle_id))
     ]
 

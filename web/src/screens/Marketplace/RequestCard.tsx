@@ -3,11 +3,14 @@ import type { PublicRequest } from '@/domain/types';
 import { pct, aiu } from '@/domain/credit';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
+import { UserLink } from '@/components/UserLink';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Button } from '@/components/Button';
 
 interface RequestCardProps {
   request: PublicRequest;
+  /** Amount (AIU) the "Chip in" action contributes; shown on the button. */
+  chipInAiu: number;
   onDonate: (id: string) => void;
 }
 
@@ -18,7 +21,7 @@ function timeLabel(expiresAt: number, now: number, status: PublicRequest['status
   return `${hoursLeft}h left`;
 }
 
-export function RequestCard({ request, onDonate }: RequestCardProps) {
+export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) {
   // Evaluate display-time freshly on each render so "Xh/Xd left" never goes
   // stale across reloads or long sessions. Tests freeze the api's clock, not
   // this one, but expired/fulfilled cards (which the tests cover) don't depend
@@ -27,6 +30,7 @@ export function RequestCard({ request, onDonate }: RequestCardProps) {
 
   const {
     id,
+    requesterId,
     requesterName,
     initials,
     requesterRole,
@@ -69,7 +73,9 @@ export function RequestCard({ request, onDonate }: RequestCardProps) {
         <Avatar initials={initials} tone={avatarTone} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{requesterName}</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>
+              {requesterId ? <UserLink userId={requesterId} name={requesterName} /> : requesterName}
+            </span>
             <Badge tone={badgeTone}>{roleLabel}</Badge>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>{reason}</div>
@@ -112,7 +118,7 @@ export function RequestCard({ request, onDonate }: RequestCardProps) {
           }}
           onClick={() => onDonate(id)}
         >
-          Chip in 25 →
+          Chip in {chipInAiu} →
         </Button>
       )}
       {isFulfilled && (

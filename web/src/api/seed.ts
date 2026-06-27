@@ -67,6 +67,8 @@ export function makeSeed(now: number): StoreState {
       id: '2026-05',
       label: 'May 2026',
       pledged: 9800 * N,
+      budgetTotal: 14000 * N,
+      usedTotal: 8200 * N,
       donated: 6240 * N,
       toNonPat: 4010 * N,
       toPat: 2230 * N,
@@ -82,16 +84,18 @@ export function makeSeed(now: number): StoreState {
       ],
       winners: {
         // rotator key kept per brief — History screen won't render it but it must be preserved
-        rotator: { name: 'Yuki Tanaka', value: 640 * N },
-        generous: { name: 'Marco Bianchi', value: 1540 * N },
-        pro: { name: 'Yuki Tanaka', value: 1240 * N },
-        noob: { name: 'Lena Hoffmann', value: 412 * N },
+        rotator: { name: 'Yuki Tanaka', value: 640 * N, userId: 'u_kef' },
+        generous: { name: 'Marco Bianchi', value: 1540 * N, userId: 'u_mb' },
+        pro: { name: 'Yuki Tanaka', value: 1240 * N, userId: 'u_kef' },
+        noob: { name: 'Lena Hoffmann', value: 412 * N, userId: 'u_lh' },
       },
     },
     {
       id: '2026-04',
       label: 'April 2026',
       pledged: 8100 * N,
+      budgetTotal: 12000 * N,
+      usedTotal: 6800 * N,
       donated: 5020 * N,
       toNonPat: 3100 * N,
       toPat: 1920 * N,
@@ -106,16 +110,18 @@ export function makeSeed(now: number): StoreState {
         { who: 'Yuki Tanaka', amount: 480 * N, count: 4 },
       ],
       winners: {
-        rotator: { name: 'Sofia Lindqvist', value: 520 * N },
-        generous: { name: 'Yuki Tanaka', value: 1480 * N },
-        pro: { name: 'Amine Tazi', value: 1080 * N },
-        noob: { name: 'Diego Ramirez', value: 388 * N },
+        rotator: { name: 'Sofia Lindqvist', value: 520 * N, userId: 'u_sl' },
+        generous: { name: 'Yuki Tanaka', value: 1480 * N, userId: 'u_kef' },
+        pro: { name: 'Amine Tazi', value: 1080 * N, userId: 'u_at' },
+        noob: { name: 'Diego Ramirez', value: 388 * N, userId: 'u_dr' },
       },
     },
     {
       id: '2026-03',
       label: 'March 2026',
       pledged: 5400 * N,
+      budgetTotal: 9000 * N,
+      usedTotal: 4100 * N,
       donated: 2980 * N,
       toNonPat: 1740 * N,
       toPat: 1240 * N,
@@ -130,10 +136,10 @@ export function makeSeed(now: number): StoreState {
         { who: 'Marco Bianchi', amount: 320 * N, count: 2 },
       ],
       winners: {
-        rotator: { name: 'Amine Tazi', value: 410 * N },
-        generous: { name: 'Sofia Lindqvist', value: 880 * N },
-        pro: { name: 'Yuki Tanaka', value: 920 * N },
-        noob: { name: 'Priya Nair', value: 276 * N },
+        rotator: { name: 'Amine Tazi', value: 410 * N, userId: 'u_at' },
+        generous: { name: 'Sofia Lindqvist', value: 880 * N, userId: 'u_sl' },
+        pro: { name: 'Yuki Tanaka', value: 920 * N, userId: 'u_kef' },
+        noob: { name: 'Priya Nair', value: 276 * N, userId: 'u_pn' },
       },
     },
   ];
@@ -141,6 +147,7 @@ export function makeSeed(now: number): StoreState {
   const requests: SeedRequest[] = [
     {
       id: 'req_1',
+      requesterId: 'u_lh',
       requesterName: 'Lena Hoffmann',
       initials: 'LH',
       requesterRole: 'noob',
@@ -154,6 +161,7 @@ export function makeSeed(now: number): StoreState {
     },
     {
       id: 'req_2',
+      requesterId: 'u_dr',
       requesterName: 'Diego Ramirez',
       initials: 'DR',
       requesterRole: 'noob',
@@ -167,6 +175,7 @@ export function makeSeed(now: number): StoreState {
     },
     {
       id: 'req_3',
+      requesterId: 'u_pn',
       requesterName: 'Priya Nair',
       initials: 'PN',
       requesterRole: 'noob',
@@ -180,6 +189,7 @@ export function makeSeed(now: number): StoreState {
     },
     {
       id: 'req_4',
+      requesterId: 'u_at',
       requesterName: 'Amine Tazi',
       initials: 'AT',
       requesterRole: 'pro',

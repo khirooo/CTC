@@ -20,6 +20,7 @@ venv/
 *.sqlite3
 
 # Web app
+node_modules/
 web/node_modules
 web/dist
 web/playwright-report

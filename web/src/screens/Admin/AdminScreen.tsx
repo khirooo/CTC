@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApp } from '@/store/AppContext';
 import { NANO_PER_AIU } from '@/domain/credit';
+import { NumberInput } from '@/components/NumberInput';
 import type { AdminUser, AdminSettings, AdminSettingsPatch } from '@/domain/types';
 
 // Numeric-only keys of AdminSettingsPatch (for the existing SettingRow number inputs)
-type NumericSettingKey = 'freeAllowanceAiu' | 'defaultPledgePct' | 'requestExpiryHours' | 'requestExpiryMaxHours' | 'creditToEuroRate';
+type NumericSettingKey = 'freeAllowanceAiu' | 'defaultPledgePct' | 'requestExpiryHours' | 'requestExpiryMaxHours' | 'creditToEuroRate' | 'defaultChipInAiu';
 
 // ─── Shared style constants ────────────────────────────────────────────────────
 
@@ -146,10 +147,11 @@ interface SettingRowProps {
   min?: number;
   max?: number;
   step?: number;
+  allowFloat?: boolean;
   onChange: (val: number) => void;
 }
 
-function SettingRow({ id, label, value, isOverride, min, max, step = 1, onChange }: SettingRowProps) {
+function SettingRow({ id, label, value, isOverride, min, max, allowFloat = false, onChange }: SettingRowProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -171,14 +173,13 @@ function SettingRow({ id, label, value, isOverride, min, max, step = 1, onChange
           </span>
         )}
       </div>
-      <input
+      <NumberInput
         id={id}
-        type="number"
         value={value}
         min={min}
         max={max}
-        step={step}
-        onChange={(e) => onChange(Number(e.target.value))}
+        allowFloat={allowFloat}
+        onChange={onChange}
         style={inputStyle}
       />
     </div>
@@ -246,7 +247,7 @@ export function AdminScreen() {
     try {
       // Only send fields that actually changed
       const patch: AdminSettingsPatch = {};
-      const numericKeys: NumericSettingKey[] = ['freeAllowanceAiu', 'defaultPledgePct', 'requestExpiryHours', 'requestExpiryMaxHours', 'creditToEuroRate'];
+      const numericKeys: NumericSettingKey[] = ['freeAllowanceAiu', 'defaultPledgePct', 'requestExpiryHours', 'requestExpiryMaxHours', 'creditToEuroRate', 'defaultChipInAiu'];
       for (const key of numericKeys) {
         const localVal = localSettings[key];
         if (localVal !== undefined && localVal !== (settings[key].value as number)) {
@@ -401,7 +402,17 @@ export function AdminScreen() {
             isOverride={settings.creditToEuroRate.isOverride}
             min={0}
             step={0.001}
+            allowFloat
             onChange={(v) => handleFieldChange('creditToEuroRate', v)}
+          />
+          <SettingRow
+            id="setting-defaultChipInAiu"
+            label="Default chip-in (AIU)"
+            value={effective('defaultChipInAiu')}
+            isOverride={settings.defaultChipInAiu.isOverride}
+            min={1}
+            step={5}
+            onChange={(v) => handleFieldChange('defaultChipInAiu', v)}
           />
 
           {/* Participants mode select */}
