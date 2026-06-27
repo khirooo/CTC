@@ -20,6 +20,15 @@ GHE_DOMAIN="${GHE_DOMAIN:-example.ghe.com}"
 # once (ctc login) also clears the browser warning. Defaults to localhost.
 CTC_DOMAIN="${CTC_DOMAIN:-localhost}"
 
+# CTC_DOMAIN may be a hostname OR a raw IP. Browsers match an IP literal only
+# against IP: (iPAddress) SANs, never DNS: ones — so emit the SAN type that fits,
+# else HTTPS to a raw-IP CTC_DOMAIN fails (cert "not valid for this address").
+case "$CTC_DOMAIN" in
+  *[!0-9.]*) CTC_DOMAIN_SAN="DNS:${CTC_DOMAIN}" ;;  # any non-digit/dot char → hostname
+  *.*.*.*)   CTC_DOMAIN_SAN="IP:${CTC_DOMAIN}" ;;    # dotted all-numeric → IPv4 address
+  *)         CTC_DOMAIN_SAN="DNS:${CTC_DOMAIN}" ;;
+esac
+
 if [ -f "$OUT_DIR/cert.pem" ] && [ -f "$OUT_DIR/key.pem" ]; then
   echo "cert.pem/key.pem already exist in $OUT_DIR — leaving them in place."
   echo "(delete them first if you really want to regenerate; clients will need to re-trust.)"
@@ -31,7 +40,7 @@ fi
 
 openssl req -x509 -newkey rsa:2048 -keyout "$OUT_DIR/key.pem" -out "$OUT_DIR/cert.pem" \
   -days 365 -nodes -subj "/CN=copilot-proxy-ca" \
-  -addext "subjectAltName=DNS:localhost,DNS:${CTC_DOMAIN},DNS:api.${GHE_DOMAIN},DNS:${GHE_DOMAIN},DNS:copilot-api.${GHE_DOMAIN},DNS:api.github.com,DNS:github.com,DNS:api.githubcopilot.com,DNS:githubcopilot.com,DNS:api.localhost,IP:127.0.0.1"
+  -addext "subjectAltName=DNS:localhost,${CTC_DOMAIN_SAN},DNS:api.${GHE_DOMAIN},DNS:${GHE_DOMAIN},DNS:copilot-api.${GHE_DOMAIN},DNS:api.github.com,DNS:github.com,DNS:api.githubcopilot.com,DNS:githubcopilot.com,DNS:api.localhost,IP:127.0.0.1"
 
 # gencert runs as root but the proxy reads /certs read-only as a non-root user;
 # openssl writes the key 0600, so make it readable by the proxy. This is a
