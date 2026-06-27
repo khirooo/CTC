@@ -73,9 +73,10 @@ A consumer becomes a giver by submitting their real Copilot **PAT** — either d
 the first-run walkthrough or later on the Settings page (same call either way). CTC
 then:
 
-1. **Checks it's really yours** — it calls GitHub Enterprise with the PAT and confirms the
-   GHE login matches the account you're logged in as. (You can't register
-   someone else's token.)
+1. **Validates the token** — it calls GitHub Enterprise with the PAT to confirm it's a
+   working Copilot PAT with a premium-interactions entitlement. Note: CTC does **not**
+   check that the PAT belongs to your login — your CTC identity is your GitLab account,
+   which is separate from the GHE identity that owns the PAT.
 2. **Reads your capacity** — how much Copilot quota that PAT has.
 3. **Stores it encrypted** and flips your role to **giver**.
 
