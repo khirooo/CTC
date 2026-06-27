@@ -26,6 +26,22 @@ class AccountingStore:
         ).fetchone()
         return Cycle(r["id"], r["label"], r["starts_at"], r["ends_at"], r["status"]) if r else None
 
+    # --- cycle report snapshots ---
+    # A frozen, end-of-cycle report is stored once a cycle is archived so its
+    # winner/donor labels can't drift as live user roles/names change later.
+    def get_cycle_report(self, cycle_id: str) -> str | None:
+        r = self.conn.execute(
+            "SELECT report_json FROM cycle_reports WHERE cycle_id=?", (cycle_id,)
+        ).fetchone()
+        return r["report_json"] if r else None
+
+    def save_cycle_report(self, cycle_id: str, report_json: str, now: int) -> None:
+        self.conn.execute(
+            "INSERT INTO cycle_reports (cycle_id, report_json, created_at) VALUES (?,?,?) "
+            "ON CONFLICT(cycle_id) DO NOTHING",
+            (cycle_id, report_json, now),
+        )
+
     # --- giver_cycles ---
     def upsert_giver_cycle(self, gc: GiverCycle) -> None:
         self.conn.execute(

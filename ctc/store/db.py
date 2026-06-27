@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS magic_links (
   consumed_at INTEGER,
   created_at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS cycle_reports (
+  cycle_id    TEXT PRIMARY KEY,
+  report_json TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
 """
 
 

@@ -1,6 +1,8 @@
 """Server-agnostic dashboard aggregation for the CTC accounting engine."""
 from __future__ import annotations
 
+import json
+
 from .leaderboard import LeaderboardUser, build_leaderboard
 from ..domain.types import RequestStatus, Role
 
@@ -330,9 +332,30 @@ def build_cycle_report(engine, users: list[LeaderboardUser], cycle_id: str, now:
 def build_history(engine, users: list[LeaderboardUser], now: int) -> list[dict]:
     """
     Return a list of cycle reports, newest-first (ordered by starts_at DESC).
+
+    The active cycle is always computed live so the current period stays
+    real-time. An archived cycle is served from a frozen snapshot: the first time
+    it is requested after archival its report is computed, persisted, and returned;
+    every later request returns that stored copy. This keeps a past report's
+    winner/donor *labels* from drifting as live user roles/names change later
+    (the credit totals, derived from frozen events, never drift either way).
     """
     conn = engine.store.conn
     rows = conn.execute(
-        "SELECT id FROM cycles ORDER BY starts_at DESC"
+        "SELECT id, status FROM cycles ORDER BY starts_at DESC"
     ).fetchall()
-    return [build_cycle_report(engine, users, row["id"], now) for row in rows]
+    out: list[dict] = []
+    for row in rows:
+        cycle_id = row["id"]
+        if row["status"] == "active":
+            out.append(build_cycle_report(engine, users, cycle_id, now))
+            continue
+        snapshot = engine.store.get_cycle_report(cycle_id)
+        if snapshot is not None:
+            out.append(json.loads(snapshot))
+            continue
+        # archived but not yet frozen → compute once and persist (freeze on first read)
+        report = build_cycle_report(engine, users, cycle_id, now)
+        engine.store.save_cycle_report(cycle_id, json.dumps(report), now)
+        out.append(report)
+    return out

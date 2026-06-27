@@ -381,3 +381,70 @@ class TestBuildHistory:
         users = []
         history = build_history(e, users, NOW)
         assert history == []
+
+
+# ---------------------------------------------------------------------------
+# build_history — archived-cycle report freezing
+# ---------------------------------------------------------------------------
+
+class TestBuildHistoryFreezing:
+    def _archived_cycle(self):
+        """One archived cycle where g1 donated 30 to non-giver c1 (generous=g1)."""
+        e, s = make_engine()
+        s.add_cycle(Cycle(CYC1, "June 2026", 1000, 1_999_999, "archived"))
+        e.set_quota(CYC1, "g1", 500)
+        e.set_pledge(CYC1, "g1", 100)
+        e.record_consumption(CYC1, "c1", "g1", Bucket.POOL, 30, ts=NOW - 5000)
+        users = [
+            LeaderboardUser("g1", "Giver One", is_giver=True),
+            LeaderboardUser("c1", "Consumer One", is_giver=False),
+        ]
+        return e, s, users
+
+    def test_archived_labels_frozen_against_later_rename(self):
+        e, s, users = self._archived_cycle()
+        first = build_history(e, users, NOW)
+        assert first[0]["winners"]["generous"]["name"] == "Giver One"
+
+        renamed = [
+            LeaderboardUser("g1", "RENAMED", is_giver=True),
+            LeaderboardUser("c1", "Consumer One", is_giver=False),
+        ]
+        second = build_history(e, renamed, NOW)
+        # archived report keeps the name captured at first read, not the live one
+        assert second[0]["winners"]["generous"]["name"] == "Giver One"
+
+    def test_archived_totals_frozen_against_later_events(self):
+        e, s, users = self._archived_cycle()
+        build_history(e, users, NOW)  # freeze
+        # later activity against the archived cycle must not change the frozen report
+        e.record_consumption(CYC1, "c1", "g1", Bucket.POOL, 50, ts=NOW - 10,
+                             allow_overshoot=True)
+        again = build_history(e, users, NOW)
+        assert again[0]["toNonPat"] == 30  # not 30 + 50
+
+    def test_snapshot_row_written_for_archived_only(self):
+        e, s = make_engine()
+        s.add_cycle(Cycle(CYC1, "June 2026", 1000, 1_999_999, "archived"))
+        s.add_cycle(Cycle(CYC2, "July 2026", 2000, 2_999_999, "active"))
+        build_history(e, [], NOW)
+        assert s.get_cycle_report(CYC1) is not None   # archived → frozen
+        assert s.get_cycle_report(CYC2) is None        # active → never frozen
+
+    def test_active_cycle_recomputed_with_live_labels(self):
+        e, s = make_engine()
+        s.add_cycle(Cycle(CYC2, "July 2026", 2000, 2_999_999, "active"))
+        e.set_quota(CYC2, "g1", 500)
+        e.set_pledge(CYC2, "g1", 100)
+        e.record_consumption(CYC2, "c1", "g1", Bucket.POOL, 30, ts=NOW - 100)
+        users = [
+            LeaderboardUser("g1", "Giver One", is_giver=True),
+            LeaderboardUser("c1", "Consumer One", is_giver=False),
+        ]
+        assert build_history(e, users, NOW)[0]["winners"]["generous"]["name"] == "Giver One"
+        renamed = [
+            LeaderboardUser("g1", "RENAMED", is_giver=True),
+            LeaderboardUser("c1", "Consumer One", is_giver=False),
+        ]
+        # active cycle reflects the live name on every call
+        assert build_history(e, renamed, NOW)[0]["winners"]["generous"]["name"] == "RENAMED"
