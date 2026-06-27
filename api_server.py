@@ -137,6 +137,9 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         resp.del_cookie(COOKIE)
         return resp
 
+    async def healthz(req):
+        return web.json_response({"status": "ok"})
+
     from ctc.store.settings_store import SettingsStore
     from ctc.domain.settings import EffectiveConfig
     _settings_store = SettingsStore(store.conn)
@@ -271,6 +274,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
     ])
 
     app.add_routes([
+        web.get("/healthz", healthz),
         web.post("/auth/logout", auth_logout),
         web.get("/api/me", api_me),
         web.post("/api/pat", api_pat),

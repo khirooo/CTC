@@ -54,3 +54,11 @@ async def test_config_route_is_gone():
     async with TestClient(TestServer(_app())) as cli:
         r = await cli.get("/api/config")
         assert r.status == 404
+
+
+@pytest.mark.asyncio
+async def test_healthz_ok():
+    async with TestClient(TestServer(_app())) as cli:
+        r = await cli.get("/healthz")
+        assert r.status == 200
+        assert (await r.json())["status"] == "ok"
