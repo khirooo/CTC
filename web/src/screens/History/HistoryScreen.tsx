@@ -365,10 +365,10 @@ function CycleDetail({ report, rate }: { report: CycleReport; rate?: number }) {
               marginTop: 8,
             }}
           >
-            {aiu(report.pledged - report.donated)}
+            {aiu(report.budgetTotal - report.usedTotal)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
-            {aiu(report.donated)} actually flowed
+            {aiu(report.usedTotal)} of {aiu(report.budgetTotal)} used
           </div>
         </div>
       </div>

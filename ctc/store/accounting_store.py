@@ -153,6 +153,16 @@ class AccountingStore:
             (cycle_id, giver_id, giver_id),
         )
 
+    def consumed_from_others(self, cycle_id: str, user_id: str) -> int:
+        # Credit this user drew from OTHER givers' gifts — pool draws plus grants
+        # received — excluding their own quota (own bucket is self-sourced). The
+        # symmetric counterpart of donated_live (others burning this user's gifts).
+        return self._sum(
+            "SELECT SUM(credits) FROM consumption_events "
+            "WHERE cycle_id=? AND consumer_id=? AND source_giver_id<>?",
+            (cycle_id, user_id, user_id),
+        )
+
     def request_funded(self, request_id: str) -> int:
         return self._sum("SELECT SUM(amount) FROM grants WHERE request_id=?", (request_id,))
 

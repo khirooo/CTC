@@ -23,6 +23,10 @@ class FakeEngine:
     def pool_consumed_by(self, cycle_id, uid):
         return self._p.get(uid, 0)
 
+    def consumed_from_others(self, cycle_id, uid):
+        # In the fake, the "taken from others" map stands in for pool+grant draws.
+        return self._p.get(uid, 0)
+
 CYC = "2026-06"
 
 

@@ -125,6 +125,10 @@ export interface CycleReport {
   id: string;
   label: string;
   pledged: number;
+  /** Total credit the company had this cycle = Σ each giver's quota. */
+  budgetTotal: number;
+  /** Total credit actually used this cycle (own + pool + grant). */
+  usedTotal: number;
   donated: number;
   toNonPat: number;
   toPat: number;

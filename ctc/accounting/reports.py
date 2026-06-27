@@ -130,12 +130,14 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     # --- leaderboardSnapshot ---
     lb = build_leaderboard(engine, users, cycle_id)
     # Expose generous + topConsumers (merge topPro + topNoob into a unified list)
-    top_consumers_map: dict[str, int] = {}
+    top_consumers_map: dict[str, dict] = {}
     for entry in lb.get("topPro", []) + lb.get("topNoob", []):
         name = entry["name"]
-        top_consumers_map[name] = top_consumers_map.get(name, 0) + entry["value"]
+        agg = top_consumers_map.setdefault(name, {"userId": entry.get("userId"), "value": 0})
+        agg["value"] += entry["value"]
     top_consumers = sorted(
-        [{"name": k, "value": v} for k, v in top_consumers_map.items()],
+        [{"userId": v["userId"], "name": k, "value": v["value"]}
+         for k, v in top_consumers_map.items()],
         key=lambda x: x["value"],
         reverse=True,
     )[:5]
@@ -182,6 +184,16 @@ def build_cycle_report(engine, users: list[LeaderboardUser], cycle_id: str, now:
     # --- pledged: Σ gc.pledge over all giver_cycles for this cycle ---
     gcs = engine.store.all_giver_cycles(cycle_id)
     pledged = sum(gc.pledge for gc in gcs)
+
+    # --- budget vs used: total credit the company had (Σ giver quota) vs total
+    # credit actually used this cycle (ALL consumption — givers' own usage plus
+    # pool/grant flowing to other givers and to consumers). Unused = budget−used
+    # = the sum of each giver's leftover credit at cycle end. ---
+    budget_total = sum(gc.quota for gc in gcs)
+    used_total = conn.execute(
+        "SELECT COALESCE(SUM(credits), 0) FROM consumption_events WHERE cycle_id=?",
+        (cycle_id,),
+    ).fetchone()[0]
 
     # --- build user lookup for O(1) is_giver checks ---
     user_map = {u.user_id: u for u in users}
@@ -301,6 +313,8 @@ def build_cycle_report(engine, users: list[LeaderboardUser], cycle_id: str, now:
         "id": cycle_id_val,
         "label": cycle_label,
         "pledged": pledged,
+        "budgetTotal": budget_total,
+        "usedTotal": used_total,
         "donated": donated,
         "toNonPat": to_non_pat,
         "toPat": to_pat,

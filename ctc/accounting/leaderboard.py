@@ -13,14 +13,16 @@ class LeaderboardUser:
 
 
 def giver_tier_inputs(engine, users, cycle_id):
-    """TierInput for every giver. net = donated_live - pool_consumed_by:
-    'taken' is POOL draws only — a giver's own quota usage never drained the
-    shared pool, and donated_live already excludes self, so this is symmetric."""
+    """TierInput for every giver. net = donated_live - consumed_from_others:
+    'taken' counts everything this giver drew from OTHER givers (pool draws AND
+    grants received), excluding their own quota usage. This is the true mirror
+    of donated_live (others burning this giver's gifts, pool and grant alike),
+    so a host who only received a marketplace grant still counts as active."""
     return [
         TierInput(
             u.user_id, u.name,
             engine.donated_live(cycle_id, u.user_id),
-            engine.pool_consumed_by(cycle_id, u.user_id),
+            engine.consumed_from_others(cycle_id, u.user_id),
         )
         for u in users if u.is_giver
     ]

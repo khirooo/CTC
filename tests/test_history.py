@@ -82,7 +82,8 @@ class TestBuildCycleReportKeys:
         e, users, req_giver, req_consumer = seed_single_cycle()
         report = build_cycle_report(e, users, CYC1, NOW)
         required = {
-            "id", "label", "pledged", "donated", "toNonPat", "toPat",
+            "id", "label", "pledged", "budgetTotal", "usedTotal", "donated",
+            "toNonPat", "toPat",
             "reqFilled", "reqTotal", "reqPat", "reqNonPat", "fills", "winners",
         }
         assert required == set(report.keys())
@@ -338,7 +339,8 @@ class TestBuildHistory:
         e, users, req_giver, req_consumer = seed_single_cycle()
         history = build_history(e, users, NOW)
         required = {
-            "id", "label", "pledged", "donated", "toNonPat", "toPat",
+            "id", "label", "pledged", "budgetTotal", "usedTotal", "donated",
+            "toNonPat", "toPat",
             "reqFilled", "reqTotal", "reqPat", "reqNonPat", "fills", "winners",
         }
         for report in history:
