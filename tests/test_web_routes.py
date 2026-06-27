@@ -13,8 +13,7 @@ from ctc.store.db import connect, init_db
 from ctc.domain.deployment import DeploymentConfig
 from ctc.domain.types import Role
 
-_DEFAULT_DEPLOYMENT = DeploymentConfig(auth_mode="ghe_oauth", web_transport="https",
-                                       email_backend="console")
+_DEFAULT_DEPLOYMENT = DeploymentConfig(web_transport="https")
 
 
 class StubOAuth:

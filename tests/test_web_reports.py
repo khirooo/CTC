@@ -21,8 +21,7 @@ from ctc.domain.deployment import DeploymentConfig
 # Reuse the OAuth stub + login helper from the marketplace test harness.
 from test_web_routes import StubOAuth, _giver_user, _login
 
-_DEFAULT_DEPLOYMENT = DeploymentConfig(auth_mode="ghe_oauth", web_transport="https",
-                                       email_backend="console")
+_DEFAULT_DEPLOYMENT = DeploymentConfig(web_transport="https")
 
 
 def _build(now=lambda: 1000, shared_pool=False):

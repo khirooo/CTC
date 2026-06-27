@@ -71,9 +71,7 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
     @admin_only
     async def get_settings(req, _admin):
         view = effective_view(effective_config, settings_store)
-        view["boot"] = {"auth_mode": deployment.auth_mode,
-                        "web_transport": deployment.web_transport,
-                        "email_backend": deployment.email_backend,
+        view["boot"] = {"web_transport": deployment.web_transport,
                         "source": "env"}
         return web.json_response(view)
 

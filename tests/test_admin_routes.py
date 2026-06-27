@@ -80,7 +80,7 @@ async def test_admin_settings_includes_modes_and_boot():
         body = await r.json()
         assert body["participants_mode"]["value"] == "givers_only"
         assert body["shared_pool_enabled"]["value"] is False
-        assert body["boot"]["auth_mode"] in ("email", "ghe_oauth")
+        assert "web_transport" in body["boot"]
         assert body["boot"]["source"] == "env"
 
 

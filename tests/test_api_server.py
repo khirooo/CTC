@@ -12,8 +12,7 @@ from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
 from ctc.domain.deployment import DeploymentConfig
 
-_DEFAULT_DEPLOYMENT = DeploymentConfig(auth_mode="ghe_oauth", web_transport="https",
-                                       email_backend="console")
+_DEFAULT_DEPLOYMENT = DeploymentConfig(web_transport="https")
 
 
 class StubOAuth:
@@ -113,7 +112,9 @@ async def test_full_login_then_me_then_pat_then_token():
 
 
 @pytest.mark.asyncio
-async def test_pat_identity_mismatch_returns_409():
+async def test_pat_identity_mismatch_is_accepted():
+    # enforce_identity=False unconditionally: GitLab username never matches the GHE PAT owner,
+    # so a PAT from a different GHE login is accepted without a 409.
     async def http_get_user_mismatch(pat):
         return {"login": "someone-else",
                 "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
@@ -121,9 +122,7 @@ async def test_pat_identity_mismatch_returns_409():
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)  # identity is "octocat" (from StubOAuth.fetch_identity)
         r = await cli.post("/api/pat", json={"pat": "github_pat_X"})
-        assert r.status == 409
-        body = await r.json()
-        assert "error" in body and "message" in body
+        assert r.status == 200
 
 
 @pytest.mark.asyncio
@@ -159,10 +158,10 @@ def test_build_from_env_takes_session_and_builds_without_a_loop(monkeypatch, tmp
     init_db(connect(db))
     monkeypatch.setenv("CTC_SECRET_KEY", "sek")
     monkeypatch.setenv("CTC_DB_PATH", db)
-    monkeypatch.setenv("GHE_OAUTH_CLIENT_ID", "cid")
-    monkeypatch.setenv("GHE_OAUTH_CLIENT_SECRET", "csec")
-    monkeypatch.setenv("GHE_OAUTH_REDIRECT_URI", "http://localhost:8090/auth/callback")
-    monkeypatch.setenv("GHE_OAUTH_BASE", "https://example.ghe.com")
+    monkeypatch.setenv("GITLAB_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("GITLAB_OAUTH_CLIENT_SECRET", "csec")
+    monkeypatch.setenv("GITLAB_OAUTH_REDIRECT_URI", "http://localhost:8090/auth/callback")
+    monkeypatch.setenv("GITLAB_BASE", "https://gitlab.example.com")
     monkeypatch.setenv("GHE_API_BASE", "https://api.example.ghe.com")
     app = api_server.build_from_env(session=object())  # no running loop required
     assert isinstance(app, web.Application)
