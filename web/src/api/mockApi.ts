@@ -55,9 +55,7 @@ function mockAssignTiers(
 }
 
 const DEFAULT_BOOT_CONFIG: AdminBootConfig = {
-  authMode: 'email',
   webTransport: 'http',
-  emailBackend: 'none',
 };
 
 const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
@@ -178,7 +176,6 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       participantsMode: deployParticipantsMode,
       sharedPoolEnabled: deploySharedPoolEnabled,
       creditToEuroRate: (state.adminSettings ?? DEFAULT_ADMIN_SETTINGS).creditToEuroRate.value,
-      authMode: 'email',
       webTransport: 'http',
     };
   }
@@ -608,14 +605,6 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
     async getHistory(): Promise<CycleReport[]> {
       // months have no private credit fields — safe to return directly
       return delay([...state.months]);
-    },
-
-    async getConfig(): Promise<{ authMode: 'email' | 'ghe_oauth' }> {
-      return delay({ authMode: 'email' as const });
-    },
-
-    async startEmailLogin(_email: string): Promise<void> {
-      return delay(undefined);
     },
 
     async getCliCredentials() {

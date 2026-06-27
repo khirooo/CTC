@@ -59,7 +59,7 @@ describe('HttpCtcApi', () => {
     expect(s).toMatchObject({
       userId: 'u1', name: 'Octo', role: 'giver', onboarded: true, isAdmin: false,
       hasPat: true, participantsMode: 'givers_and_consumers', sharedPoolEnabled: true,
-      authMode: 'ghe_oauth', webTransport: 'https',
+      webTransport: 'https',
     });
     const [url, init] = (f as any).mock.calls[0];
     expect(url).toBe('http://api/me');

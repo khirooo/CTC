@@ -86,7 +86,6 @@ export class HttpCtcApi implements CtcApi {
       participantsMode: me.participants_mode,
       sharedPoolEnabled: me.shared_pool_enabled !== undefined ? Boolean(me.shared_pool_enabled) : undefined,
       creditToEuroRate: me.credit_to_euro_rate !== undefined ? Number(me.credit_to_euro_rate) : undefined,
-      authMode: me.auth_mode,
       webTransport: me.web_transport,
     };
   }
@@ -131,17 +130,6 @@ export class HttpCtcApi implements CtcApi {
       installCommand: `curl -fsSLk ${scheme}://${ctcHost}/install.sh | sh -s -- --token ${minted.token}`,
       caFingerprint: minted.ca_fingerprint ?? null,
     };
-  }
-
-  // --- Config ---
-  getConfig(): Promise<{ authMode: 'email' | 'ghe_oauth' }> {
-    return apiFetch(this.base, '', '/config');
-  }
-  async startEmailLogin(email: string): Promise<void> {
-    await apiFetch(this.authBase(), '', '/auth/email', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
   }
 
   // --- Admin ---
@@ -192,7 +180,7 @@ function mapAdminUser(u: any): AdminUser {
 function field(f: any) { return { value: f.value, isOverride: Boolean(f.is_override) }; }
 function mapAdminSettings(s: any): AdminSettings {
   const boot: AdminBootConfig | null = s.boot
-    ? { authMode: s.boot.auth_mode, webTransport: s.boot.web_transport, emailBackend: s.boot.email_backend }
+    ? { webTransport: s.boot.web_transport }
     : null;
   return {
     freeAllowanceAiu: field(s.free_allowance_aiu),

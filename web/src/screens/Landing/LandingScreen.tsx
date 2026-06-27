@@ -9,8 +9,7 @@ import { useNavigate } from 'react-router-dom';
  * The deck renders its own sign-in CTAs (a primary button in the hero + a compact
  * one that appears in the sticky header on scroll). Those CTAs can't know which
  * auth mode the backend runs, so they postMessage up to here and we route to the
- * mode-aware /login screen (which shows the email magic-link form or the GHE
- * OAuth button depending on CTC_AUTH_MODE).
+ * /login screen (which shows the GitLab OAuth button).
  *
  * Logged-in users never reach this screen — the route is wrapped in RequireGuest,
  * which redirects them to /app/dashboard.

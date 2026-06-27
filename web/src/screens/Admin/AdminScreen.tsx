@@ -505,9 +505,7 @@ export function AdminScreen() {
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {([
-              ['auth_mode', settings.boot.authMode],
               ['web_transport', settings.boot.webTransport],
-              ['email_backend', settings.boot.emailBackend],
             ] as [string, string][]).map(([key, val]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ ...monoLabel, flex: 1 }}>{key}</span>

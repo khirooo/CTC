@@ -58,10 +58,6 @@ export interface CtcApi {
   // CLI setup
   getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null }>;
 
-  // Config
-  getConfig(): Promise<{ authMode: 'email' | 'ghe_oauth' }>;
-  startEmailLogin(email: string): Promise<void>;
-
   // Admin
   listAllUsers(): Promise<AdminUser[]>;
   getUserDetail(id: string): Promise<AdminUserDetail>;

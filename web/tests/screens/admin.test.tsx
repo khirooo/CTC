@@ -91,13 +91,11 @@ describe('AdminScreen', () => {
     ));
   });
 
-  it('renders the boot config card with auth_mode/web_transport/email_backend', async () => {
+  it('renders the boot config card with web_transport', async () => {
     renderAdmin();
     await waitFor(() => expect(screen.getByText(/boot config/i)).toBeInTheDocument());
     expect(screen.getByText(/set in .env/i)).toBeInTheDocument();
-    expect(screen.getByText('auth_mode')).toBeInTheDocument();
     expect(screen.getByText('web_transport')).toBeInTheDocument();
-    expect(screen.getByText('email_backend')).toBeInTheDocument();
   });
 });
 

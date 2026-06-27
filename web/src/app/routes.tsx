@@ -21,12 +21,10 @@ export function AppRoutes() {
     <Routes>
       {/* Guest-only routes */}
       <Route element={<RequireGuest />}>
-        {/* Public landing: the marketing deck + GHE OAuth CTA. Logged-in users
+        {/* Public landing: the marketing deck + GitLab OAuth CTA. Logged-in users
             are redirected to /app/dashboard by RequireGuest. */}
         <Route path="/" element={<LandingScreen />} />
-        {/* Mode-aware login screen: shows the email magic-link form when the
-            backend runs CTC_AUTH_MODE=email, or the GHE OAuth button otherwise.
-            The landing deck's CTA navigates here instead of assuming OAuth. */}
+        {/* Login screen: single "Continue with GitLab" button. */}
         <Route path="/login" element={<AuthScreen mode="signin" />} />
         {/* Old standalone paths now point at the mode-aware login screen. */}
         <Route path="/signin" element={<Navigate to="/login" replace />} />

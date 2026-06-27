@@ -179,7 +179,6 @@ export interface Session {
   sharedPoolEnabled?: boolean;
   /** Effective euros-per-AIU rate, live from /api/me (admin-editable). */
   creditToEuroRate?: number;
-  authMode?: 'email' | 'ghe_oauth';
   webTransport?: 'http' | 'https';
   hasPat?: boolean;
 }
@@ -222,9 +221,7 @@ export interface AdminUserDetail extends AdminUser {
 export interface AdminSettingField<T> { value: T; isOverride: boolean; }
 
 export interface AdminBootConfig {
-  authMode: string;
   webTransport: string;
-  emailBackend: string;
 }
 
 export interface AdminSettings {
