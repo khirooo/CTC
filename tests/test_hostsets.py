@@ -29,4 +29,4 @@ def test_ghe_hosts_match_contract_exactly():
 
 
 def test_billable_paths_match_contract():
-    assert proxy._BILLABLE_PATHS == {"/chat/completions", "/v1/messages"}
+    assert proxy._BILLABLE_PATHS == {"/chat/completions", "/v1/messages", "/responses"}

@@ -3,7 +3,7 @@ from ctc import contract
 
 def test_billable_constants():
     assert contract.BILLABLE_HOST == "copilot-api.example.ghe.com"
-    assert contract.BILLABLE_PATHS == {"/chat/completions", "/v1/messages"}
+    assert contract.BILLABLE_PATHS == {"/chat/completions", "/v1/messages", "/responses"}
     assert contract.BILLABLE_METHOD == "POST"
     assert contract.AUTH_SCHEME == "Bearer"
 
