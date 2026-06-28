@@ -25,6 +25,7 @@ from ctc.metering.capture import record_exchange
 from ctc.metering.extract import extract_total_nano_aiu
 from ctc import contract
 from ctc import sentinel
+from ctc.routing.mock_exchange import build_token_response
 
 # ---------------------------------------------------------------------------
 # Config
@@ -214,6 +215,33 @@ def is_billable(upstream_host: str, method: str, path: str) -> bool:
     return (upstream_host == _COPILOT_API_HOST
             and method.upper() == contract.BILLABLE_METHOD
             and path.split("?", 1)[0] in _BILLABLE_PATHS)
+
+
+def is_token_exchange(upstream_host: str, method: str, path: str) -> bool:
+    """The VS Code Copilot extension's mandatory token exchange. The CLI never
+    calls it; the endpoint accepts no PAT, so we answer it locally."""
+    return (should_swap(upstream_host)
+            and method.upper() == "GET"
+            and path.split("?", 1)[0] == contract.TOKEN_EXCHANGE_PATH)
+
+
+def _mock_token_exchange_response() -> bytes:
+    payload = json.dumps(build_token_response(int(time.time()))).encode()
+    head = (f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(payload)}\r\n\r\n").encode()
+    return head + payload
+
+
+def apply_copilot_api_identity(fwd: dict, upstream_host: str) -> dict:
+    """On copilot-api, rewrite the client-identity headers to the CLI's
+    allowlisted values so the swapped PAT is accepted (copilot-api rejects the
+    PAT for the extension's copilot-integration-id: vscode-chat). No-op on other
+    hosts and a no-op for the CLI (it already sends these values). Mutates+returns
+    fwd."""
+    if upstream_host == contract.BILLABLE_HOST:
+        fwd.update(contract.COPILOT_API_IDENTITY_HEADERS)
+    return fwd
 
 
 def strip_bearer(auth: str) -> str:
@@ -410,6 +438,16 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         auth    = hdrs.get("authorization", "")
         session = _tag(auth)
 
+        # Mock the IDE token exchange: answer locally, never forward (the endpoint
+        # rejects every PAT). The extension replays this token to copilot-api.*,
+        # where we swap ALL auth to the PAT — so it only needs to be replayable.
+        if is_token_exchange(upstream_host, method, path):
+            log.info("[→ MOCK]    session=%-12s GET %s (fabricated token exchange)",
+                     session, path)
+            writer.write(_mock_token_exchange_response())
+            await writer.drain()
+            continue
+
         # NOTE: We deliberately do NOT mock /user or /copilot_internal/*
         # endpoints. The PAT we swap in is valid for all of them on GHE, and
         # Copilot reads the real /user response to decide it's entitled + how to
@@ -478,6 +516,7 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             pat_to_use = ATTRIBUTION.any_giver_pat() or pat_to_use
 
         fwd = build_upstream_headers(hdrs, upstream_host, auth, len(body), pat_to_use)
+        fwd = apply_copilot_api_identity(fwd, upstream_host)
 
         _status = 0
         _ct = ""
