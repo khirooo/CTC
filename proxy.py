@@ -229,7 +229,8 @@ def _mock_token_exchange_response() -> bytes:
     payload = json.dumps(build_token_response(int(time.time()))).encode()
     head = (f"HTTP/1.1 200 OK\r\n"
             f"Content-Type: application/json\r\n"
-            f"Content-Length: {len(payload)}\r\n\r\n").encode()
+            f"Content-Length: {len(payload)}\r\n"
+            f"Connection: keep-alive\r\n\r\n").encode()
     return head + payload
 
 

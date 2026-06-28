@@ -39,7 +39,10 @@ def test_copilot_api_identity_headers_overwrite_client_values():
 
 
 def test_copilot_api_identity_noop_on_other_hosts():
+    # mirror the real call chain: build_upstream_headers first, then apply_copilot_api_identity
+    # this proves the identity rewrite is a true no-op end-to-end on the GHE API host
     hdrs = {"copilot-integration-id": "vscode-chat"}
-    api = f"api.{contract.GHE_DOMAIN}"
-    fwd = proxy.apply_copilot_api_identity(dict(hdrs), api)
-    assert fwd["copilot-integration-id"] == "vscode-chat"  # untouched off copilot-api
+    api_host = f"api.{contract.GHE_DOMAIN}"
+    fwd = proxy.build_upstream_headers(hdrs, api_host, "Bearer fake", 0, "ghp_realpat")
+    fwd = proxy.apply_copilot_api_identity(fwd, api_host)
+    assert fwd["copilot-integration-id"] == "vscode-chat"  # NOT rewritten to copilot-developer-cli
