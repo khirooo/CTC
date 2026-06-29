@@ -5,7 +5,7 @@ from ctc.domain.rules import derive_status, next_bucket
 
 def test_config_values():
     assert config.free_allowance == 300 * NANO_PER_AIU  # 300 AIU in nano-AIU
-    assert config.credit_to_euro_rate == 0.10
+    assert config.credit_to_euro_rate == 0.0088
     assert config.request_expiry_hours == 24
     assert config.cycle_reset_day == 1
 

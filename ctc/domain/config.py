@@ -22,7 +22,7 @@ def _free_allowance_nano() -> int:
 @dataclass(frozen=True)
 class Config:
     free_allowance: int = field(default_factory=_free_allowance_nano)  # nano-AIU
-    credit_to_euro_rate: float = 0.10  # euros per AIU — apply to (nano / NANO_PER_AIU)
+    credit_to_euro_rate: float = 0.0088  # euros per AIU — apply to (nano / NANO_PER_AIU)
     request_expiry_hours: int = 24
     request_expiry_max_hours: int = 24 * 7
     cycle_reset_day: int = 1
@@ -33,7 +33,7 @@ class Config:
     # Default chip-in amount (AIU) pre-filled on the marketplace "chip in" action.
     # Override via CTC_DEFAULT_CHIP_IN_AIU or admin settings.
     default_chip_in_aiu: int = field(
-        default_factory=lambda: int(os.environ.get("CTC_DEFAULT_CHIP_IN_AIU", "25")))
+        default_factory=lambda: int(os.environ.get("CTC_DEFAULT_CHIP_IN_AIU", "100")))
     participants_mode: str = field(
         default_factory=lambda: os.environ.get("CTC_PARTICIPANTS_MODE", "givers_only"))
     shared_pool_enabled: bool = field(

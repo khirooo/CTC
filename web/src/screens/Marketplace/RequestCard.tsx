@@ -11,7 +11,7 @@ interface RequestCardProps {
   request: PublicRequest;
   /** Amount (AIU) the "Chip in" action contributes; shown on the button. */
   chipInAiu: number;
-  onDonate: (id: string) => void;
+  onDonate: (id: string, amountAiu?: number) => void;
 }
 
 function timeLabel(expiresAt: number, now: number, status: PublicRequest['status']): string {
@@ -105,21 +105,40 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
 
       {/* Action row */}
       {isOpen && (
-        <Button
-          style={{
-            alignSelf: 'flex-start',
-            background: 'var(--accent-soft)',
-            color: 'var(--accent)',
-            border: '1px solid var(--accent)',
-            borderRadius: 9,
-            height: 36,
-            padding: '0 16px',
-            fontSize: 13,
-          }}
-          onClick={() => onDonate(id)}
-        >
-          Chip in {chipInAiu} →
-        </Button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Button
+            style={{
+              background: 'var(--accent-soft)',
+              color: 'var(--accent)',
+              border: '1px solid var(--accent)',
+              borderRadius: 9,
+              height: 36,
+              padding: '0 16px',
+              fontSize: 13,
+            }}
+            onClick={() => onDonate(id)}
+          >
+            Chip in {chipInAiu} →
+          </Button>
+          <Button
+            variant="ghost"
+            style={{
+              borderRadius: 9,
+              height: 36,
+              padding: '0 12px',
+              fontSize: 13,
+            }}
+            onClick={() => {
+              const raw = window.prompt(`Chip in how many AIU?`, String(chipInAiu));
+              if (raw == null) return;
+              const n = Number(raw);
+              if (!Number.isFinite(n) || n <= 0) return;
+              onDonate(id, n);
+            }}
+          >
+            Custom…
+          </Button>
+        </div>
       )}
       {isFulfilled && (
         <span

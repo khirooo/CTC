@@ -56,9 +56,9 @@ def test_effective_view_includes_modes():
 
 def test_default_chip_in_aiu_default_and_override():
     ec, store = _ec()
-    assert ec.default_chip_in_aiu == 25
+    assert ec.default_chip_in_aiu == 100
     view = effective_view(ec, store)
-    assert view["default_chip_in_aiu"] == {"value": 25, "is_override": False}
+    assert view["default_chip_in_aiu"] == {"value": 100, "is_override": False}
     store.set_many({"default_chip_in_aiu": "40"}, "admin", 1)
     assert ec.default_chip_in_aiu == 40
     assert effective_view(ec, store)["default_chip_in_aiu"]["is_override"] is True

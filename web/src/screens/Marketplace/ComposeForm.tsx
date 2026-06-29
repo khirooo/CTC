@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import type { CreateRequestInput } from '@/domain/types';
+import React, { useEffect, useState } from 'react';
+import type { CreateRequestInput, StandingEntry } from '@/domain/types';
 import { NANO_PER_AIU } from '@/domain/credit';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
 import { Input } from '@/components/Input';
 import { NumberInput } from '@/components/NumberInput';
 import { config } from '@/domain/config';
+import { useApp } from '@/store/AppContext';
 
 interface ComposeFormProps {
   onSubmit: (input: CreateRequestInput) => Promise<void>;
@@ -13,11 +14,24 @@ interface ComposeFormProps {
 }
 
 export function ComposeForm({ onSubmit, onCancel }: ComposeFormProps) {
-  const [amount, setAmount] = useState(50);
+  const { api, session } = useApp();
+  const [amount, setAmount] = useState(200);
   const [target, setTarget] = useState('open');
   const [reason, setReason] = useState('Finishing up a PR');
   const [expiryHours, setExpiryHours] = useState<number>(config.requestExpiryHours);
   const [submitting, setSubmitting] = useState(false);
+  const [givers, setGivers] = useState<StandingEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getLeaderboard().then(lb => {
+      if (cancelled) return;
+      // standings = all givers (active + newcomers); exclude self.
+      const list = lb.standings.filter(s => !session?.userId || s.userId !== session.userId);
+      setGivers(list);
+    }).catch(() => { /* keep dropdown with just "open to all" */ });
+    return () => { cancelled = true; };
+  }, [api, session?.userId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -77,10 +91,9 @@ export function ComposeForm({ onSubmit, onCancel }: ComposeFormProps) {
             }}
           >
             <option value="open">Open to all Hosts</option>
-            <option value="Yuki Tanaka">@yuki</option>
-            <option value="Amine Tazi">@amine</option>
-            <option value="Sofia Lindqvist">@sofia</option>
-            <option value="Marco Bianchi">@marco</option>
+            {givers.map(g => (
+              <option key={g.userId || g.name} value={g.name}>{g.name}</option>
+            ))}
           </select>
         </Field>
         <Field label="Reason">
