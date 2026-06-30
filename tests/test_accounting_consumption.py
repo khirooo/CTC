@@ -113,3 +113,11 @@ def test_personal_remaining_subtracts_bypass():
     e.record_consumption(CYC, "g1", "g1", Bucket.BYPASS, 250, ts=2)
     # 1000 - 300 - 100(own) - 250(bypass) - 0(granted) = 350
     assert e.personal_remaining(CYC, "g1") == 350
+
+
+def test_own_headroom_gate_accounts_for_bypass():
+    e, _ = seed()  # quota 1000, pledge 300 -> personal 700
+    e.record_consumption(CYC, "g1", "g1", Bucket.BYPASS, 650, ts=1)
+    # personal_remaining is now 700 - 650 = 50; consuming 100 via OWN must fail
+    with pytest.raises(InsufficientCredit):
+        e.record_consumption(CYC, "g1", "g1", Bucket.OWN, 100, ts=2)
