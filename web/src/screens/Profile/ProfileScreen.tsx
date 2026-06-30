@@ -159,7 +159,7 @@ export function ProfileScreen() {
     { key: 'donatedC', label: 'chipped in', value: p?.donatedConsumed ?? 0, color: 'var(--give)', pattern: 'striped' as const },
     { key: 'donatedR', label: 'chipped in', value: p?.donatedRemaining ?? 0, color: 'var(--give)' },
     ...(poolOn ? [
-      { key: 'pledgedC', label: 'pledged', value: Math.min(pledgedValue, p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
+      { key: 'pledgedC', label: 'pledged', value: localPledged !== null ? Math.min(pledgedValue, p?.pledgedConsumed ?? 0) : (p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
       // While dragging (localPledged != null), show the optimistic preview; once saved, read the backend field.
       { key: 'pledgedR', label: 'pledged', value: localPledged !== null ? Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)) : (p?.pledgedRemaining ?? 0), color: 'var(--accent)' },
     ] : []),

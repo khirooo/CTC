@@ -95,10 +95,42 @@ describe('ProfileScreen credit figures', () => {
     expect(legend.textContent).not.toMatch(/1,080\.00|1080\.00/);
   });
 
-  it('renders backend pledgedRemaining in the legend while not editing', async () => {
-    renderProfile();
-    const legend = await screen.findByTestId('credit-legend');
-    // pledgedRemaining = 120 AIU (same as pledgedValue here; just verify it renders)
-    expect(legend.textContent).toMatch(/120\.00/);
+  /**
+   * Discriminating test for the pledgedR bar segment.
+   *
+   * DTO: pledged=120*N, pledgedConsumed=0, pledgedRemaining=90*N (backend-clamped).
+   * The old client recompute (pledged - pledgedConsumed) = 120*N → flexBasis ~3%.
+   * The backend field pledgedRemaining = 90*N → flexBasis ~2.25%.
+   *
+   * pledgedRemaining only feeds the pledgedR bar segment (visual width); it is not
+   * rendered as a text figure anywhere in the legend. The discriminating assertion
+   * therefore checks the data-seg="pledgedR" element's inline flexBasis style:
+   * 2.25% (backend field) vs 3% (old recompute). The test renders with poolOn and
+   * localPledged===null (no drag — default render state, no user interaction needed).
+   */
+  it('pledgedR segment reads backend pledgedRemaining (2.25%), not client recompute (3%)', async () => {
+    // Override giverProfile: pledgedRemaining=90*N, pledged=120*N, pledgedConsumed=0.
+    // old formula: 120-0 = 120 → 3.00%; backend field: 90 → 2.25%.
+    const api = makeApi({
+      getOwnProfile: vi.fn(async () => ({
+        ...giverProfile,
+        pledgedRemaining: 90 * N,   // backend-clamped value
+        pledged: 120 * N,
+        pledgedConsumed: 0,
+      })),
+    });
+    const { container } = renderProfile(api);
+
+    // Wait for async data to load (legend is rendered after profile resolves)
+    await screen.findByTestId('credit-legend');
+
+    const pledgedRSeg = container.querySelector('[data-seg="pledgedR"]') as HTMLElement | null;
+    expect(pledgedRSeg).not.toBeNull();
+
+    // With E=4000*N as max/denom, pledgedRemaining=90*N → 90/4000*100 = 2.25%
+    // If the component recomputed (120*N / 4000*N)*100 = 3% instead.
+    const flexBasis = pledgedRSeg!.style.flexBasis;
+    expect(flexBasis).toBe('2.25%');   // backend field
+    expect(flexBasis).not.toBe('3%');  // old recompute absent
   });
 });
