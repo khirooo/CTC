@@ -238,26 +238,10 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         store.set_onboarded(user["id"])
         return web.Response(status=204)
 
-    _quota_cache = {}  # giver_id -> (fetched_at, value|None)
-
-    async def live_quota(giver_id):
-        hit = _quota_cache.get(giver_id)
-        # Serve a fresh, non-None cache hit; always retry when the last fetch failed.
-        if hit and hit[1] is not None and now() - hit[0] < 60:
-            return hit[1]
-        pat = registry.pat_for(giver_id)
-        value = None
-        if pat:
-            try:
-                u = await http_get_user(pat)
-                pi = u.get("quota_snapshots", {}).get("premium_interactions", {})
-                value = {"entitlement": pi.get("entitlement"),
-                         "remaining": pi.get("remaining"),
-                         "reset_date": u.get("quota_reset_date")}
-            except Exception:
-                value = None
-        _quota_cache[giver_id] = (now(), value)
-        return value
+    from ctc.metering.live_quota import LiveQuotaCache
+    _live = LiveQuotaCache(registry.pat_for, http_get_user, ttl=60)
+    async def live_quota(giver_id):       # back-compat shape for get_profile
+        return await _live.get(giver_id)
 
     from ctc.api.web_routes import register_web_routes
     register_web_routes(app, store=store, engine=engine, current_user=current_user,
