@@ -32,6 +32,10 @@ describe('getCliCredentials (HttpCtcApi)', () => {
     const creds = await api.getCliCredentials();
     expect(creds.token).toMatch(/^github_pat_/);
     expect(creds.token.length).toBeGreaterThanOrEqual(40);
+    // proxyHost and installCommand are CLIENT-SYNTHESIZED by HttpCtcApi from
+    // VITE_PROXY_HOST / VITE_CTC_HOST env vars and window.location.protocol —
+    // they are NOT passed through from the server body, so the stub intentionally
+    // omits them and we assert only their shape here.
     expect(creds.proxyHost).toContain(':');            // host:port shape
     expect(creds.installCommand).toContain('install.sh');
     expect(creds.installCommand).toContain('-fsSLk');  // bootstrap tolerates self-signed cert
@@ -65,5 +69,6 @@ describe('getCliCredentials (HttpCtcApi)', () => {
     // Two separate network calls were made
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect((fetchMock.mock.calls[0][0] as string)).toContain('/proxy-token');
+    expect((fetchMock.mock.calls[1][0] as string)).toContain('/proxy-token');
   });
 });

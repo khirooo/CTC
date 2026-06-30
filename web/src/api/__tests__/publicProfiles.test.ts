@@ -76,7 +76,7 @@ describe('Public Profiles API (HttpCtcApi)', () => {
         users: [{ id: 'u_ada', name: 'Ada Lovelace', login: 'ada', initials: 'AL', role: 'giver' }],
       });
       const hits = await api.searchUsers('Ada');
-      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.length).toBe(1);
       expect(hits[0].name).toContain('Ada');
       expect(hits[0]).toHaveProperty('id');
       expect(hits[0]).toHaveProperty('initials');
@@ -98,7 +98,7 @@ describe('Public Profiles API (HttpCtcApi)', () => {
       }));
       mockFetch(200, { users: eight });
       const hits = await api.searchUsers('a');
-      expect(hits.length).toBeLessThanOrEqual(8);
+      expect(hits.length).toBe(8);
     });
 
     it('passes the query verbatim to the endpoint (case-insensitive matching is server-side)', async () => {
