@@ -446,6 +446,21 @@ def candidate_givers(engine, cycle_id, consumer) -> set:
     return ids
 
 
+async def reconcile_candidate(engine, live_cache, cycle_id, giver_id):
+    """Fetch a candidate giver's live quota, reconcile out-of-band drift into a
+    BYPASS event, and return their live remaining (None if unknown). Best-effort:
+    a reconcile failure never blocks routing or distorts the returned health."""
+    v = await live_cache.get(giver_id) if live_cache is not None else None
+    if v is None:
+        return None
+    try:
+        engine.reconcile_giver(cycle_id, giver_id, v)
+    except Exception as exc:
+        log.warning("[reconcile] candidate %s failed: %s", giver_id, exc)
+    r = v.get("remaining")
+    return int(r) if r is not None else None
+
+
 async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id) -> None:
     """Drive a really-dead giver's ledger down to its consumed floor so
     select_source stops picking it, and mark the live cache exhausted. Best-effort:
@@ -525,7 +540,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             health: Dict[str, Optional[int]] = {}
             if cycle and consumer and LIVE_QUOTA is not None:
                 for gid in candidate_givers(ATTRIBUTION.engine, cycle.id, consumer):
-                    health[gid] = await LIVE_QUOTA.remaining(gid)
+                    health[gid] = await reconcile_candidate(
+                        ATTRIBUTION.engine, LIVE_QUOTA, cycle.id, gid)
             source = (ATTRIBUTION.select_source(cycle.id, consumer, health=health)
                       if (cycle and consumer) else None)
             if source is None:
