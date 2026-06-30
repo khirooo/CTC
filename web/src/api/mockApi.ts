@@ -232,7 +232,7 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
       return delay(s);
     },
 
-    async validatePat(pat: string): Promise<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; resetDate: string | null; pledgedNano: number }> {
+    async validatePat(pat: string): Promise<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; resetDate: string | null; pledgedNano: number; usedNano: number }> {
       const user = requireSession();
       if (!pat || !pat.startsWith('github_pat_')) {
         throw new CtcApiError('bad_request', 'invalid token format', 400);
@@ -256,6 +256,8 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         resetDate,
         // default pledge = 10% of remaining (mirrors backend CTC_DEFAULT_PLEDGE_PCT)
         pledgedNano: Math.floor(quotaAiu / 10) * NANO_PER_AIU,
+        // fresh connect: used = entitlement − remaining = 200 AIU
+        usedNano: 200 * NANO_PER_AIU,
       });
     },
     async revokePat(): Promise<void> {

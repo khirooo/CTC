@@ -101,13 +101,14 @@ export class HttpCtcApi implements CtcApi {
     if (!s) throw new CtcApiError('no_session', 'session lost after onboarding', 401);
     return s;
   }
-  async validatePat(pat: string): Promise<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; resetDate: string | null; pledgedNano: number }> {
+  async validatePat(pat: string): Promise<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; resetDate: string | null; pledgedNano: number; usedNano: number }> {
     const res = await apiFetch(this.base, '', '/pat', {
       method: 'POST', body: JSON.stringify({ pat }),
     });
     return { gheLogin: res.ghe_login, quotaAiu: res.quota_aiu,
              entitlementAiu: res.entitlement_aiu, remainingAiu: res.remaining_aiu,
-             resetDate: res.reset_date ?? null, pledgedNano: res.pledged_nano ?? 0 };
+             resetDate: res.reset_date ?? null, pledgedNano: res.pledged_nano ?? 0,
+             usedNano: res.used_nano ?? 0 };
   }
   async revokePat(): Promise<void> {
     await apiFetch(this.base, '', '/pat', { method: 'DELETE' });

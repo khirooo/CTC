@@ -164,11 +164,11 @@ describe('HttpCtcApi', () => {
   it('validatePat POSTs to /pat and maps ghe_login/quota_aiu/entitlement_aiu/remaining_aiu to camelCase', async () => {
     const mock = createMockApi({ latencyMs: 0, storageKey: 'h.pat' });
     await mock.signIn('ada@example.com', 'x');
-    const f = fakeFetch(200, { ghe_login: 'ada', quota_aiu: 4000, entitlement_aiu: 4200, remaining_aiu: 3800, reset_date: '2026-07-01' });
+    const f = fakeFetch(200, { ghe_login: 'ada', quota_aiu: 4000, entitlement_aiu: 4200, remaining_aiu: 3800, reset_date: '2026-07-01', used_nano: 400_000_000_000 });
     vi.stubGlobal('fetch', f);
     const api = new HttpCtcApi('http://api');
     const out = await api.validatePat('github_pat_abc');
-    expect(out).toEqual({ gheLogin: 'ada', quotaAiu: 4000, entitlementAiu: 4200, remainingAiu: 3800, resetDate: '2026-07-01', pledgedNano: 0 });
+    expect(out).toEqual({ gheLogin: 'ada', quotaAiu: 4000, entitlementAiu: 4200, remainingAiu: 3800, resetDate: '2026-07-01', pledgedNano: 0, usedNano: 400_000_000_000 });
     const [url, init] = (f as any).mock.calls[0];
     expect(url).toBe('http://api/pat');
     expect(init.method).toBe('POST');

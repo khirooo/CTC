@@ -18,7 +18,7 @@ export function OnboardingScreen() {
   const [step, setStep] = useState<Step>('role');
   const [role, setRole] = useState<Role>('giver');
   const [pat, setPat] = useState('');
-  const [identity, setIdentity] = useState<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number } | null>(null);
+  const [identity, setIdentity] = useState<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; usedNano: number } | null>(null);
   const [pledgedSurplus, setPledgedSurplus] = useState(0);
   const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,6 +72,7 @@ export function OnboardingScreen() {
         quotaAiu: id.quotaAiu,
         entitlementAiu: id.entitlementAiu ?? id.quotaAiu,
         remainingAiu: id.remainingAiu ?? id.quotaAiu,
+        usedNano: id.usedNano ?? 0,
       });
       // Start the slider at the default pledge the backend already applied
       // (CTC_DEFAULT_PLEDGE_PCT% of remaining), not an arbitrary fraction.
@@ -104,10 +105,11 @@ export function OnboardingScreen() {
   }
 
   // Compute nano-AIU values for the pledge CreditBar from validatePat results.
-  // Fresh PAT: no donations yet; used = entitlement − remaining; max slider = remaining.
+  // usedNano is the backend's single-source figure (own_consumed + bypass_consumed),
+  // NOT a TS recompute of entitlement − remaining; max slider = remaining.
   const entitlementNano = (identity?.entitlementAiu ?? 0) * NANO_PER_AIU;
   const remainingNano = (identity?.remainingAiu ?? 0) * NANO_PER_AIU;
-  const usedNano = entitlementNano - remainingNano;
+  const usedNano = identity?.usedNano ?? 0;
 
   const dotBg: React.CSSProperties = {
     backgroundImage: 'radial-gradient(var(--border) 1px,transparent 1px)',
@@ -362,11 +364,13 @@ export function OnboardingScreen() {
                 onCommit: setPledgedSurplus,
               }}
             />
-            <CreditLegend items={[
-              { label: 'used', value: aiu(usedNano), color: 'var(--text-dim)', pattern: 'striped' as const },
-              { label: 'pledged', value: aiu(pledgedSurplus), color: 'var(--accent)' },
-              { label: 'available', value: aiu(Math.max(0, remainingNano - pledgedSurplus)), color: 'var(--reroute)' },
-            ]} />
+            <div data-testid="credit-legend">
+              <CreditLegend items={[
+                { label: 'used', value: aiu(usedNano), color: 'var(--text-dim)', pattern: 'striped' as const },
+                { label: 'pledged', value: aiu(pledgedSurplus), color: 'var(--accent)' },
+                { label: 'available', value: aiu(Math.max(0, remainingNano - pledgedSurplus)), color: 'var(--reroute)' },
+              ]} />
+            </div>
             <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '12px 0 0', fontFamily: "'JetBrains Mono',monospace" }}>
               🔒 private — pledges to the pool. Only you see this.
             </p>

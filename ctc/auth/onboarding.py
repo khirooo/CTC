@@ -46,6 +46,7 @@ async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user
     engine.reconcile_giver(cycle_id, user_id,
                            {"entitlement": int(ent), "remaining": avail})
     pledged_nano = gc.pledge if gc else 0
+    used_nano = engine.store.own_consumed(cycle_id, user_id) + engine.store.bypass_consumed(cycle_id, user_id)
     return {"ghe_login": ghe_login, "quota_aiu": avail,
             "entitlement_aiu": int(ent), "remaining_aiu": avail, "reset_date": reset_date,
-            "pledged_nano": pledged_nano}
+            "pledged_nano": pledged_nano, "used_nano": used_nano}

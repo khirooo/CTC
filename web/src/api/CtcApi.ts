@@ -32,7 +32,7 @@ export interface CtcApi {
 
   // Onboarding
   completeOnboarding(input: OnboardingInput): Promise<Session>;
-  validatePat(pat: string): Promise<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; resetDate: string | null; pledgedNano: number }>;
+  validatePat(pat: string): Promise<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; resetDate: string | null; pledgedNano: number; usedNano: number }>;
   // Revoke = full disconnect: delete the stored PAT, zero this cycle's credit,
   // revert to a consumer.
   revokePat(): Promise<void>;
