@@ -1,32 +1,69 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { mockApi } from '../mockApi';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { HttpCtcApi } from '@/api/HttpCtcApi';
 
-describe('getCliCredentials', () => {
-  beforeEach(() => localStorage.clear());
+const BASE = 'http://localhost:8090/api';
 
-  it('throws when not authenticated', async () => {
-    await expect(mockApi.getCliCredentials()).rejects.toThrow();
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+// Helper: stub global fetch with a JSON response
+function mockFetch(status: number, body: unknown) {
+  const res = new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(res));
+}
+
+describe('getCliCredentials (HttpCtcApi)', () => {
+  const api = new HttpCtcApi(BASE);
+
+  it('throws when the server returns 401 (not authenticated)', async () => {
+    // HttpCtcApi calls POST /proxy-token; the real server rejects unauthenticated requests.
+    // In mockApi the guard was in-memory; here the transport layer throws CtcApiError on !res.ok.
+    mockFetch(401, { error: 'unauthorized', message: 'not authenticated' });
+    await expect(api.getCliCredentials()).rejects.toThrow();
   });
 
-  it('returns a stable, well-formed token + proxy host + install command for the signed-in user', async () => {
-    await mockApi.signIn('demo@ctc.dev', 'x');
-    const a = await mockApi.getCliCredentials();
-    const b = await mockApi.getCliCredentials();
-    expect(a.token).toMatch(/^github_pat_/);
-    expect(a.token.length).toBeGreaterThanOrEqual(40);
-    expect(a.token).toEqual(b.token);              // deterministic per user
-    expect(a.proxyHost).toContain(':');            // host:port
-    expect(a.installCommand).toContain('install.sh');
-    expect(a.installCommand).toContain('-fsSLk');        // bootstrap tolerates self-signed cert
-    expect(a).toHaveProperty('caFingerprint');
+  it('returns a well-formed token, proxyHost, installCommand, and caFingerprint', async () => {
+    const fakeToken = 'github_pat_' + 'A'.repeat(36);
+    mockFetch(200, { token: fakeToken, ca_fingerprint: 'sha256:abc' });
+    const creds = await api.getCliCredentials();
+    expect(creds.token).toMatch(/^github_pat_/);
+    expect(creds.token.length).toBeGreaterThanOrEqual(40);
+    expect(creds.proxyHost).toContain(':');            // host:port shape
+    expect(creds.installCommand).toContain('install.sh');
+    expect(creds.installCommand).toContain('-fsSLk');  // bootstrap tolerates self-signed cert
+    expect(creds).toHaveProperty('caFingerprint');
   });
 
-  it('mock installCommand embeds the token as a --token one-liner', async () => {
-    const { createMockApi } = await import('@/api/mockApi');
-    const mockApi = createMockApi({ latencyMs: 0, storageKey: 'cli.embed' });
-    await mockApi.signIn('ada@example.com', 'x');
-    const c = await mockApi.getCliCredentials();
-    expect(c.installCommand).toContain(`| sh -s -- --token ${c.token}`);
-    expect(c.installCommand).toContain('curl -fsSLk');
+  it('installCommand embeds the token as a --token one-liner', async () => {
+    const fakeToken = 'github_pat_' + 'B'.repeat(36);
+    mockFetch(200, { token: fakeToken, ca_fingerprint: null });
+    const creds = await api.getCliCredentials();
+    expect(creds.installCommand).toContain(`| sh -s -- --token ${fakeToken}`);
+    expect(creds.installCommand).toContain('curl -fsSLk');
+  });
+
+  it('calls POST /proxy-token on each invocation (server owns idempotency, not the client)', async () => {
+    // mockApi returned the same token for repeated calls (localStorage-backed idempotency).
+    // HttpCtcApi always POSTs to /proxy-token; idempotency is a server concern.
+    // We verify the client makes the request correctly on each call.
+    const fakeToken = 'github_pat_' + 'C'.repeat(36);
+    const makeRes = () => new Response(JSON.stringify({ token: fakeToken, ca_fingerprint: null }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(makeRes()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const a = await api.getCliCredentials();
+    const b = await api.getCliCredentials();
+    expect(a.token).toBe(fakeToken);
+    expect(b.token).toBe(fakeToken);
+    // Two separate network calls were made
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[0][0] as string)).toContain('/proxy-token');
   });
 });
