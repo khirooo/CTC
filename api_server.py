@@ -323,9 +323,9 @@ def build_from_env(session) -> web.Application:
 
 async def _serve() -> None:
     import aiohttp
-    # Configure logging so INFO-level records surface in container stdout — without
-    # this, the console email backend logs the magic-link at INFO and Python's
-    # default WARNING threshold silently drops it (login becomes impossible).
+    # Configure logging so INFO-level records (request/auth/operational events)
+    # surface in container stdout; Python's default WARNING threshold would
+    # otherwise silently drop them.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     port = int(os.environ.get("CONTROL_PLANE_PORT", "8090"))
     async with aiohttp.ClientSession() as session:  # created inside the running loop

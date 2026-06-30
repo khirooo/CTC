@@ -102,13 +102,6 @@ CREATE TABLE IF NOT EXISTS admin_audit (
   ts             INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_admin_audit_ts ON admin_audit (ts);
-CREATE TABLE IF NOT EXISTS magic_links (
-  id          TEXT PRIMARY KEY,
-  email       TEXT NOT NULL,
-  expires_at  INTEGER NOT NULL,
-  consumed_at INTEGER,
-  created_at  INTEGER NOT NULL
-);
 CREATE TABLE IF NOT EXISTS cycle_reports (
   cycle_id    TEXT PRIMARY KEY,
   report_json TEXT NOT NULL,
