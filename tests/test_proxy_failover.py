@@ -161,3 +161,12 @@ def test_reconcile_candidate_books_drift_and_returns_remaining(_engine_quota_400
 def test_reconcile_candidate_unknown_quota_returns_none(_engine_quota_4000):
     rem = asyncio.run(proxy.reconcile_candidate(_engine_quota_4000, _FakeCache(None), "c1", "g1"))
     assert rem is None
+
+
+def test_reconcile_candidate_reconcile_failure_still_returns_remaining(_engine_quota_4000):
+    class _BrokenEngine:
+        def reconcile_giver(self, *a, **kw):
+            raise RuntimeError("db locked")
+    cache = _FakeCache({"entitlement": 4000, "remaining": 1500})
+    rem = asyncio.run(proxy.reconcile_candidate(_BrokenEngine(), cache, "c1", "g1"))
+    assert rem == 1500  # remaining returned despite reconcile failure
