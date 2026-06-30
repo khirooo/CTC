@@ -252,6 +252,11 @@ class AccountingEngine:
                     raise InvalidConsumption("own consumption must be self-sourced")
                 if not allow_overshoot and credits > self.personal_remaining(cycle_id, source_giver_id):
                     raise InsufficientCredit("exceeds personal credit")
+            elif bucket == Bucket.BYPASS:
+                # Out-of-band burn reconciled from GitHub's real quota. Self-sourced,
+                # and never headroom-checked: the spend already happened upstream.
+                if consumer_id != source_giver_id:
+                    raise InvalidConsumption("bypass consumption must be self-sourced")
             elif bucket == Bucket.POOL:
                 if not allow_overshoot and credits > self.pledge_remaining(cycle_id, source_giver_id):
                     raise InsufficientCredit("exceeds giver pledge")

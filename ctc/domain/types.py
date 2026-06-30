@@ -13,6 +13,7 @@ class Bucket(str, Enum):
     OWN = "own"
     POOL = "pool"
     GRANT = "grant"
+    BYPASS = "bypass"  # giver's own out-of-band (non-proxied) burn, self-sourced
 
 
 class RequestStatus(str, Enum):

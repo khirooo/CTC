@@ -86,3 +86,22 @@ def test_concurrent_pool_draws_cannot_exceed_pledge(tmp_path):
     t1.start(); t2.start(); t1.join(); t2.join()
     assert sorted(results) == ["ok", "rejected"]
     assert e0.pledge_remaining(CYC, "g1") == 100  # exactly one 200 draw landed
+
+
+def test_bypass_consumption_is_self_sourced_and_recorded():
+    e, s = seed()
+    e.record_consumption(CYC, "g1", "g1", Bucket.BYPASS, 250, ts=1)
+    assert s.bypass_consumed(CYC, "g1") == 250
+
+
+def test_bypass_consumption_requires_self_source():
+    e, _ = seed()
+    with pytest.raises(InvalidConsumption):
+        e.record_consumption(CYC, "c1", "g1", Bucket.BYPASS, 10, ts=1)
+
+
+def test_bypass_consumption_ignores_personal_headroom():
+    # personal headroom is 700 (quota 1000 - pledge 300); bypass may exceed it
+    # because the burn already happened at GitHub. No InsufficientCredit.
+    e, _ = seed()
+    e.record_consumption(CYC, "g1", "g1", Bucket.BYPASS, 5000, ts=1)
