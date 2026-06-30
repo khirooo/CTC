@@ -40,6 +40,21 @@ async def test_consumer_profile_has_allowance_segments():
 
 
 @pytest.mark.asyncio
+async def test_connect_seeds_entitlement_ceiling_and_books_prior_burn():
+    app = await _client(http_get_user=_user_4000_1200)  # ent 4000, remaining 1200
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "github_pat_X"})
+        p = await (await cli.get("/api/profile")).json()
+        # quota is the entitlement ceiling; the 2800 already burned before connect
+        # is attributed to the owner as their own use.
+        assert p["totalCredit"] == 4000 * N      # gc.quota == entitlement
+        assert p["used"] == 2800 * N
+        assert p["left"] == (4000 - 2800 - 120) * N
+        assert p["pledged"] == 120 * N            # still 10% of remaining (1200)
+
+
+@pytest.mark.asyncio
 async def test_giver_profile_falls_back_to_snapshot_when_live_fetch_fails():
     calls = {"n": 0}
     async def flaky(pat):

@@ -26,12 +26,12 @@ async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user
     if not ent or ent <= 0:
         raise PatInvalid("no premium_interactions entitlement on this PAT")
     remaining = pi.get("remaining")
-    # Missing `remaining` means GitHub did not report headroom; assume spent
-    # (0), never full entitlement. WS2/WS4 correct upward on the next live read.
+    # Missing `remaining` means GitHub did not report headroom; assume spent (0).
     avail = remaining if remaining is not None else 0
     avail = max(0, int(avail))
     reset_date = user.get("quota_reset_date")
-    quota_nano = avail * NANO_PER_AIU
+    avail_nano = avail * NANO_PER_AIU
+    quota_nano = int(ent) * NANO_PER_AIU          # quota = entitlement ceiling
     engine.set_quota(cycle_id, user_id, quota_nano)
     registry.store_pat(user_id, pat, now)
     registry.store.set_user_role(user_id, "giver")
@@ -39,10 +39,12 @@ async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user
     pct = getattr(effective_config, "default_pledge_pct", 0) if effective_config else 0
     gc = engine.store.get_giver_cycle(cycle_id, user_id)
     if pct > 0 and (gc is None or gc.pledge == 0):
-        # Default pledge = pct% of what they have LEFT (remaining = quota_nano),
-        # not of the entitlement/max. Only seed it when there's no pledge yet.
-        engine.set_pledge(cycle_id, user_id, quota_nano * pct // 100)
+        # Default pledge = pct% of what they have LEFT (remaining), not entitlement.
+        engine.set_pledge(cycle_id, user_id, avail_nano * pct // 100)
         gc = engine.store.get_giver_cycle(cycle_id, user_id)
+    # Book any burn that happened before they connected to CTC as their own use.
+    engine.reconcile_giver(cycle_id, user_id,
+                           {"entitlement": int(ent), "remaining": avail})
     pledged_nano = gc.pledge if gc else 0
     return {"ghe_login": ghe_login, "quota_aiu": avail,
             "entitlement_aiu": int(ent), "remaining_aiu": avail, "reset_date": reset_date,
