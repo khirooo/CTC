@@ -233,6 +233,40 @@ class AccountingEngine:
             self.conn.execute("ROLLBACK")
             raise
 
+    def reconcile_giver(self, cycle_id: str, giver_id: str,
+                        live: dict | None, ts: int = 0) -> Event | None:
+        """Book a giver's out-of-band (non-proxied) GitHub burn as a self-sourced
+        BYPASS event so every events-based surface reflects reality. Idempotent:
+        only the positive delta over already-booked bypass is written (watermark =
+        sum of existing bypass events). No-op on unusable/unlimited/unknown quota
+        or when CTC has tracked at least as much as GitHub reports. The read of the
+        four sums and the insert run in one BEGIN IMMEDIATE so concurrent callers
+        (proxy + control plane) cannot double-write."""
+        if not live:
+            return None
+        ent, rem = live.get("entitlement"), live.get("remaining")
+        if ent is None or rem is None or int(ent) < 0:   # unknown / unlimited(-1)
+            return None
+        github_burn = (int(ent) - int(rem)) * NANO_PER_AIU
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            tracked = (self.store.own_consumed(cycle_id, giver_id)
+                       + self.store.pool_consumed_from(cycle_id, giver_id)
+                       + self.store.grants_consumed_from(cycle_id, giver_id)
+                       + self.store.bypass_consumed(cycle_id, giver_id))
+            drift = github_burn - tracked
+            if drift <= 0:
+                self.conn.execute("COMMIT")
+                return None
+            event = Event(uuid.uuid4().hex, cycle_id, ts, giver_id, giver_id,
+                          Bucket.BYPASS, None, drift)
+            self.store.add_event(event)
+            self.conn.execute("COMMIT")
+            return event
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
     def record_consumption(
         self,
         cycle_id: str,
