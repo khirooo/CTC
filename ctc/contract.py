@@ -33,7 +33,7 @@ SWAP_HOSTS: set[str] = {
 }
 
 BILLABLE_HOST: str = f"copilot-api.{GHE_DOMAIN}"
-BILLABLE_PATHS: set[str] = {"/chat/completions", "/v1/messages"}
+BILLABLE_PATHS: set[str] = {"/chat/completions", "/v1/messages", "/responses"}
 BILLABLE_METHOD: str = "POST"
 
 # copilot-api rejects "token <pat>" with 400 badly formatted.
@@ -44,6 +44,7 @@ METERING_FIELD: tuple[str, str] = ("copilot_usage", "total_nano_aiu")
 METERING_LOCATION: dict[str, str] = {
     "/chat/completions": "json-top-level",
     "/v1/messages": "sse-final-message_delta",
+    "/responses": "sse-final-message_delta",
 }
 
 # GitHub-ish hosts that must never be blind-tunneled (a new one signals a
