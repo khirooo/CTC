@@ -120,31 +120,28 @@ def test_candidate_givers_union_self_and_donors():
 # --------------------------------------------------------------------------- #
 # reconcile_exhausted
 # --------------------------------------------------------------------------- #
-def test_reconcile_exhausted_marks_cache_and_drives_quota_to_floor():
-    eng = _engine()
-    eng.set_quota("c1", "bob", 500)
-    cache = _FakeLiveCache()
-    floor = eng.store.pool_consumed_from("c1", "bob")  # 0, nothing consumed yet
-    asyncio.run(proxy.reconcile_exhausted(eng, cache, "c1", "bob"))
-    assert cache.exhausted == ["bob"]
-    # quota driven down to the consumed floor
-    assert eng.personal_remaining("c1", "bob") == 0
+def test_reconcile_exhausted_books_bypass_and_marks_cache(_engine_quota_4000):
+    eng = _engine_quota_4000
+    cache = _FakeCache({"entitlement": 4000, "remaining": 1500})
+    asyncio.run(proxy.reconcile_exhausted(eng, cache, "c1", "g1"))
+    # treats card as fully spent: bypass = entitlement - tracked = 4000*N
+    assert eng.store.bypass_consumed("c1", "g1") == 4000 * _N
+    assert "g1" in cache.exhausted
 
 
-def test_reconcile_exhausted_swallows_set_quota_failure():
-    eng = _engine()
-    cache = _FakeLiveCache()
-    # giver_id with no giver-cycle row: set_quota may raise; reconcile must not.
-    asyncio.run(proxy.reconcile_exhausted(eng, cache, "c1", "ghost"))
-    # cache still marked even if the ledger write failed
-    assert cache.exhausted == ["ghost"]
+def test_reconcile_exhausted_swallows_reconcile_failure():
+    class _Boom:
+        store = None
+        def reconcile_giver(self, *a, **k):
+            raise RuntimeError("boom")
+    cache = _FakeCache({"entitlement": 4000, "remaining": 0})
+    # must not raise
+    asyncio.run(proxy.reconcile_exhausted(_Boom(), cache, "c1", "g1"))
+    assert "g1" in cache.exhausted
 
 
-def test_reconcile_exhausted_none_cache_is_safe():
-    eng = _engine()
-    eng.set_quota("c1", "bob", 500)
-    # must not raise when live_cache is None
-    asyncio.run(proxy.reconcile_exhausted(eng, None, "c1", "bob"))
+def test_reconcile_exhausted_none_cache_is_safe(_engine_quota_4000):
+    asyncio.run(proxy.reconcile_exhausted(_engine_quota_4000, None, "c1", "g1"))
 
 
 # --------------------------------------------------------------------------- #

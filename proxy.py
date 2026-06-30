@@ -462,15 +462,18 @@ async def reconcile_candidate(engine, live_cache, cycle_id, giver_id):
 
 
 async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id) -> None:
-    """Drive a really-dead giver's ledger down to its consumed floor so
-    select_source stops picking it, and mark the live cache exhausted. Best-effort:
-    never raises (set_quota raises InvalidPledge if the floor would drop below
-    consumed; we swallow + log)."""
+    """A really-dead giver (upstream 402 quota_exceeded): book the outstanding
+    out-of-band burn as a BYPASS event so every surface reflects it, and mark the
+    live cache exhausted so health-gated selection skips it. The quota ceiling is
+    NOT mutated — all usage lives in events. Best-effort: never raises."""
     try:
-        floor = engine.store.pool_consumed_from(cycle_id, giver_id)
-        engine.set_quota(cycle_id, giver_id, floor)
+        v = await live_cache.get(giver_id) if live_cache is not None else None
+        ent = v.get("entitlement") if v else None
+        if ent is not None and int(ent) >= 0:
+            engine.reconcile_giver(cycle_id, giver_id,
+                                   {"entitlement": int(ent), "remaining": 0})
     except Exception as exc:
-        log.warning("[failover] reconcile set_quota failed for %s: %s", giver_id, exc)
+        log.warning("[failover] reconcile failed for %s: %s", giver_id, exc)
     if live_cache is not None:
         live_cache.set_exhausted(giver_id)
 
