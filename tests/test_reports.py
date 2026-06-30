@@ -1,6 +1,7 @@
 """Tests for ctc.accounting.reports.build_dashboard."""
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
@@ -158,15 +159,23 @@ def test_activity_structure():
     assert len(activity) <= 8
     assert len(activity) >= 1
     for item in activity:
-        assert "time" in item
-        assert "kind" in item
+        # time is a display-ready HH:MM string (not a raw epoch)
+        assert re.fullmatch(r"\d{2}:\d{2}", item["time"]), item["time"]
         assert item["kind"] == "consume"
         assert "actorId" in item
         assert "detail" in item
-        assert "amount" in item
-    # Most recent event should come first
-    times = [int(item["time"]) for item in activity]
-    assert times == sorted(times, reverse=True)
+        # amount is a display-ready AIU string (not raw nano-AIU)
+        assert re.fullmatch(r"\d+\.\d{2} AIU", item["amount"]), item["amount"]
+    # Most recent event first: amounts match the events ordered by ts DESC, and
+    # are formatted from nano-AIU to AIU with 2 decimals.
+    rows = e.store.conn.execute(
+        "SELECT credits FROM consumption_events WHERE cycle_id=? "
+        "ORDER BY ts DESC, rowid DESC LIMIT 8",
+        (CYC,),
+    ).fetchall()
+    assert [it["amount"] for it in activity] == [
+        f"{r['credits'] / 1_000_000_000:.2f} AIU" for r in rows
+    ]
 
 
 def test_activity_detail_format():

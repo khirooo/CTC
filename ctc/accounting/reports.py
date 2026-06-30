@@ -1,9 +1,11 @@
 """Server-agnostic dashboard aggregation for the CTC accounting engine."""
 from __future__ import annotations
 
+import datetime
 import json
 
 from .leaderboard import LeaderboardUser, build_leaderboard
+from ..domain.config import NANO_PER_AIU
 from ..domain.types import RequestStatus, Role
 
 
@@ -120,11 +122,14 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     name_by_id = {u.user_id: u.name for u in users}
     activity = [
         {
-            "time": str(row["ts"]),
+            # Display-ready strings (the frontend renders these verbatim):
+            # HH:MM clock time (UTC) and AIU amount, not raw epoch / nano-AIU.
+            "time": datetime.datetime.fromtimestamp(
+                row["ts"], datetime.timezone.utc).strftime("%H:%M"),
             "kind": "consume",
             "actorId": row["consumer_id"],
             "detail": f"{name_by_id.get(row['consumer_id'], row['consumer_id'][:8])} via {row['bucket']}",
-            "amount": str(row["credits"]),
+            "amount": f"{row['credits'] / NANO_PER_AIU:.2f} AIU",
         }
         for row in activity_rows
     ]
