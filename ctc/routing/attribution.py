@@ -115,10 +115,13 @@ class AttributionService:
         order = []
         if source.bucket == Bucket.GRANT and source.grant_id:
             order.append((source.giver_id, source.grant_id))
-        # 2) the consumer's other active grants, in engine order
-        for g in self.engine.active_grants(cycle_id, consumer.user_id):
-            if g.id != source.grant_id:
-                order.append((g.donor_id, g.id))
+            # 2) the consumer's other active grants, in engine order
+            # Only spill across grants when the source is itself a GRANT bucket.
+            # OWN and POOL sources skip this loop entirely — their overshoot is
+            # absorbed by the original source bucket via allow_overshoot=True below.
+            for g in self.engine.active_grants(cycle_id, consumer.user_id):
+                if g.id != source.grant_id:
+                    order.append((g.donor_id, g.id))
         for giver_id, grant_id in order:
             if residual <= 0:
                 break

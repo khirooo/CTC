@@ -141,3 +141,50 @@ def test_debit_zero_is_noop(spill_ctx):
 
     assert svc.engine.grant_remaining(ids["cycle"], ids["grantA"]) == 25
     assert svc.engine.grant_remaining(ids["cycle"], ids["grantB"]) == 40
+
+
+def test_own_source_overshoot_does_not_drain_received_grant():
+    """Regression: a giver who has personal_remaining > 0 AND has received an
+    active grant, when debited via OWN source for more than their personal credit,
+    must have the overshoot absorbed by the OWN bucket — NOT drained from the
+    received grant.
+
+    Setup:
+        bob   — giver, quota 50, personal_remaining 50
+        alice — giver, quota 500 (donor for the grant to bob)
+        bob also has a GRANT from alice (30 AIU).
+
+    Debit: OWN source, cost = 80 (overshoots bob's 50 personal AIU by 30).
+    Expected: grant_remaining(bob's grant from alice) == 30 (UNTOUCHED).
+    """
+    conn = connect(":memory:")
+    init_db(conn)
+    eng = AccountingEngine(AccountingStore(conn), config=_PoolEnabledConfig())
+    eng.start_cycle("c2", "July", 0, 10_000_000)
+
+    eng.set_quota("c2", "alice", 500)
+    eng.set_quota("c2", "bob", 50)
+
+    # Give bob a GRANT from alice
+    req = eng.create_request("c2", "bob", Role.CONSUMER, 30, "grant to bob", None, 0, 10_000_000)
+    grant = eng.fund_request(req.id, "alice", 30, now=1)
+
+    idp = InMemoryIdentityProvider({
+        "fake_bob": ConsumerIdentity("bob", is_giver=True),
+    })
+    reg = InMemoryPatRegistry({"alice": "ghp_alice", "bob": "ghp_bob"})
+    svc = AttributionService(eng, idp, reg)
+
+    bob_consumer = ConsumerIdentity("bob", is_giver=True)
+    # select_source for a giver with personal_remaining > 0 picks OWN
+    src = svc.select_source("c2", bob_consumer)
+    assert src is not None
+    assert src.bucket == Bucket.OWN, f"expected OWN, got {src.bucket}"
+
+    # Debit 80 — overshoots bob's personal 50 by 30
+    svc.debit("c2", bob_consumer, src, 80, ts=2)
+
+    # The received grant from alice must be UNTOUCHED
+    assert svc.engine.grant_remaining("c2", grant.id) == 30, (
+        "OWN-source overshoot must not drain a received grant"
+    )
