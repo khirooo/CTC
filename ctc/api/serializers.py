@@ -113,6 +113,8 @@ class OwnProfileDTO(CamelModel):
     left: int | None = None
     pledged_consumed: int | None = None
     donated_consumed: int | None = None
+    donated_remaining: int | None = None   # nano-AIU; max(0, donated - donatedConsumed)
+    pledged_remaining: int | None = None    # nano-AIU; pledge not yet drawn from pool
     allowance_max: int | None = None
     allowance_used: int | None = None
     allowance_left: int | None = None

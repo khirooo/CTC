@@ -168,3 +168,14 @@ async def test_used_is_events_sourced_not_stale_snapshot():
             f"used={p['used']} expected {3000 * N}; "
             "old formula would yield 2800 N from stale snapshot"
         )
+
+
+@pytest.mark.asyncio
+async def test_profile_exposes_remaining_segment_fields():
+    app = await _client(http_get_user=_user_4000_1200)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "github_pat_X"})
+        p = await (await cli.get("/api/profile")).json()
+        assert p["donatedRemaining"] == 0
+        assert p["pledgedRemaining"] == 120 * N   # full pledge, nothing consumed

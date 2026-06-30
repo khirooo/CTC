@@ -211,6 +211,8 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         donated = acct.granted_out(cycle.id, uid)
         pledged_consumed = acct.pool_consumed_from(cycle.id, uid)
         donated_consumed = acct.grants_consumed_from(cycle.id, uid)
+        donated_remaining = max(0, donated - donated_consumed)
+        pledged_remaining = engine.pledge_remaining(cycle.id, uid)
         if unlimited:
             dto = OwnProfileDTO(
                 total_credit=gc.quota, pledged_surplus=pledged,
@@ -218,6 +220,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
                 entitlement=-1, remaining=None, unlimited=True, quota_stale=stale,
                 pledged=pledged, donated=donated, used=None, left=None,
                 pledged_consumed=pledged_consumed, donated_consumed=donated_consumed,
+                donated_remaining=donated_remaining, pledged_remaining=pledged_remaining,
                 reset_date=reset, **common)
             return web.json_response(dto.model_dump(by_alias=True))
 
@@ -230,6 +233,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             retained=engine.personal_remaining(cycle.id, uid), allowance=None,
             entitlement=E, remaining=R, used=used, pledged=pledged, donated=donated, left=left,
             pledged_consumed=pledged_consumed, donated_consumed=donated_consumed,
+            donated_remaining=donated_remaining, pledged_remaining=pledged_remaining,
             reset_date=reset, unlimited=False, quota_stale=stale, **common)
         return web.json_response(dto.model_dump(by_alias=True))
 
