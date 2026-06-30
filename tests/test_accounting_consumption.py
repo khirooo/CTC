@@ -105,3 +105,11 @@ def test_bypass_consumption_ignores_personal_headroom():
     # because the burn already happened at GitHub. No InsufficientCredit.
     e, _ = seed()
     e.record_consumption(CYC, "g1", "g1", Bucket.BYPASS, 5000, ts=1)
+
+
+def test_personal_remaining_subtracts_bypass():
+    e, _ = seed()  # quota 1000, pledge 300 -> personal headroom 700
+    e.record_consumption(CYC, "g1", "g1", Bucket.OWN, 100, ts=1)
+    e.record_consumption(CYC, "g1", "g1", Bucket.BYPASS, 250, ts=2)
+    # 1000 - 300 - 100(own) - 250(bypass) - 0(granted) = 350
+    assert e.personal_remaining(CYC, "g1") == 350

@@ -118,6 +118,12 @@ class AccountingStore:
             (cycle_id, giver_id),
         )
 
+    def bypass_consumed(self, cycle_id: str, giver_id: str) -> int:
+        return self._sum(
+            "SELECT SUM(credits) FROM consumption_events WHERE cycle_id=? AND bucket='bypass' AND source_giver_id=?",
+            (cycle_id, giver_id),
+        )
+
     def pool_consumed_from(self, cycle_id: str, giver_id: str) -> int:
         return self._sum(
             "SELECT SUM(credits) FROM consumption_events WHERE cycle_id=? AND bucket='pool' AND source_giver_id=?",

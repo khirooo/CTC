@@ -25,6 +25,7 @@ class AccountingEngine:
             return 0
         return (gc.quota - gc.pledge
                 - self.store.own_consumed(cycle_id, giver_id)
+                - self.store.bypass_consumed(cycle_id, giver_id)
                 - self.store.granted_out(cycle_id, giver_id))
 
     def pledge_remaining(self, cycle_id: str, giver_id: str) -> int:
