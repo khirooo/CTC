@@ -311,6 +311,39 @@ See [02 · The `ctc` command](02-the-cli-launcher.md) for that side.
 
 ---
 
+## Layer 3 — Moving to another server
+
+Migrating prod to a new VM keeps everything that matters with two scripts. Only
+two things can't be rebuilt from the repo: the **SQLite DB** (`ctc_ctcdata`
+volume — users, encrypted PATs, all credit history) and **`CTC_SECRET_KEY`** in
+`.env` (the key that DB was encrypted with). They move as a pair — the DB is
+useless without the exact same key, so never regenerate it.
+
+```bash
+# On the OLD server (stack running):
+sh scripts/migrate-backup.sh           # → ctc-backup-<ts>.tar.gz (chmod 600; holds secrets)
+scp ctc-backup-<ts>.tar.gz newserver:/path/to/CTC/
+
+# On the NEW server (fresh clone of the repo):
+sh scripts/migrate-restore.sh ctc-backup-<ts>.tar.gz
+# then edit .env + boot, as the script prints:
+sh scripts/preflight.sh && docker compose up -d --build
+```
+
+`migrate-backup.sh` takes a **consistent online snapshot** (sqlite `.backup`, no
+downtime) and bundles it with `.env`. `migrate-restore.sh` loads the DB into a
+fresh volume **owned by uid 10001** (the app's non-root user — otherwise it can't
+open the DB), restores `.env`, then stops so you can adjust the new address.
+
+**The MITM/Caddy certs are intentionally not migrated.** On a new IP the proxy
+address changes, so teammates re-run the install one-liner regardless; gencert
+mints a fresh MITM cert and Caddy refetches its cert on the new box. If the IP
+*does* change, three `.env` edits are required before boot — `CTC_DOMAIN`,
+`PROXY_BIND`, `GITLAB_OAUTH_REDIRECT_URI` — and the matching redirect URI must be
+updated in the GitLab OAuth app (the restore script prints this checklist).
+
+---
+
 ## Layer 3 — Running across multiple servers? Not yet.
 
 This kit is deliberately single-VM because the proxy and control-plane share one
