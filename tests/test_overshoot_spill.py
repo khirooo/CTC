@@ -90,7 +90,12 @@ def test_debit_spills_across_grants(spill_ctx):
 def test_debit_own_source_single_record(spill_ctx):
     """OWN source must still behave as a single record (no spill loop).
     yas uses OWN bucket; consuming 10 from personal remaining, no side-effects
-    on grant B."""
+    on grant B.
+
+    NOTE: in this fixture `yas` has NO incoming grants, so this test would pass
+    even without the source.bucket==GRANT guard. The real OWN-isolation guard
+    (an OWN-source giver who DOES hold a received grant must not have it drained)
+    lives in test_own_source_overshoot_does_not_drain_received_grant."""
     svc, ids = spill_ctx
     src = svc.select_source(ids["cycle"], ids["yas_consumer"])
     assert src is not None

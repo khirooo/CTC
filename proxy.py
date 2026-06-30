@@ -446,7 +446,7 @@ def candidate_givers(engine, cycle_id, consumer) -> set:
     return ids
 
 
-async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id, now) -> None:
+async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id) -> None:
     """Drive a really-dead giver's ledger down to its consumed floor so
     select_source stops picking it, and mark the live cache exhausted. Best-effort:
     never raises (set_quota raises InvalidPledge if the floor would drop below
@@ -601,7 +601,7 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                         peek = await resp.read()
                         if is_quota_exceeded_402(resp.status, peek):
                             await reconcile_exhausted(ATTRIBUTION.engine, LIVE_QUOTA,
-                                                      cycle.id, source.giver_id, _now())
+                                                      cycle.id, source.giver_id)
                             exclude.add(source.grant_id or source.giver_id)
                             nxt = ATTRIBUTION.select_source(
                                 cycle.id, consumer,

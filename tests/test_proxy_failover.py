@@ -100,7 +100,7 @@ def test_reconcile_exhausted_marks_cache_and_drives_quota_to_floor():
     eng.set_quota("c1", "bob", 500)
     cache = _FakeLiveCache()
     floor = eng.store.pool_consumed_from("c1", "bob")  # 0, nothing consumed yet
-    asyncio.run(proxy.reconcile_exhausted(eng, cache, "c1", "bob", 100))
+    asyncio.run(proxy.reconcile_exhausted(eng, cache, "c1", "bob"))
     assert cache.exhausted == ["bob"]
     # quota driven down to the consumed floor
     assert eng.personal_remaining("c1", "bob") == 0
@@ -110,7 +110,7 @@ def test_reconcile_exhausted_swallows_set_quota_failure():
     eng = _engine()
     cache = _FakeLiveCache()
     # giver_id with no giver-cycle row: set_quota may raise; reconcile must not.
-    asyncio.run(proxy.reconcile_exhausted(eng, cache, "c1", "ghost", 100))
+    asyncio.run(proxy.reconcile_exhausted(eng, cache, "c1", "ghost"))
     # cache still marked even if the ledger write failed
     assert cache.exhausted == ["ghost"]
 
@@ -119,4 +119,4 @@ def test_reconcile_exhausted_none_cache_is_safe():
     eng = _engine()
     eng.set_quota("c1", "bob", 500)
     # must not raise when live_cache is None
-    asyncio.run(proxy.reconcile_exhausted(eng, None, "c1", "bob", 100))
+    asyncio.run(proxy.reconcile_exhausted(eng, None, "c1", "bob"))
