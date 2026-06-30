@@ -35,6 +35,7 @@ REAL_GHE_HOST     = os.environ.get("REAL_GHE_HOST", f"api.{contract.GHE_DOMAIN}"
 REAL_PAT          = os.environ.get("REAL_PAT", "")
 LISTEN_PORT       = int(os.environ.get("PORT", "8080"))
 ATTRIBUTION = None  # set by _build_attribution() at startup; None => legacy single-PAT mode
+LIVE_QUOTA = None   # set by _build_attribution() in the DB-backed path; LiveQuotaCache or None
 
 
 def _build_attribution():
@@ -70,6 +71,28 @@ def _build_attribution():
         store = AuthStore(conn)
         registry = AuthRegistry(store, derive_key(secret))  # implements IdentityProvider + PatRegistry
         engine = AccountingEngine(AccountingStore(conn))
+
+        # Proxy-side live-quota cache: lets the failover path pre-check each
+        # candidate giver's real GitHub premium_interactions.remaining before
+        # selecting/forwarding, and skip dead givers without a wasted round-trip.
+        # _fetch_user reads the module `_http` + REAL_GHE_HOST lazily at call
+        # time, so building this before _http exists (main() order) is fine.
+        async def _fetch_user(pat):
+            headers = {"authorization": f"Bearer {pat}",
+                       "editor-version": "copilot/1.0.63",
+                       "copilot-integration-id": "copilot-developer-cli"}
+            url = f"https://{REAL_GHE_HOST}/copilot_internal/user"
+            async with _http.request(
+                    "GET", url, headers=headers,
+                    ssl=build_upstream_ssl_context(UPSTREAM_INSECURE, UPSTREAM_CA_BUNDLE),
+                    timeout=aiohttp.ClientTimeout(sock_connect=5, sock_read=10)) as r:
+                if r.status != 200:
+                    raise RuntimeError(f"/copilot_internal/user -> {r.status}")
+                return await r.json()
+
+        from ctc.metering.live_quota import LiveQuotaCache
+        global LIVE_QUOTA
+        LIVE_QUOTA = LiveQuotaCache(registry.pat_for, _fetch_user, ttl=60)
         return AttributionService(engine, registry, registry)
 
     # Legacy stub path: CTC_IDENTITY_JSON + CTC_PATS_JSON + CTC_DB_PATH.
@@ -380,6 +403,63 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
     return None
 
 
+def _write_buffered(writer, resp, body: bytes) -> None:
+    """Relay an already-read upstream response (status line + headers + body) to
+    the client. Used by the failover path when we've had to .read() a 402 to peek
+    its error code and so can no longer stream it via _relay_response. Mirrors the
+    buffered branch of _relay_response: drop hop-by-hop/length/encoding headers and
+    re-emit a fixed Content-Length."""
+    rh = {k: v for k, v in resp.headers.items()
+          if k.lower() not in ("content-length", "transfer-encoding",
+                               "content-encoding", "connection")}
+    rh["Content-Length"] = str(len(body))
+    rh["Connection"] = "keep-alive"
+    hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
+    writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode() + body)
+
+
+# ---------------------------------------------------------------------------
+# Failover helpers (live-quota health gate + 402-driven giver retry)
+# ---------------------------------------------------------------------------
+def is_quota_exceeded_402(status: int, body: bytes) -> bool:
+    """True iff this is a real GitHub premium-quota 402 (error.code ==
+    "quota_exceeded"). False for non-402, CTC's own 402 block (code "ctc"), and
+    non-JSON bodies."""
+    if status != 402:
+        return False
+    try:
+        err = (json.loads(body or b"{}").get("error") or {})
+    except Exception:
+        return False
+    return err.get("code") == "quota_exceeded"
+
+
+def candidate_givers(engine, cycle_id, consumer) -> set:
+    """The set of giver_ids whose live quota is worth pre-checking for this
+    consumer: the consumer itself if it's a giver, plus every donor backing an
+    active grant to it."""
+    ids = set()
+    if getattr(consumer, "is_giver", False):
+        ids.add(consumer.user_id)
+    for g in engine.active_grants(cycle_id, consumer.user_id):
+        ids.add(g.donor_id)
+    return ids
+
+
+async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id, now) -> None:
+    """Drive a really-dead giver's ledger down to its consumed floor so
+    select_source stops picking it, and mark the live cache exhausted. Best-effort:
+    never raises (set_quota raises InvalidPledge if the floor would drop below
+    consumed; we swallow + log)."""
+    try:
+        floor = engine.store.pool_consumed_from(cycle_id, giver_id)
+        engine.set_quota(cycle_id, giver_id, floor)
+    except Exception as exc:
+        log.warning("[failover] reconcile set_quota failed for %s: %s", giver_id, exc)
+    if live_cache is not None:
+        live_cache.set_exhausted(giver_id)
+
+
 # ---------------------------------------------------------------------------
 # HTTP request loop (runs after TLS is up)
 # ---------------------------------------------------------------------------
@@ -438,7 +518,16 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             # invariant documented below for select_source/debit.
             cycle = ATTRIBUTION.engine.ensure_active_cycle(_now())
             consumer = ATTRIBUTION.resolve_consumer(strip_bearer(auth)) if cycle else None
-            source = ATTRIBUTION.select_source(cycle.id, consumer) if (cycle and consumer) else None
+            # Live-quota health gate: pre-fetch each candidate giver's real GitHub
+            # premium_interactions.remaining so select_source can skip a giver that
+            # is already dead at the source. This awaits BEFORE select_source, so
+            # the no-await-inside-transaction invariant below still holds.
+            health: Dict[str, Optional[int]] = {}
+            if cycle and consumer and LIVE_QUOTA is not None:
+                for gid in candidate_givers(ATTRIBUTION.engine, cycle.id, consumer):
+                    health[gid] = await LIVE_QUOTA.remaining(gid)
+            source = (ATTRIBUTION.select_source(cycle.id, consumer, health=health)
+                      if (cycle and consumer) else None)
             if source is None:
                 # Pre-gate failed: no eligible credit. Block BEFORE forwarding.
                 # Log the specific cause so operators can distinguish misconfigurations.
@@ -477,35 +566,74 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         if not pat_to_use and ATTRIBUTION is not None and should_swap(upstream_host):
             pat_to_use = ATTRIBUTION.any_giver_pat() or pat_to_use
 
-        fwd = build_upstream_headers(hdrs, upstream_host, auth, len(body), pat_to_use)
-
+        # Forward with failover-on-402. For a billable request with a resolved
+        # source we may retry across candidate givers: a real GitHub premium-quota
+        # 402 (error.code == "quota_exceeded") on one giver reconciles its ledger,
+        # excludes it, and re-selects the next bucket. Non-billable requests (and
+        # billable ones with no source — which were already 402-blocked above) make
+        # exactly one attempt. The cap is len(health)+1: at most one try per
+        # pre-checked giver plus the initial source.
         _status = 0
         _ct = ""
+        exclude: set = set()
+        attempts = 0
+        max_attempts = len(health) + 1 if billable else 1
         try:
-            async with _http.request(
-                method   = method,
-                url      = f"https://{upstream_host}{path}",
-                headers  = fwd,
-                data     = body or None,
-                ssl      = upstream_ssl,
-                allow_redirects = False,
-                timeout  = aiohttp.ClientTimeout(sock_connect=10, sock_read=120),
-            ) as resp:
-                full_body = await _relay_response(writer, resp, upstream_host, path, method, hdrs,
-                                                  capture_full=billable)
-                _status = resp.status
-                _ct = resp.headers.get("Content-Type", "")
-            if billable and _status == 200:
-                if not full_body:
-                    log.warning("[!] billable 200 had empty/None body; debiting 0 path=%s", path)
-                _safe_sentinel_emit(sentinel.check_billable_response, _status, full_body or b"", _ct, path.split("?", 1)[0])
-                cost = extract_total_nano_aiu(full_body or b"", _ct)
-                try:
-                    ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now())
-                except Exception as exc:  # debit must never break the sent response
-                    log.error("[!] debit failed (logged, not surfaced): %s", exc)
-            if is_billable(upstream_host, method, path) and _status in (400, 401, 403):
-                _safe_sentinel_emit(sentinel.check_billable_rejection, _status, path.split("?", 1)[0])
+            while True:
+                attempts += 1
+                if billable and source is not None:
+                    pat_to_use = source.pat
+                fwd = build_upstream_headers(hdrs, upstream_host, auth, len(body), pat_to_use)
+                async with _http.request(
+                    method   = method,
+                    url      = f"https://{upstream_host}{path}",
+                    headers  = fwd,
+                    data     = body or None,
+                    ssl      = upstream_ssl,
+                    allow_redirects = False,
+                    timeout  = aiohttp.ClientTimeout(sock_connect=10, sock_read=120),
+                ) as resp:
+                    if (billable and source is not None and attempts < max_attempts
+                            and resp.status == 402):
+                        # Peek the body to distinguish a real quota_exceeded 402
+                        # from anything else. Reading consumes the response, so we
+                        # can no longer stream it — relay via _write_buffered.
+                        peek = await resp.read()
+                        if is_quota_exceeded_402(resp.status, peek):
+                            await reconcile_exhausted(ATTRIBUTION.engine, LIVE_QUOTA,
+                                                      cycle.id, source.giver_id, _now())
+                            exclude.add(source.grant_id or source.giver_id)
+                            nxt = ATTRIBUTION.select_source(
+                                cycle.id, consumer,
+                                health=health, exclude=frozenset(exclude))
+                            if nxt is not None:
+                                log.warning("[failover] %s exhausted -> retry via %s",
+                                            source.giver_id, nxt.giver_id)
+                                source = nxt
+                                continue
+                        # Not a retriable quota 402, or no next bucket: relay this
+                        # 402 (already read) to the client and stop.
+                        _write_buffered(writer, resp, peek)
+                        await writer.drain()
+                        _status = resp.status
+                        _ct = resp.headers.get("Content-Type", "")
+                        break
+                    full_body = await _relay_response(writer, resp, upstream_host, path, method,
+                                                      hdrs, capture_full=billable)
+                    _status = resp.status
+                    _ct = resp.headers.get("Content-Type", "")
+                if billable and _status == 200:
+                    if not full_body:
+                        log.warning("[!] billable 200 had empty/None body; debiting 0 path=%s", path)
+                    _safe_sentinel_emit(sentinel.check_billable_response, _status, full_body or b"", _ct, path.split("?", 1)[0])
+                    cost = extract_total_nano_aiu(full_body or b"", _ct)
+                    try:
+                        ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now())
+                    except Exception as exc:  # debit must never break the sent response
+                        log.error("[!] debit failed (logged, not surfaced): %s", exc)
+                if is_billable(upstream_host, method, path) and _status in (400, 401, 403):
+                    _safe_sentinel_emit(sentinel.check_billable_rejection, _status, path.split("?", 1)[0])
+                break
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
             log.error("[!] Upstream timeout: %s %s", method, path)
             writer.write(b"HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\n\r\n")
