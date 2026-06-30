@@ -55,6 +55,18 @@ async def test_connect_seeds_entitlement_ceiling_and_books_prior_burn():
 
 
 @pytest.mark.asyncio
+async def test_leaderboard_consumption_matches_profile_used():
+    app = await _client(http_get_user=_user_4000_1200)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "github_pat_X"})
+        await cli.get("/api/profile")                       # triggers reconcile
+        lb = await (await cli.get("/api/leaderboard")).json()
+        me = next((u for u in lb["topPro"] if u["value"] > 0), None)
+        assert me is not None and me["value"] == 2800 * N    # bypass now visible
+
+
+@pytest.mark.asyncio
 async def test_giver_profile_falls_back_to_snapshot_when_live_fetch_fails():
     calls = {"n": 0}
     async def flaky(pat):

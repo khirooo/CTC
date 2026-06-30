@@ -200,6 +200,12 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             rem_aiu = snap["remaining_at_submit"] if snap else 0
             reset = snap["quota_reset_date"] if snap else None
 
+        # Trigger T1: reconcile out-of-band burn into events before reading usage,
+        # so profile, leaderboard and dashboard all derive the same number. No-op
+        # when stale (lq is None / entitlement None) or unlimited.
+        if lq and lq.get("entitlement") is not None:
+            engine.reconcile_giver(cycle.id, uid, lq)
+
         unlimited = ent_aiu == -1
         pledged = gc.pledge
         donated = acct.granted_out(cycle.id, uid)
@@ -217,7 +223,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
 
         E = int(ent_aiu) * NANO_PER_AIU
         R = int(rem_aiu or 0) * NANO_PER_AIU
-        used = max(0, (E - R) - pledged_consumed - donated_consumed)
+        used = acct.own_consumed(cycle.id, uid) + acct.bypass_consumed(cycle.id, uid)
         left = max(0, E - used - pledged - donated)
         dto = OwnProfileDTO(
             total_credit=gc.quota, pledged_surplus=pledged,
