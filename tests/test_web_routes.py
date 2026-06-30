@@ -23,7 +23,8 @@ class StubOAuth:
 
 
 async def _giver_user(pat):
-    return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
+    # remaining == entitlement: fresh cycle, nothing spent yet
+    return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 4000}}}
 
 
 def _make(now=lambda: 1000, shared_pool=False):

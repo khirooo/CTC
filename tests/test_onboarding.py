@@ -19,13 +19,14 @@ def _setup():
 
 
 async def _user_ok(pat):
-    return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
+    # remaining == entitlement: full cycle, nothing spent yet
+    return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 4000}}}
 async def _user_partial(pat):
     # entitlement 4000 but only 1200 left this cycle
     return {"login": "octocat",
             "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 1200}}}
 async def _user_mismatch(pat):
-    return {"login": "someone-else", "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
+    return {"login": "someone-else", "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 4000}}}
 async def _user_403(pat):
     raise PatInvalid("403")
 
@@ -73,3 +74,46 @@ async def test_invalid_pat_rejected():
     store, eng, reg = _setup()
     with pytest.raises(PatInvalid):
         await validate_and_store_pat(reg, eng, _user_403, "c1", "u1", "octocat", "bad", now=2)
+
+
+# --- phantom-quota guard tests ---
+
+async def _user_remaining_present(pat):
+    return {"login": "octocat",
+            "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 1200}},
+            "quota_reset_date": "2026-07-01"}
+
+async def _user_remaining_missing(pat):
+    # GitHub omits "remaining" — the phantom-quota bug used to seed full entitlement
+    return {"login": "octocat",
+            "quota_snapshots": {"premium_interactions": {"entitlement": 4000}},
+            "quota_reset_date": "2026-07-01"}
+
+async def _user_zero_entitlement(pat):
+    return {"login": "octocat",
+            "quota_snapshots": {"premium_interactions": {"entitlement": 0}}}
+
+
+@pytest.mark.asyncio
+async def test_seeds_remaining_when_present():
+    store, eng, reg = _setup()
+    res = await validate_and_store_pat(reg, eng, _user_remaining_present,
+                                       "c1", "u1", "octocat", "github_pat_X", now=2)
+    assert res["remaining_aiu"] == 1200
+
+
+@pytest.mark.asyncio
+async def test_seeds_zero_when_remaining_missing():
+    store, eng, reg = _setup()
+    res = await validate_and_store_pat(reg, eng, _user_remaining_missing,
+                                       "c1", "u1", "octocat", "github_pat_X", now=2)
+    assert res["remaining_aiu"] == 0
+    assert res["entitlement_aiu"] == 4000
+
+
+@pytest.mark.asyncio
+async def test_rejects_zero_entitlement():
+    store, eng, reg = _setup()
+    with pytest.raises(PatInvalid):
+        await validate_and_store_pat(reg, eng, _user_zero_entitlement,
+                                     "c1", "u1", "octocat", "github_pat_X", now=2)

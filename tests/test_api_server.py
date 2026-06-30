@@ -22,7 +22,8 @@ class StubOAuth:
 
 
 async def _default_user(pat):
-    return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
+    # remaining == entitlement: fresh cycle, nothing spent yet
+    return {"login": "octocat", "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 4000}}}
 
 
 async def _client(http_get_user=_default_user, admins=frozenset()):
@@ -117,7 +118,7 @@ async def test_pat_identity_mismatch_is_accepted():
     # so a PAT from a different GHE login is accepted without a 409.
     async def http_get_user_mismatch(pat):
         return {"login": "someone-else",
-                "quota_snapshots": {"premium_interactions": {"entitlement": 4000}}}
+                "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 4000}}}
     app = await _client(http_get_user=http_get_user_mismatch)
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)  # identity is "octocat" (from StubOAuth.fetch_identity)

@@ -26,7 +26,9 @@ async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user
     if not ent or ent <= 0:
         raise PatInvalid("no premium_interactions entitlement on this PAT")
     remaining = pi.get("remaining")
-    avail = remaining if remaining is not None else ent
+    # Missing `remaining` means GitHub did not report headroom; assume spent
+    # (0), never full entitlement. WS2/WS4 correct upward on the next live read.
+    avail = remaining if remaining is not None else 0
     avail = max(0, int(avail))
     reset_date = user.get("quota_reset_date")
     quota_nano = avail * NANO_PER_AIU

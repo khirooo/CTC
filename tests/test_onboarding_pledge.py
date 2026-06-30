@@ -12,7 +12,8 @@ from ctc.auth.onboarding import validate_and_store_pat
 
 
 async def _http_get_user(pat):
-    return {"login": "octo", "quota_snapshots": {"premium_interactions": {"entitlement": 1000}}}
+    # remaining == entitlement: fresh cycle, nothing spent yet
+    return {"login": "octo", "quota_snapshots": {"premium_interactions": {"entitlement": 1000, "remaining": 1000}}}
 
 
 @pytest.mark.asyncio
