@@ -98,6 +98,7 @@ export function ProfileScreen() {
     setSaveError(null);
     try {
       await api.updateSettings({ pledgedSurplus: val });
+      setLocalPledged(null);  // stop showing optimistic preview; committed values come from backend
       settings.reload();
       profile.reload();
     } catch (e) {
@@ -156,12 +157,14 @@ export function ProfileScreen() {
   const giverSegs: BarSegment[] = [
     { key: 'used', label: 'used', value: p?.used ?? 0, color: 'var(--text-dim)', pattern: 'striped' as const },
     { key: 'donatedC', label: 'chipped in', value: p?.donatedConsumed ?? 0, color: 'var(--give)', pattern: 'striped' as const },
-    { key: 'donatedR', label: 'chipped in', value: Math.max(0, (p?.donated ?? 0) - (p?.donatedConsumed ?? 0)), color: 'var(--give)' },
+    { key: 'donatedR', label: 'chipped in', value: p?.donatedRemaining ?? 0, color: 'var(--give)' },
     ...(poolOn ? [
       { key: 'pledgedC', label: 'pledged', value: Math.min(pledgedValue, p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
-      { key: 'pledgedR', label: 'pledged', value: Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)), color: 'var(--accent)' },
+      // While dragging (localPledged != null), show the optimistic preview; once saved, read the backend field.
+      { key: 'pledgedR', label: 'pledged', value: localPledged !== null ? Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)) : (p?.pledgedRemaining ?? 0), color: 'var(--accent)' },
     ] : []),
-    { key: 'left', label: 'left', value: Math.max(0, E - (p?.used ?? 0) - (p?.donated ?? 0) - effPledged), color: 'var(--reroute)' },
+    // left: read backend field; no client recompute.
+    { key: 'left', label: 'left', value: p?.left ?? 0, color: 'var(--reroute)' },
   ].filter((s) => s.value > 0);
 
   return (
@@ -215,7 +218,7 @@ export function ProfileScreen() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
             <span style={monoLabel}>Credit cycle</span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 18, color: 'var(--accent)' }}>
-              {p.unlimited ? '∞' : aiu(poolOn ? pledgedValue : Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0)))}
+              {p.unlimited ? '∞' : aiu(poolOn && localPledged !== null ? pledgedValue : (p.left ?? 0))}
             </span>
           </div>
 
@@ -251,7 +254,8 @@ export function ProfileScreen() {
                   { label: 'used', value: aiu(p.used ?? 0), color: 'var(--text-dim)', pattern: 'striped' },
                   ...((p.donated ?? 0) > 0 ? [{ label: 'chipped in', value: aiu(p.donated ?? 0), color: 'var(--give)' }] : []),
                   ...(poolOn ? [{ label: 'pledged', value: aiu(pledgedValue), color: 'var(--accent)' }] : []),
-                  { label: 'available', value: aiu(Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - effPledged)), color: 'var(--reroute)' },
+                  // Read backend field; only use local derivation while slider is actively being dragged.
+                  { label: 'available', value: aiu(localPledged !== null ? Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - effPledged) : (p.left ?? 0)), color: 'var(--reroute)' },
                 ]} />
                 {p.quotaStale && (
                   <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)', marginTop: 6, opacity: 0.7 }}>

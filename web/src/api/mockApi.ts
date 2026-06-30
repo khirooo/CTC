@@ -576,6 +576,8 @@ export function createMockApi(opts?: MockApiOpts): CtcApi & { _state(): StoreSta
         left,
         pledgedConsumed,
         donatedConsumed,
+        donatedRemaining: donated !== null && donatedConsumed !== null ? Math.max(0, donated - donatedConsumed) : null,
+        pledgedRemaining: pledged !== null && pledgedConsumed !== null ? Math.max(0, pledged - pledgedConsumed) : null,
         allowanceMax,
         allowanceUsed,
         allowanceLeft,

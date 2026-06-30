@@ -168,6 +168,8 @@ export interface OwnProfile {
   left: number | null;
   pledgedConsumed: number | null;
   donatedConsumed: number | null;
+  donatedRemaining: number | null;  // max(0, donated - donatedConsumed) — computed server-side
+  pledgedRemaining: number | null;  // pledge not yet drawn from pool — computed server-side
   allowanceMax: number | null;
   allowanceUsed: number | null;
   allowanceLeft: number | null;
