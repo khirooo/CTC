@@ -1,7 +1,10 @@
 # Routing & Attribution Engine (#3) — Design
 
-**Status:** Approved design, ready for implementation planning. Task 0
-verification **complete** (see §6).
+**Status:** Implemented and live (`ctc/routing/attribution.py`,
+`ctc/metering/live_quota.py`, proxy integration in `proxy.py`). This document is
+the design of record, kept in sync with the shipped behavior; later refinements
+(health-aware selection, the `LiveQuotaCache`, grant spill, and 402 failover) are
+folded into the relevant sections. Task 0 verification **complete** (see §6).
 **Sub-project:** #3 of the CTC backend attack plan.
 **Depends on:** the metering contract
 (`docs/reference/metering-contract.md`), the accounting core #2
@@ -69,18 +72,33 @@ Consumption order per live request — **first non-empty bucket wins**:
 - **Invariant:** the PAT forwarded as the bearer == the giver debited. The real
   Copilot quota is consumed on the forwarded PAT, so the ledger only stays true
   to reality if we debit that same giver.
-- **No split:** a single request is charged in full to one giver/bucket, even if
-  its actual cost exceeds that bucket's remaining (the accepted one-request
-  overshoot). The next request re-evaluates and moves on once the bucket is ≤ 0.
+- **Grant spill (one debit, multiple grants):** a debit on a GRANT source is
+  spilled across the consumer's active grants in engine order — the selected
+  grant first (clamped to its remaining), then the consumer's other active
+  grants (each clamped) — so no single grant is driven below zero. Only the
+  residual left after every grant is drained is recorded with overshoot, on the
+  original source. **OWN and POOL sources do not spill:** they record a single
+  event on the source bucket, absorbing any overshoot there. So a request can
+  overshoot a non-grant bucket by up to its full cost (the accepted one-request
+  overshoot); the next request re-evaluates and moves on once that bucket is ≤ 0.
 
 ### Cap enforcement is a pre-gate + post-hoc debit
 
 Because cost is only known after streaming:
 - **Pre-gate (before forwarding):** select the first bucket in order with
-  remaining > 0 (for POOL, also requires a giver with capacity). If none qualify,
-  **block before forwarding** (return `402 Payment Required` to the consumer).
+  remaining > 0 (for POOL, also requires a giver with capacity). The pre-gate is
+  also **health-aware**: candidate givers whose *live* GitHub quota
+  (`premium_interactions.remaining`, fetched via the `LiveQuotaCache`, §4.4) is
+  ≤ 0 are skipped at the source. If none qualify, **block before forwarding**
+  (return `402 Payment Required` to the consumer).
+- **Failover on a real 402:** if the upstream PAT still returns a genuine GitHub
+  `quota_exceeded` 402 despite the pre-gate (the live snapshot lags), the proxy
+  reconciles that giver's ledger to its consumed floor, excludes it, re-selects
+  the next bucket, and retries — bounded to one attempt per pre-checked giver
+  plus the original source (§7).
 - **Debit (after streaming):** record the actual `total_nano_aiu` against the
-  selected giver/bucket. May overshoot by up to one request; tolerated.
+  selected giver/bucket (spilling across grants for GRANT sources, §3 bullet).
+  May overshoot by up to one request; tolerated.
 
 Consequence — a consumer is blocked **only** when no eligible bucket has credit
 (e.g. non-PAT: allowance exhausted *and* no pool giver has capacity), never
@@ -106,11 +124,18 @@ Pure function over response bytes → `int` nano-AIU.
 The orchestrator the proxy calls.
 - `resolve_consumer(fake_token) -> ConsumerIdentity` (via the #1 seam): maps the
   inbound fake token to `{user_id, is_giver}`.
-- `select_source(consumer, cycle) -> Source | None`: walks the consumption order
-  against live engine balances + `givers_with_pool_capacity`; returns
-  `{bucket, giver_id, grant_id?, pat}` for the first eligible bucket — including
-  the **PAT to swap in as the bearer** — or `None` (→ the proxy blocks with 402).
-- `debit(source, cost_nano_aiu, ts)`: records the actual consumption (see §5).
+- `select_source(cycle_id, consumer, *, health=None, exclude=frozenset()) ->
+  Source | None`: walks the consumption order against live engine balances +
+  `givers_with_pool_capacity`; returns `{bucket, giver_id, grant_id?, pat}` for
+  the first eligible bucket — including the **PAT to swap in as the bearer** — or
+  `None` (→ the proxy blocks with 402). Two optional health/exclusion inputs:
+  - `health`: `{giver_id -> live remaining | None}`. A bucket is skipped iff its
+    giver's entry is **not None and ≤ 0** (the live-quota gate); `None`/absent
+    means *unknown → allow*, so a missing or failed live fetch never blocks.
+  - `exclude`: a set of keys to skip entirely, used by the 402-failover retry.
+    GRANT sources are keyed by `grant_id`; OWN/POOL sources by `giver_id`.
+- `debit(cycle_id, consumer, source, cost_nano_aiu, ts)`: records the actual
+  consumption, spilling GRANT-source cost across active grants (see §3, §5).
 
 There is **no broker** — the PAT to forward comes straight from the #1 registry
 for the selected giver; the proxy swaps it in directly.
@@ -123,24 +148,37 @@ Interface #3 needs; #1 provides the real implementation (GHE OAuth + registry):
 This worktree ships an **in-memory/env-seeded stub** so #3 builds and tests
 standalone. #1 swaps in the real provider behind the same interface.
 
+### 4.4 `ctc/metering/live_quota.py` — `LiveQuotaCache`
+On-read + TTL cache (default 60s) of each giver's **live** GitHub
+`premium_interactions` quota, feeding the pre-gate's health input. One instance
+per process (the proxy and control plane each own one).
+- `get(giver_id) -> {entitlement, remaining, reset_date} | None` /
+  `remaining(giver_id) -> int | None`: returns the cached value, refetching via
+  `GET /copilot_internal/user` (with that giver's PAT) when the entry is stale.
+- **Failed fetches are never cached** (always retried) and return `None` so they
+  never block the caller — matching `select_source`'s *unknown → allow* rule.
+- `invalidate(giver_id)` drops an entry; `set_exhausted(giver_id)` pins
+  `remaining = 0` so the 402-failover path can mark a giver dead without an
+  extra round-trip.
+
 ---
 
-## 5. Required change to the accounting core (#2) — flagged plan-conflict
+## 5. Change to the accounting core (#2) — `allow_overshoot` (landed)
 
-`AccountingEngine.record_consumption` currently enforces hard caps and raises
-`InsufficientCredit`, refusing to overspend. But #3's debit is **post-hoc**: the
-spend already physically occurred on the forwarded PAT, and the design *accepts*
-one-request overshoot. A debit that throws would lose the record and desync our
-ledger from Copilot's reality.
+`AccountingEngine.record_consumption` normally enforces hard caps and refuses to
+overspend. But #3's debit is **post-hoc**: the spend already physically occurred
+on the forwarded PAT, and the design *accepts* one-request overshoot. A debit
+that threw would lose the record and desync our ledger from Copilot's reality.
 
-**Add a record-actual path that bypasses the cap gate**, e.g.
-`record_consumption(..., allow_overshoot: bool = False)` or a sibling
-`record_actual_consumption(...)`. Semantics: still validates bucket/giver/grant
-consistency and writes the event, but does **not** reject when `credits` exceeds
+The implemented fix is the `allow_overshoot: bool = False` parameter on
+`record_consumption`. With it set, the call still validates bucket/giver/grant
+consistency and writes the event but does **not** reject when `credits` exceeds
 remaining. The pre-gate (§3) is the authorization point; this call records a fact.
 
-This is the one change #3 requires outside its own package. It must land (with
-tests) as part of #3's plan.
+`debit` uses both modes: the per-grant spill records (`allow_overshoot=False`,
+each clamped to that grant's `grant_remaining`) followed by a single residual
+record on the original source with `allow_overshoot=True`. OWN/POOL sources skip
+the spill loop and take only the overshoot-allowed residual record.
 
 ---
 
@@ -170,14 +208,29 @@ token-swap (`build_upstream_headers`, `proxy.py:124-133`):
 - The swap is already per-request; today it always uses `REAL_PAT`. Make the
   PAT a **function of routing** for billable calls:
   - On a **billable** request: read the inbound fake token →
-    `routing.resolve_consumer` → `routing.select_source`. If `None`, respond
-    `402` without forwarding; else swap the bearer to `source.pat` and forward.
-  - Relay the response as today (`_relay_response`), but tee the **full** stream
-    through `extract.py` (streaming scan) to obtain `total_nano_aiu`.
-  - After relay: if cost > 0, `routing.debit(source, cost, ts)`.
+    `routing.resolve_consumer`. Before selecting, **pre-fetch each candidate
+    giver's live quota** (`candidate_givers` → `LIVE_QUOTA.remaining`, §4.4) into
+    a `health` map, then `routing.select_source(cycle.id, consumer,
+    health=health)`. If `None`, respond without forwarding — `402` for no
+    eligible credit, `401` for an unknown consumer token, `503` for no active
+    cycle; else swap the bearer to `source.pat` and forward. (The live fetch
+    awaits **before** `select_source`, preserving the no-await-inside-transaction
+    invariant for the synchronous engine calls.)
+  - **Failover on a real 402:** if the upstream returns a genuine GitHub
+    `quota_exceeded` 402 (`is_quota_exceeded_402`), `reconcile_exhausted` drives
+    that giver's ledger to its consumed floor and `LIVE_QUOTA.set_exhausted`s it,
+    the giver/grant is added to `exclude`, and `select_source` re-runs for the
+    next bucket. Bounded to `len(health)+1` attempts (one per pre-checked giver
+    plus the original source); CTC's own 402 block (code `"ctc"`) is not retried.
+  - Relay the response as today (`_relay_response`, `capture_full=billable`), but
+    tee the **full** stream through `extract.py` (streaming scan) to obtain
+    `total_nano_aiu`.
+  - After relay: on a `200`, `routing.debit(cycle.id, consumer, source, cost,
+    ts)` (a no-op when cost ≤ 0).
 - On a **non-billable** GHE request (`/copilot_internal/user`, `/models`,
-  `/mcp/*`, etc.): swap to a **bootstrap PAT** — any healthy giver (or a
-  configured house PAT). These are not routed/attributed. Known cosmetic note:
+  `/mcp/*`, etc.): swap to a **bootstrap PAT** via `any_giver_pat()` (any stored
+  giver PAT), gated on `should_swap` so non-GHE MITM hosts never receive a giver
+  PAT. These are not routed/attributed. Known cosmetic note:
   `/copilot_internal/user` then reflects the bootstrap giver's quota to the
   consumer; billing-irrelevant, accepted for MVP.
 
@@ -195,9 +248,18 @@ only consumer-visible enforcement point.
 - **selection/pre-gate** — unit tests over engine states: giver `OWN` exhausted →
   `GRANT`; non-PAT `GRANT` exhausted → `POOL`; POOL picks max-capacity giver;
   all-dry → block; giver depleted mid-cycle → next request reroutes.
-- **engine overshoot** — unit test the new record-actual path (records past cap).
-- **proxy routing** — test that a billable request swaps to the selected giver's
-  PAT, a 402 is returned when no source qualifies, and the debit fires post-relay.
+- **engine overshoot / grant spill** (`tests/test_overshoot_spill.py`) — a
+  single GRANT-source debit spills across the consumer's active grants without
+  driving any below zero; OWN/POOL sources still record a single overshoot event.
+- **live-quota gate** — `select_source` skips a giver whose `health` entry is ≤ 0
+  but allows one whose entry is `None` (unknown).
+- **proxy routing & failover** (`tests/test_proxy_failover.py`) — a billable
+  request swaps to the selected giver's PAT and debits post-relay; no source →
+  402; a real `quota_exceeded` 402 reconciles + excludes the giver and reroutes
+  to the next bucket, while CTC's own 402 is relayed straight through.
+- **`reconcile_exhausted`** — drives a dead giver's quota to its consumed floor,
+  marks the live cache exhausted, and never raises (swallows `set_quota` failures
+  and a `None` cache).
 - **real-CLI smoke** — two consumers + ≥2 givers through the live proxy: drive
   real traffic, drain one giver, confirm the next request reroutes to another
   giver and that our debits reconcile against Copilot's `quota_snapshot`

@@ -83,21 +83,32 @@ When a request *costs money*, the Proxy must decide whose real token to use:
 ```mermaid
 flowchart TB
     Req["Billable request arrives<br/>(with consumer's throwaway token)"] --> Who["Look up who owns the token"]
-    Who --> Has{"Do they have<br/>any credit?"}
+    Who --> Health["Live-quota health gate:<br/>pre-fetch each candidate giver's<br/>REAL GitHub 'remaining' quota"]
+    Health --> Has{"Any eligible<br/>credit?"}
     Has -->|No| Block["⛔ Return 402 Payment Required<br/>(never forwarded — no quota wasted)"]
-    Has -->|Yes| Pick["Pick the source of credit"]
+    Has -->|Yes| Pick["Pick the source of credit<br/>(skip givers already dead at the source)"]
     Pick --> G{"Are they a giver?"}
     G -->|Yes| Own["Use their OWN credit first,<br/>then any grants they received"]
     G -->|No| Pool["Use a direct grant first,<br/>then the shared POOL<br/>(the giver with most spare capacity)"]
     Own --> Fwd["Swap in that giver's real token → forward"]
     Pool --> Fwd
+    Fwd --> F402{"GitHub returns a real<br/>quota_exceeded 402?"}
+    F402 -->|Yes| Retry["Reconcile that giver's ledger,<br/>drop them, retry the next bucket"]
+    F402 -->|No| Done["Relay the answer + bill"]
+    Retry --> Pick
 ```
 
-Two timing rules that matter:
+Three rules that matter:
 
 - **Check before, bill after.** Credit is checked *before* forwarding (so a
   broke user is stopped with a `402` and no GitHub call happens). The *actual*
   cost is recorded *after* GitHub replies — because the price is only known then.
+- **Health gate + failover-on-402.** Before choosing a giver, the Proxy peeks each
+  candidate's *real* GitHub `premium_interactions.remaining` (a small cached lookup)
+  so it can skip a giver who's already exhausted upstream. And if a giver still
+  comes back with a genuine GitHub `quota_exceeded` 402, the Proxy reconciles that
+  giver's ledger, excludes them, and retries the request against the next bucket —
+  so one drained giver doesn't surface as a failure to the user.
 - **One giver per request.** A single request is fully charged to one giver; CTC
   never splits a request across givers.
 
@@ -137,7 +148,7 @@ A request is metered only if **all three** are true (`is_billable`):
 
 - host is `copilot-api.example.ghe.com`, **and**
 - method is `POST`, **and**
-- path is `/chat/completions` or `/v1/messages`.
+- path is `/chat/completions`, `/v1/messages`, or `/responses`.
 
 Everything else (the login/quota checks, model lists, telemetry) flows through
 but is never charged.
@@ -232,5 +243,14 @@ response specifically so it can read the price for billing.
   in `proxy.py`.
 - A `402 Payment Required` is returned *before* any GitHub call when there's no
   eligible credit, so a broke user never wastes a giver's quota.
+- **CTC's own blocks carry a readable message.** When the Proxy refuses a request
+  before forwarding, it doesn't just send a bare status code — it renders the
+  reason in the endpoint's *native* error shape (OpenAI-shaped for
+  `/chat/completions` and `/responses`, Anthropic-shaped for `/v1/messages`) so the
+  Copilot CLI surfaces it the same way it shows a real GHE quota error. The cases:
+  `402` ("exceeded your monthly quota (CTC credit pool)"), `401` (unrecognized proxy
+  token → run `ctc login`), and `503` (no active billing cycle → contact the
+  operator). CTC's own 402 is tagged `code: "ctc"` so it's distinguishable from a
+  real GitHub `quota_exceeded` 402.
 
 **Next:** how a person gets set up to use all this → [02 · The `ctc` CLI](02-the-cli-launcher.md).

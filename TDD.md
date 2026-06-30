@@ -19,8 +19,10 @@ Build a local HTTPS interception proxy that lets multiple users invoke the
 fake tokens**, while the **single real Personal Access Token (PAT)** never
 leaves the operator's machine.
 
-Discovery sub-goal: enumerate every endpoint Copilot CLI calls during normal
-operation so we can build a multi-tenant production version later.
+Discovery sub-goal (achieved): enumerate every endpoint Copilot CLI calls during
+normal operation. That map (§4) now backs a multi-tenant mode — per-user fake
+tokens, encrypted giver PATs, and per-request credit accounting — layered on top
+of the same MITM core (see Layer 10 and the control plane in §9).
 
 ---
 
@@ -85,6 +87,7 @@ Confirmed by intercepting one `copilot` session against your GHE instance:
 | `copilot-api.example.ghe.com` | `POST /mcp/readonly` | MCP tool registration | MITM + token swap |
 | `copilot-api.example.ghe.com` | `POST /chat/completions` | **Billable LLM call** (OpenAI-shape, JSON or SSE). Carries per-request credit cost (§4.1) | MITM + token swap |
 | `copilot-api.example.ghe.com` | `POST /v1/messages` | **Billable LLM call** (Anthropic-shape, SSE). Carries per-request credit cost (§4.1) | MITM + token swap |
+| `copilot-api.example.ghe.com` | `POST /responses` | **Billable LLM call** (OpenAI Responses API, SSE). Carries per-request credit cost (§4.1) | MITM + token swap |
 | `copilot-telemetry-service.example.ghe.com` | various | Telemetry | Blind tunnel |
 | `api.github.com` | `GET /repos/github/copilot-cli/releases/latest` | Update check (no token) | MITM (logged) |
 | `api.githubcopilot.com` | (unused in the GHE flow) | github.com SaaS Copilot | Blind tunnel |
@@ -121,12 +124,21 @@ format so it is recorded here for the future:
 and never charged. **CTC stores credits as integer nano-AIU: 1 credit = 1 nano-AIU.**
 
 **Per-request cost — in the RESPONSE BODY of billable calls** (`POST
-/chat/completions`, `POST /v1/messages`):
+/chat/completions`, `POST /v1/messages`, `POST /responses`). The billable set
+lives in `ctc/contract.py` (`BILLABLE_PATHS`); the proxy's `is_billable()` reads
+it directly, so adding a path there is the single point of change:
 
 | Body shape | Content-Type | Location of cost |
 |---|---|---|
 | JSON | `application/json` | top-level `copilot_usage` object (sibling of `usage`) |
 | SSE | `text/event-stream` | the **final `message_delta` event**'s `data:` JSON |
+
+`/chat/completions` reports cost top-level (JSON) or in the final SSE event;
+`/v1/messages` and `/responses` report it in the **final SSE `message_delta`
+event** (`ctc/contract.py` `METERING_LOCATION`). The extractor
+(`ctc/metering/extract.py` `extract_total_nano_aiu`) handles both shapes: for SSE
+it scans to the **last** `data:` event carrying `copilot_usage` (robust to the
+trailing `[DONE]` sentinel and to truncation).
 
 - Authoritative field: **`copilot_usage.total_nano_aiu`** (integer nano-AIU).
 - Breakdown (audit only): `copilot_usage.token_details[]`, each
@@ -158,6 +170,9 @@ only; use the **body `total_nano_aiu`** for attribution/debits.
 > **Streaming gotcha for attribution code:** the `copilot_usage` SSE event is at
 > the **tail** of the stream, past `LOG_BODY_CAP`. The attribution path must scan
 > the SSE stream to its final `message_delta`, not reuse the truncated log tee.
+> `_relay_response` therefore takes a `capture_full` flag for billable requests
+> that buffers the **whole** body (not just the `LOG_BODY_CAP` tee) so
+> `extract_total_nano_aiu` sees the final event.
 
 ---
 
@@ -291,6 +306,13 @@ copilot
 | `UPSTREAM_CA_BUNDLE` | _(unset)_ | Path to a CA bundle for verifying GHE's TLS cert (e.g. corporate CA); if unset, system CAs are used |
 | `UPSTREAM_INSECURE` | _(unset / `0`)_ | Set to `1` to skip upstream cert verification entirely (logs a warning; for broken environments only) |
 | `LOG_BODY_CAP` | `8192` | Maximum bytes buffered/logged per request or response body |
+| `CTC_DB_PATH` | _(unset)_ | Shared SQLite path. Set (with `CTC_SECRET_KEY`) to enable **multi-tenant mode** (Layer 10): per-request attribution/metering/failover. Unset → legacy single-`REAL_PAT` mode. |
+| `CTC_SECRET_KEY` | _(unset)_ | Key for decrypting stored giver PATs from the shared DB. Required alongside `CTC_DB_PATH` for multi-tenant mode. |
+| `CTC_CAPTURE_DIR` | _(unset)_ | Metering spike: append token-redacted request/response exchanges for MITM'd hosts to `<dir>/exchanges.ndjson`. Off by default. |
+
+> `GHE_DOMAIN` (default `example.ghe.com`) feeds `ctc/contract.py`, which derives
+> `MITM_HOSTS`/`SWAP_HOSTS` and `BILLABLE_HOST`. Override it per deployment; the
+> cert SANs must match (see `gen-cert.sh`).
 
 ### 6.4 Two ways to point Copilot at the proxy
 
@@ -323,11 +345,13 @@ host sets covering both so either mode works.
 
 ## 8. What this does NOT solve (future work)
 
-1. **Multi-tenancy at scale** — currently one operator, one PAT. To support
-   many fake tokens belonging to different teammates, we need:
-   - A fake-token → real-credential mapping table
-   - Per-token rate limiting / quota
-   - Token revocation
+1. **Multi-tenancy at scale** — the single-PAT mode is still the default, but a
+   multi-tenant mode now exists (Layer 10): the control plane (`api_server.py`)
+   issues per-user fake tokens mapped to encrypted giver PATs in a shared SQLite
+   DB, and the proxy attributes/meters/debits per request with health-aware giver
+   selection and 402 failover. Remaining at-scale gaps:
+   - Per-token rate limiting (quota is enforced via the credit ledger, not rate)
+   - Horizontal scale-out (the shared sqlite connection assumes one proxy process)
 2. **High availability** — single process on `localhost`. Production would
    need a real deployment, possibly behind a load balancer.
 3. **TLS to clients via real CA** — currently a self-signed cert needs manual
@@ -353,8 +377,13 @@ Previously listed as future work, now resolved:
 
 | File | Purpose |
 |---|---|
-| `proxy.py` | The entire proxy implementation (~380 lines) |
+| `proxy.py` | The entire proxy implementation (~800 lines: MITM + multi-tenant attribution/metering/failover) |
 | `cert.pem`, `key.pem` | Self-signed TLS cert + key |
+| `ctc/contract.py` | Single source of truth for host sets, `BILLABLE_PATHS`, the metering field/location, and auth scheme |
+| `ctc/routing/attribution.py` | `select_source` (bucket selection + health/exclude gate) and `debit` (grant-spill) |
+| `ctc/metering/extract.py` | `extract_total_nano_aiu` — per-request charge from JSON/SSE bodies |
+| `ctc/metering/live_quota.py` | `LiveQuotaCache` — on-read + TTL live giver-quota cache for the health gate / failover |
+| `api_server.py`, `ctc/auth/`, `ctc/store/` | Control plane: GitLab-OAuth login, sessions, encrypted PAT storage, proxy-token issuance (shares the proxy's DB) |
 | `TDD.md` | This document |
 
 ---
@@ -455,7 +484,8 @@ Steps map to the layers below.
   no proxy (§5.1).
 - **Why load-bearing in both directions:**
   - Hosts we *must* inspect (`*.example.ghe.com`, `api.github.com`,
-    `api.localhost`) must be in `MITM_HOSTS` or we can't swap their token.
+    `api.localhost`, `localhost`) must be in `MITM_HOSTS` or we can't swap their
+    token. The exact set is `contract.EXPECTED_MITM_HOSTS`.
   - Hosts we *must not* touch (`api.githubcopilot.com`, `npmjs.org`,
     `github.com` OAuth) must stay out — MITMing them broke cert validation and
     OAuth in early attempts.
@@ -487,9 +517,9 @@ Steps map to the layers below.
 
 ### Layer 6 — `api.localhost` remap · ⚙️ mechanism (only Mode B; see §6.4)
 - **What:** Copilot auto-prepends `api.` to `GH_HOST`. With `GH_HOST=localhost`
-  it connects to `api.localhost`, which isn't a real upstream. Two spots remap it
-  to `REAL_GHE_HOST`: `_dispatch` (when the CONNECT port equals our listen port)
-  and `_serve` (via `_LOCALHOST_ALIASES`, regardless of port).
+  it connects to `api.localhost`, which isn't a real upstream. `decide_route`
+  remaps the `_LOCALHOST_ALIASES` set (`api.localhost`, `localhost`, `127.0.0.1`)
+  to `REAL_GHE_HOST:443` for both the CONNECT decision and the `_serve` forward.
 - **Why it matters:** without the remap, `api.localhost` resolves to the proxy
   itself → loop / 502. Mode A (`GH_HOST=example.ghe.com`, canonical) never hits this
   because it connects straight to the real GHE hostname.
@@ -502,9 +532,15 @@ Steps map to the layers below.
   - drops hop-by-hop headers (`host`, `authorization`, `content-length`,
     `transfer-encoding`, `connection`, `proxy-connection`) and recomputes
     `content-length` / `host` for the upstream;
-  - **token swap:** if `upstream_host ∈ SWAP_HOSTS` and `REAL_PAT` is set →
-    `Authorization: Bearer <REAL_PAT>`. Otherwise the client's original token is
+  - **token swap:** if `upstream_host ∈ SWAP_HOSTS` and a PAT is available →
+    `Authorization: Bearer <PAT>`. Otherwise the client's original token is
     passed through (this is why `api.github.com` keeps the client token).
+  - **which PAT:** in legacy single-PAT mode it's `REAL_PAT`. In multi-tenant
+    mode (`ATTRIBUTION` enabled — see Layer 10) the PAT is *selected per request*:
+    for a **billable** call, `select_source()` picks the giver PAT backing the
+    consumer's credit (OWN → GRANT → POOL); for non-billable GHE calls
+    (`/copilot_internal/*`) the proxy borrows `any_giver_pat()` so token
+    validation still has a real PAT upstream (no credit consumed).
 - **Why load-bearing:**
   - `SWAP_HOSTS` is the swap gate — a GHE host missing from it gets the *fake*
     token forwarded (401). A non-GHE host wrongly added to it leaks the PAT.
@@ -551,6 +587,49 @@ Steps map to the layers below.
 - **Why it matters:** the header strip prevents double-encoding; the streaming path
   keeps SSE and large completions flowing without buffering the entire body in memory.
 
+### Layer 10 — Attribution, metering & failover (multi-tenant mode) · ⚙️ mechanism
+> Active only when `ATTRIBUTION` is built — i.e. `CTC_DB_PATH` + `CTC_SECRET_KEY`
+> are set (or the legacy `CTC_IDENTITY_JSON`/`CTC_PATS_JSON` stub). With none of
+> these the proxy stays in legacy single-PAT mode and this layer is a no-op. The
+> control plane (`api_server.py`) and proxy share the same SQLite DB; the proxy
+> reads encrypted PATs + the consumer registry via `ctc/auth/registry.py`.
+
+- **What:** for a **billable** request (`is_billable()` — `POST` to
+  `copilot-api.*` on a path in `contract.BILLABLE_PATHS`) the proxy:
+  1. resolves the consumer from the fake token (`resolve_consumer`),
+  2. runs a **live-quota health gate** — for each candidate giver (the consumer
+     if a giver, plus every donor of an active grant) it reads the giver's real
+     GitHub `premium_interactions.remaining` via `LiveQuotaCache`
+     (`ctc/metering/live_quota.py`; on-read + 60 s TTL, failed fetches never
+     cached, never block),
+  3. calls `select_source(cycle, consumer, health=…)` to pick the first eligible
+     bucket (OWN → GRANT → POOL), skipping any giver the health map marks dead
+     (`remaining ≤ 0`),
+  4. forwards with that giver's PAT, then on a `200` extracts
+     `total_nano_aiu` and **debits** the source. Grant-source debits **spill
+     across the consumer's active grants** (each clamped to its remaining) before
+     any residual overshoots the original bucket; OWN/POOL debits record once with
+     overshoot allowed (`ctc/routing/attribution.py` `debit`).
+- **Pre-gate block:** if `select_source` returns `None` the proxy blocks **before
+  forwarding** and renders a readable error body in the endpoint's native envelope
+  (`_ctc_block_response`): `503` (no active cycle), `401` (unknown consumer
+  token), or `402` (no eligible credit). The old empty-body 402 showed the user
+  nothing; now the Copilot CLI surfaces the CTC message like a real quota error.
+- **Failover on 402:** if an upstream giver returns a *real* GitHub quota 402
+  (`error.code == "quota_exceeded"`, distinguished from CTC's own `code: "ctc"`
+  402 by `is_quota_exceeded_402`), the proxy reconciles that giver's ledger down
+  to its consumed floor (`reconcile_exhausted`), marks the live cache exhausted,
+  excludes it, re-selects the next bucket, and retries — capped at one attempt per
+  pre-checked giver plus the initial source. A non-retriable 402 (or no next
+  bucket) is relayed to the client as-is.
+- **Non-billable / failed requests:** non-billable calls make exactly one attempt
+  and consume no credit. A billable response that isn't `200` carries no
+  `copilot_usage` → charge 0. Debit failures are logged, never surfaced (the
+  response was already relayed).
+- **Why it's a mechanism, not load-bearing:** none of this is needed for Copilot
+  to *work* — it's the CTC credit-accounting overlay. A bug here mis-bills or
+  over/under-blocks, but the proxy/Copilot handshake (Layers 1–9) is unaffected.
+
 ### Quick "don't touch" checklist
 
 When editing `proxy.py`, the three host sets must stay coherent — they are the
@@ -584,6 +663,8 @@ layer in §11. Run a session with the proxy and read the log top to bottom.
 | Login works but **chat/completions fail** on `copilot-api.*` | L8 forward/swap | Confirm `copilot-api.example.ghe.com` is in `SWAP_HOSTS`, MITM'd, swapped to `Bearer` PAT, and has a SAN. (No token-exchange to fix — the PAT is sent directly.) |
 | Client sees `502 Bad Gateway` | L9 forward / L6 remap | `REAL_GHE_HOST` wrong/unreachable, or `api.localhost` not remapped |
 | A GHE host forwards the **fake** token | L7 `SWAP_HOSTS` | Add the host to `SWAP_HOSTS` |
+| `402` with body `{"error":{…"code":"ctc"…}}` | L10 pre-gate | Expected CTC block — consumer is out of credit (or `401`/`503` variants: unknown token / no cycle). Not a proxy bug; check the user's quota/grants. |
+| `402` with body `error.code == "quota_exceeded"`, repeated across givers | L10 failover | All candidate givers' real GitHub quotas are exhausted; failover ran out of buckets. Add/refresh giver PATs or wait for `quota_reset_date`. |
 | `404` on `/copilot_internal/managed_settings` | — (expected) | Normal on GHE (§4); not a failure |
 
 ### 12.2 Re-running discovery after an update
@@ -636,8 +717,21 @@ All tests must pass before merging changes to `proxy.py`.
 | `test_ssl.py` | `build_upstream_ssl_context` — default verification on, `UPSTREAM_CA_BUNDLE` load, `UPSTREAM_INSECURE=1` opt-out |
 | `test_headers.py` | `build_upstream_headers` — hop-by-hop stripping, token swap for GHE hosts, pass-through for non-GHE |
 | `test_e2e.py` | End-to-end through a live proxy against the mock TLS upstream: token swap, blind tunnel, SSE streaming, chunked request body, verified TLS handshake |
+| `test_contract.py` | `ctc/contract.py` — host sets, `BILLABLE_PATHS` (incl. `/responses`), `is_github_ish` |
+| `test_extract.py` | `extract_total_nano_aiu` — JSON top-level + SSE final-event extraction, `[DONE]`/truncation robustness |
+| `test_billable_routing.py` / `test_proxy_routing.py` | `is_billable` host/method/path gate; multi-tenant PAT selection in `_serve` |
+| `test_attribution.py` / `test_attribution_health.py` / `test_attribution_modes.py` | `select_source` bucket order, health/exclude gate, participants/pool modes |
+| `test_overshoot_spill.py` | `debit` grant-spill across active grants + residual overshoot |
+| `test_live_quota_cache.py` | `LiveQuotaCache` — on-read fetch, TTL, no-cache-on-failure, `set_exhausted` |
+| `test_proxy_failover.py` | 402 failover: `is_quota_exceeded_402`, `reconcile_exhausted`, giver retry + buffered relay |
+| `test_proxy_db_registry.py` | DB-backed `_build_attribution` path (`CTC_DB_PATH` + `CTC_SECRET_KEY`) |
 | `test_canary_verdict.py` | `ctc.canary.evaluate` + `write_status` + `load_exchanges` — pure verdict logic over fixture exchanges |
 | `test_canary_cli.py` | `tools.canary.should_skip` — version-skip helper; no quota spent |
+
+> The control plane (`api_server.py`, `ctc/auth/`, `ctc/store/`, `ctc/accounting/`)
+> has its own large test set (OAuth login, sessions, onboarding, accounting,
+> admin routes, etc.) — out of scope for this proxy-focused table; run the full
+> suite with `pytest tests/ -v`.
 
 ## 14. Drift detection canary
 

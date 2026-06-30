@@ -12,27 +12,16 @@ _(nothing active)_
 
 ## Next (queued)
 
-- **Make the Rotate / Revoke license buttons work.** On the Profile screen
-  (`web/src/screens/Profile/ProfileScreen.tsx:297,300`) the Rotate and Revoke
-  buttons next to the Copilot license are decoration only — no click handlers and
-  no backend endpoint. Build it: **Revoke** deletes the Host's stored encrypted
-  PAT (demote back to Guest); **Rotate** replaces it with a freshly validated one
-  (re-read quota). (The existing `revoke_proxy_token`/`revoke_session` are for
-  proxy tokens and sessions — not the license.)
+_(nothing active)_
 
 ## Later / ideas
 
 - **Run CTC from inside the Copilot CLI.** Let users drive CTC commands without
   leaving the CLI. Preferred approach: an MCP server (clean, structured) over
-  proxy-side text-regex interception.
-- **View other users' public profiles.** Let a user open someone else's profile
-  by clicking them (e.g. in the leaderboard or marketplace) or searching by name.
-  Show a read-only version of what that person sees on their own profile —
-  role (Host/Guest), allowance, credits used, chip-ins given/received, etc. —
-  **minus the private fields**: the actual Copilot license/token and the private
-  pledged-surplus amount (which is explicitly "never shown publicly"). Needs a
-  public-profile endpoint that returns only the non-private subset, plus
-  click-through / search UI.
+  proxy-side text-regex interception. (Partly addressed: the `ctc` launcher now
+  bridges Copilot's `/ide` into the isolated HOME so VS Code can be driven from the
+  CTC-routed CLI — see `cli/README.md`. This item is about CTC's *own* commands,
+  still open.)
 - **Return received credits.** When a user has received credits they didn't use
   (marketplace chip-ins / grants from a Host), let them give the unused portion
   back. The returned amount goes back into the available ("not used") balance so
@@ -59,6 +48,9 @@ _(nothing active)_
     the extension (settings JSON snippet, profile, or a small installer).
   Start with a discovery spike (capture the extension's traffic through the proxy
   like the original CLI endpoint discovery) before committing to a design.
+  (Note: a `/ide` *bridge* now lets the CTC-routed CLI attach to a running VS Code
+  via Copilot's own `/ide` command — but the IDE Copilot extension itself is still
+  not routed through the proxy, which is what this item is about.)
 - **Transaction history on the profile.** Show the signed-in user a chronological
   ledger of every CTC credit movement involving them: pledges set/changed,
   chip-ins they gave (grants out), chip-ins/grants they received, draws from the
@@ -74,6 +66,26 @@ _(nothing active)_
 
 ## Done (recent, for context)
 
+- **GitLab OAuth as the sole login path.** Magic-link and email auth removed
+  entirely; identity is the GitLab username, accounts created on first login.
+- **Rotate / Revoke license buttons.** Rotate re-validates a fresh PAT (re-reads
+  quota); Revoke deletes the stored PAT via `DELETE /api/pat` and demotes back to
+  consumer.
+- **Public profiles.** Click a user (leaderboard/marketplace) or search by name to
+  see a read-only profile — name, GitLab login, role, and (for givers) tier + net
+  contribution stats. Private fields stay hidden.
+- **Aristocracy tiers.** Givers ranked by net contribution this cycle
+  (Aristocrat → Beggar, Newcomer for no activity); shown as badges on the profile
+  and leaderboard.
+- **Meter `POST /responses`** (OpenAI Responses API) alongside `/chat/completions`
+  and `/v1/messages`.
+- **Health-aware routing + failover.** Live-quota health gate skips exhausted
+  givers; failover-on-402 marks a giver spent and retries another; grant debits
+  spill across the consumer's grants. (`LiveQuotaCache`, `ctc/routing/attribution.py`.)
+- **Automatic cycle rollover** at month end (archive + open + seed) with frozen
+  archived-cycle reports so past labels stop drifting.
+- **Configurable deployment modes** (web transport, participants, shared pool) and
+  **server-migration scripts** (`scripts/migrate-backup.sh` / `migrate-restore.sh`).
 - Admin panel: all users, masked PAT + audited reveal, runtime default config.
 - Giver credit visualization (used / pledged / donated / left) with live
   reconciliation; striped credit bar + legend.

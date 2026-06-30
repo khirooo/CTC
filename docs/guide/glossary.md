@@ -10,6 +10,14 @@ when a word trips you up.)
 - **Consumer** — a teammate who *doesn't* have paid Copilot and borrows from the
   shared pool.
 - **Operator** — the person who runs the CTC servers (the proxy + the website).
+- **Tier (aristocracy tier)** — a playful rank shown next to a **giver**, derived
+  from their net contribution this cycle (donated minus consumed): **Aristocrat**,
+  **Baron**, **Bourgeois**, **Commoner**, **Peasant**, **Beggar**, or **Newcomer**
+  (no activity yet). Consumers don't get a tier.
+- **Public profile** — a read-only page for any user (reached by clicking their
+  name in the leaderboard/marketplace or via search) showing their name, GitLab
+  username, role, and — for givers — their tier and headline contribution stats.
+  Private details (the Copilot token, exact pledge) are never shown.
 
 ### The pieces
 
@@ -55,7 +63,10 @@ when a word trips you up.)
   a cycle (default 300 AIU).
 - **Grant / donation** — a giver directly funding a specific person's request in
   the marketplace (separate from the pool).
-- **Cycle** — a billing period (e.g. a month). Balances reset each cycle.
+- **Cycle** — a billing period (one calendar month). Balances reset each cycle.
+  CTC **rolls over automatically** at month end: the ended cycle is archived, a new
+  one opens, and each giver's pledge carries forward. Archived cycle reports are
+  **frozen** the first time they're viewed, so past winners/labels never drift.
 
 ### Concepts you'll see in the proxy docs
 
@@ -63,7 +74,12 @@ when a word trips you up.)
   tunnel to host X." CTC decides per-tunnel whether to inspect it or pass it
   through untouched.
 - **Billable request** — a Copilot call that actually costs money (a `POST` to
-  `/chat/completions` or `/v1/messages`). Only these are metered.
+  `/chat/completions`, `/v1/messages`, or `/responses`). Only these are metered.
+- **Health gate / failover** — before charging a giver, the proxy checks a
+  short-lived snapshot of that giver's live GitHub quota and skips any whose quota
+  is exhausted. If GitHub still rejects the chosen giver with a `402`, the proxy
+  marks them spent and retries with another eligible giver instead of failing your
+  request.
 - **Metering field** — the exact spot in GitHub's response that states the cost:
   `copilot_usage.total_nano_aiu`. CTC reads this for every billable request.
 - **Bearer** — the required format for the authorization header (`Bearer <token>`).

@@ -32,6 +32,11 @@ That single command installs the `ctc` launcher **and** logs you in. (Prefer to 
 it by hand? `ctc login` with no arguments still prompts you to paste the token —
 see below.)
 
+> The `https://` here follows the deployment's **web transport**. A deployment
+> served over plain HTTP (VPN/LAN only) hands out an `http://` one-liner instead.
+> The launcher's `CTC_SCHEME` is baked to match at build time, so the website
+> always shows the right scheme — you don't choose it.
+
 It also **keeps your CTC setup completely separate** from your personal Copilot.
 Both can live on the same machine; running plain `copilot` still uses your own
 account, untouched.
@@ -82,6 +87,17 @@ that sets these environment variables whenever you run `ctc`:
 
 Then `ctc` simply **`exec`s the stock `copilot`** with those variables in place —
 it never modifies Copilot itself.
+
+### The VS Code `/ide` bridge
+
+Copilot's `/ide` command (editor selection, diagnostics, open-file context) finds
+your editor through a small workspace registry the VS Code companion writes to your
+**real** `~/.copilot/ide`. But `ctc` runs Copilot under an *isolated* HOME, which
+can't see that. So before launching, `ctc` **symlinks just `~/.copilot/ide`** from
+the isolated home back to your real one — sharing *only* that registry, while your
+token, session, and config under `~/.copilot` stay isolated. (It replaces any stale
+isolated copy so the link is always fresh.) The result: `/ide` works inside a `ctc`
+session exactly as it does in plain `copilot`.
 
 ### How the one-liner logs you in
 

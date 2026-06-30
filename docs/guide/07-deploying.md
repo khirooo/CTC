@@ -41,7 +41,7 @@ Two Caddyfile variants are shipped:
 so setting `CADDYFILE` in `.env` is all you need.
 
 > **Security warning — plain HTTP:** when `CTC_WEB_TRANSPORT=http` / `CADDYFILE=Caddyfile.http`,
-> session cookies and magic-link tokens travel in plaintext. Only use this behind a
+> session cookies and the GitLab OAuth callback travel in plaintext. Only use this behind a
 > VPN or on a trusted private network. Never expose HTTP-mode CTC to the public internet.
 
 ---

@@ -3,7 +3,9 @@
 **Status:** Authoritative. Derived from real-traffic analysis of
 `tests/fixtures/metering/exchanges.ndjson` (22 redacted exchanges captured by an
 operator driving the real GitHub Copilot CLI through `proxy.py` with
-`CTC_CAPTURE_DIR` set, 2026-06-20).
+`CTC_CAPTURE_DIR` set, 2026-06-20). The billable-path set was later extended to
+add `POST /responses` (the OpenAI Responses API), which newer Copilot CLI builds
+call; see §2.
 
 This is the answer to metering-spike sub-project #0: **where does Copilot expose
 the per-request credit cost and a PAT's quota, and in what shape.** Sub-projects
@@ -37,13 +39,22 @@ change. The display layer divides by 1e9 to show AIU.
 
 ## 2. Per-request credit cost
 
-**Where:** the response **body** of every successful LLM call. Two endpoints, two
-body shapes — both expose the same field.
+**Where:** the response **body** of every successful LLM call. Three billable
+endpoints, two body shapes — all expose the same field.
 
 | Endpoint | Host | Content-Type | Where `copilot_usage` lives |
 |---|---|---|---|
 | `POST /chat/completions` | `copilot-api.example.ghe.com` | `application/json` | top-level JSON object (sibling of `usage`) |
 | `POST /v1/messages` | `copilot-api.example.ghe.com` | `text/event-stream` | the **final `message_delta` SSE event**, `data:` JSON |
+| `POST /responses` | `copilot-api.example.ghe.com` | `text/event-stream` | the **final SSE event carrying `copilot_usage`**, `data:` JSON |
+
+`/responses` is the OpenAI **Responses API** surface; Copilot CLI started calling
+it after the initial capture, so it was added to the billable set
+(`ctc/contract.py` `BILLABLE_PATHS`). It streams like `/v1/messages`, so the same
+SSE rule applies. The single billable host, set, and metering map all live in
+`ctc/contract.py`: `BILLABLE_PATHS = {"/chat/completions", "/v1/messages",
+"/responses"}` and `METERING_LOCATION` (`json-top-level` for `/chat/completions`,
+`sse-final-message_delta` for the other two).
 
 **Field (authoritative):** `copilot_usage.total_nano_aiu` — integer, nano-AIU.
 
@@ -171,12 +182,16 @@ gpt-5.x family, gpt-4o-mini, …`.
 
 What #3 must do per request, derived from this contract:
 
-1. Identify priced calls: `POST /chat/completions` and `POST /v1/messages` on
-   `copilot-api.example.ghe.com`. All other MITM'd traffic is non-billable.
-2. After relaying the response, extract `copilot_usage.total_nano_aiu`:
+1. Identify priced calls: `POST /chat/completions`, `POST /v1/messages`, and
+   `POST /responses` on `copilot-api.example.ghe.com` (the set is `BILLABLE_PATHS`
+   in `ctc/contract.py`). All other MITM'd traffic is non-billable.
+2. After relaying the response, extract `copilot_usage.total_nano_aiu`. The
+   extractor (`ctc/metering/extract.py`) is content-shape-driven, not
+   path-driven — it auto-detects JSON vs SSE from the body / `Content-Type`:
    - JSON body → parse the object, read the field.
-   - SSE body → scan events for the **final `message_delta`** (the one carrying
-     `copilot_usage`); its `data:` JSON holds the field.
+   - SSE body → scan events for the **last `data:` event carrying
+     `copilot_usage`** (the final `message_delta`); robust to truncation and the
+     trailing `[DONE]` sentinel.
 3. If the field is absent (error, non-priced, free model returning 0 or nothing)
    → charge 0.
 4. Attribute `total_nano_aiu` (nano-AIU = credits) to the identity behind the

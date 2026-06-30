@@ -99,7 +99,7 @@ anyone else's real token.** Details: [01 · The Proxy](01-the-proxy.md).
 | **`ctc` CLI** (`cli/`) | One command to launch Copilot through CTC. | [02](02-the-cli-launcher.md) |
 | **Identity / login** (`ctc/auth/`, `api_server.py`) | Log in with GitHub, sessions, the two token types. | [03](03-identity-and-login.md) |
 | **Credits / accounting** (`ctc/accounting/`, `ctc/store/`) | Givers, consumers, pool, donations, the database. | [04](04-credits-and-accounting.md) |
-| **Web app** (`web/`) | The dashboards people click on. | [05](05-the-web-app.md) |
+| **Web app** (`web/`) | The dashboards people click on — leaderboard, marketplace, giver **tiers**, and public profiles. | [05](05-the-web-app.md) |
 | **Drift detection** (`ctc/sentinel.py`, `ctc/canary.py`) | Warn if a Copilot update silently breaks billing. | [06](06-drift-detection.md) |
 
 ---
@@ -121,3 +121,8 @@ These save confusion later; each is explained fully in its own page.
 - **Enforcement happens *before* the request; billing happens *after*.** The
   Proxy checks "do you have credit?" before forwarding (and returns a `402` if
   not), then records the *actual* cost once GitHub replies.
+- **The Proxy routes around dead givers.** Before charging a giver it checks a
+  short-lived snapshot of that giver's live GitHub quota and skips any that are
+  exhausted; if GitHub still rejects the chosen giver with a `402`, the Proxy
+  marks them spent and **fails over** to another eligible giver instead of failing
+  your request. See [04 · Credits & accounting](04-credits-and-accounting.md).

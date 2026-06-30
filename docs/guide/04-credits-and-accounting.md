@@ -96,6 +96,23 @@ is always one of:
 (The status is never stored — it's recalculated from the donations and the clock
 whenever it's shown.)
 
+### Aristocracy tiers (giver standings)
+
+Givers get a playful **tier** based on their *net* contribution this cycle —
+`net = (credit others burned from your gifts) − (credit you drew from other
+givers)`. Your own quota usage doesn't count either way. Givers with net ≥ 0 and
+some activity split into the top four bands by quartile; net < 0 splits into the
+bottom two; no activity at all is **newcomer**:
+
+| Tier | Meaning |
+|---|---|
+| 👑 Aristocrat / 🎩 Baron / 💰 Bourgeois / 🧍 Commoner | net ≥ 0, best → least (by quartile) |
+| 🌾 Peasant / 🪦 Beggar | net < 0, least → most negative |
+| 🥚 Newcomer | no give-or-take activity yet |
+
+It's a leaderboard flourish, not a spending rule — tiers never gate credit.
+(`ctc/accounting/tiers.py`, mirrored for display in `web/src/domain/tiers.ts`.)
+
 ---
 
 ## Layer 3 — Under the hood
@@ -125,7 +142,8 @@ lets two programs read/write safely). The tables:
 
 | Table | Holds |
 |---|---|
-| `cycles` | billing periods (id, label, start, end, status) |
+| `cycles` | billing periods (id, label, start, end, status: `active`/`archived`) |
+| `cycle_reports` | frozen snapshot (JSON) of each archived cycle's history report |
 | `giver_cycles` | per giver per cycle: their `quota` and `pledge` |
 | `requests` | marketplace asks (amount needed, reason, target, expiry) |
 | `grants` | donations (donor, recipient, amount) |
@@ -138,20 +156,59 @@ When credit is checked-and-charged, CTC uses a database transaction
 Caps (pledge can't exceed quota, a consumer can't exceed their allowance) are
 enforced inside that transaction.
 
+### Spending a grant spills across grants
+
+A consumer might hold several grants at once. When the actual cost of a request
+turns out larger than the grant CTC picked, the charge **spills**: it drains the
+selected grant first, then the consumer's other active grants in order, each
+clamped to what's left in it, before any leftover lands (with overshoot allowed,
+since the spend already happened upstream) on the original source. Pool and "own"
+spends don't spill — their overshoot is absorbed by that single bucket. This keeps
+a debit from over-draining one grant while the consumer still has others.
+(`ctc/routing/attribution.py` `debit()`, `ctc/accounting/engine.py`.)
+
+### Cycles roll over automatically
+
+There's no scheduler. The moment any live-cycle lookup happens *after* the active
+cycle's end date (a request through the Proxy, or a page load), CTC **rolls over**
+in one atomic step: it archives the ended cycle, opens the cycle for the current
+calendar month, and **seeds** the new cycle's givers from their connected PATs
+(quota = the PAT's entitlement, since GitHub resets the real quota at the boundary
+too; each giver's prior pledge is carried forward and clamped to the new quota).
+Multiple dormant months jump straight to the current month — no empty
+in-between cycles. (`ctc/accounting/engine.py` `ensure_active_cycle` / `_roll_over`.)
+
+### Archived reports are frozen
+
+A past cycle's history report (winners, top donors, totals) is computed **once**,
+the first time it's viewed after archival, then stored in `cycle_reports` and
+served from that snapshot forever after. This stops a past report's *labels*
+(names, who-was-a-giver) from drifting when people are renamed or re-roled in a
+later month. The **active** cycle is always recomputed live. Credit totals were
+always stable (they derive from frozen events); freezing fixes only the labels.
+(`ctc/accounting/reports.py` `build_history`.)
+
 ### Where the numbers come from
-- A giver's **quota** is read from GitHub's `/copilot_internal/user` response when
-  they submit their PAT (the `premium_interactions.entitlement` field).
+- A giver's **quota** for the cycle is the credit they have *left*, read from
+  GitHub's `/copilot_internal/user` response when they submit their PAT (the
+  `premium_interactions.remaining` field). The `entitlement` (monthly maximum) is
+  stored too, for display. If GitHub omits `remaining`, CTC seeds the quota at
+  **0** (assume spent), not at the full entitlement — a later live read corrects
+  it upward. (`ctc/auth/onboarding.py`.)
 - A consumption event's **cost** is the `copilot_usage.total_nano_aiu` the Proxy
-  read from GitHub's reply ([01](01-the-proxy.md)).
+  read from GitHub's reply ([01](01-the-proxy.md)), charged on every billable
+  endpoint (`/chat/completions`, `/v1/messages`, `/responses`).
 - The default consumer **allowance** is 300 AIU, configurable via
   `CTC_FREE_ALLOWANCE_AIU`.
 
 ### Relevant files
-`ctc/accounting/engine.py` (the rules + atomic spend), `ctc/domain/rules.py`
-(status, bucket order), `ctc/domain/config.py` (units, allowance),
+`ctc/accounting/engine.py` (the rules + atomic spend + cycle rollover),
+`ctc/routing/attribution.py` (source selection + grant-spill debit),
+`ctc/domain/rules.py` (status, bucket order), `ctc/domain/config.py` (units,
+allowance), `ctc/auth/onboarding.py` (PAT validation + quota seeding),
 `ctc/store/db.py` (schema), `ctc/store/accounting_store.py` (queries),
-`ctc/accounting/leaderboard.py` + `reports.py` (dashboard/leaderboard/history
-aggregations).
+`ctc/accounting/tiers.py` (aristocracy tiers), `ctc/accounting/leaderboard.py` +
+`reports.py` (dashboard/leaderboard/history aggregations + report freezing).
 
 **Next:** the website people actually click on →
 [05 · The web app](05-the-web-app.md).

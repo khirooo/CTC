@@ -70,9 +70,10 @@ flowchart LR
 2. **The Proxy intercepts the traffic.** It's allowed to, because you installed
    its security certificate — so your computer trusts it.
 3. **The Proxy does the swap.** It figures out *who you are* from your throwaway
-   token, checks you have **credit** left, picks a **giver** to charge, replaces
-   your throwaway token with that giver's **real** token, and sends the request
-   on to the real GitHub.
+   token, checks you have **credit** left, picks a healthy **giver** to charge
+   (skipping any whose quota is exhausted, and falling back to another if GitHub
+   rejects the first), replaces your throwaway token with that giver's **real**
+   token, and sends the request on to the real GitHub.
 4. **GitHub answers — and says how much it cost.** The Proxy reads that cost and
    **records it** against your account and the giver's balance.
 5. **The website reflects it.** Balances, the leaderboard, and the "marketplace"
@@ -86,12 +87,13 @@ flowchart LR
 The steps a teammate follows to start using shared Copilot. The app labels
 givers **Host** and consumers **Guest**; that's what you'll see on screen.
 
-### 1. Sign in with GitHub
+### 1. Sign in with GitLab
 
 Open the CTC website (your operator shares the URL, e.g.
-`https://ctc.yourcompany.com`) and click **Sign in with GitHub**. You're sent to
-your company's GitHub Enterprise to authorize, then back to CTC. **Your GitHub
-login is your identity** — there's no separate password to manage.
+`https://ctc.yourcompany.com`) and click **Continue with GitLab**. You're sent to
+your company's GitLab to authorize, then back to CTC. **Your GitLab username is
+your identity** — there's no separate password to manage, and no other way to log
+in. Your account is created automatically the first time you sign in.
 
 ### 2. Pick your role
 
@@ -171,7 +173,7 @@ whichever part you care about. Each page starts simple and gets deeper.
 | [00 · Overview](docs/guide/00-overview.md) | The full system and how the pieces talk to each other. |
 | [01 · The Proxy](docs/guide/01-the-proxy.md) | How traffic is intercepted, how Copilot is "tricked", the token swap, rerouting, the real request/response shape. |
 | [02 · The `ctc` CLI](docs/guide/02-the-cli-launcher.md) | The one-command launcher teammates use. |
-| [03 · Identity & login](docs/guide/03-identity-and-login.md) | Logging in with GitHub, sessions, and the two kinds of tokens. |
+| [03 · Identity & login](docs/guide/03-identity-and-login.md) | Logging in with GitLab, sessions, and the two kinds of tokens. |
 | [04 · Credits & accounting](docs/guide/04-credits-and-accounting.md) | Givers, consumers, the shared pool, donations, and the database. |
 | [05 · The web app](docs/guide/05-the-web-app.md) | The dashboard screens and how the website talks to the server. |
 | [06 · Drift detection](docs/guide/06-drift-detection.md) | The early-warning system (sentinel + canary). |
