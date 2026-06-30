@@ -245,7 +245,7 @@ class AccountingEngine:
         if not live:
             return None
         ent, rem = live.get("entitlement"), live.get("remaining")
-        if ent is None or rem is None or int(ent) < 0:   # unknown / unlimited(-1)
+        if ent is None or rem is None or int(ent) < 0 or int(rem) < 0:  # unknown / unlimited(-1) / corrupt
             return None
         github_burn = (int(ent) - int(rem)) * NANO_PER_AIU
         self.conn.execute("BEGIN IMMEDIATE")

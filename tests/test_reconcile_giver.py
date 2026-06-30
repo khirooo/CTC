@@ -63,3 +63,17 @@ def test_reconcile_noop_when_ctc_tracked_more_than_github():
     # github says only 2500 burned (lag); never write negative, never reverse.
     assert e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 1500}) is None
     assert s.bypass_consumed(CYC, "g1") == 0
+
+
+def test_reconcile_noop_on_unlimited_sentinel():
+    e, s = seed()
+    assert e.reconcile_giver(CYC, "g1", {"entitlement": -1, "remaining": 0}) is None
+    assert s.bypass_consumed(CYC, "g1") == 0
+
+
+def test_reconcile_noop_on_zero_entitlement_and_overbudget_remaining():
+    e, s = seed()
+    assert e.reconcile_giver(CYC, "g1", {"entitlement": 0, "remaining": 0}) is None      # burn 0
+    assert e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 5000}) is None # remaining > ent -> negative burn
+    assert e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": -5}) is None   # negative remaining guarded
+    assert s.bypass_consumed(CYC, "g1") == 0
