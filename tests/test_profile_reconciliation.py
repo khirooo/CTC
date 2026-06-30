@@ -159,6 +159,7 @@ async def test_used_is_events_sourced_not_stale_snapshot():
         p = await (await cli.get("/api/profile")).json()
 
         # Stale-path assertions
+        assert calls["n"] == 2, f"expected 2 stub calls (submit + stale GET), got {calls['n']}"
         assert p["quotaStale"] is True
         assert p["entitlement"] == 4000 * N   # from snapshot
         # KEY assertion — this is what distinguishes the two implementations:
