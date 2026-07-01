@@ -8,14 +8,20 @@ import { PatHelp } from '@/components/PatHelp';
 import { UserLink } from '@/components/UserLink';
 
 const kindColor: Record<string, string> = {
+  // live consumption feed
+  grant: 'var(--give)',      // used a directed marketplace chip-in
+  pool: 'var(--reroute)',    // drew from the shared pool
+  // legacy demo kinds
   donate: 'var(--give)',
   request: 'var(--accent)',
   fulfill: 'var(--give)',
   rotate: 'var(--reroute)',
 };
 
-// Display labels for activity kinds (data values stay donate/fulfill/rotate).
+// Display labels for activity kinds.
 const kindLabel: Record<string, string> = {
+  grant: 'chip-in',
+  pool: 'pool',
   donate: 'chip-in',
   request: 'request',
   fulfill: 'covered',
@@ -87,6 +93,14 @@ export function DashboardScreen() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {/* Cycle banner — current cycle number/label + reset countdown */}
+      <CycleBanner
+        cycleNumber={data.cycleNumber}
+        cycleLabel={data.cycleLabel}
+        daysLeft={data.daysLeft}
+        resetDate={data.resetDate}
+      />
+
       {/* Marketplace flow hero */}
       <MarketplaceHero data={data} closedCount={data.closedCount} activeNonPatCount={data.activeConsumers} />
 
@@ -172,15 +186,24 @@ export function DashboardScreen() {
               borderBottom: '1px solid var(--border)',
             }}
           >
-            <span style={{ fontWeight: 600, fontSize: 14 }}>Marketplace activity</span>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>Live activity</span>
             <span
               style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 11,
                 color: 'var(--text-faint)',
               }}
             >
-              live
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--give)' }} /> chip-in
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--reroute)' }} /> pool
+              </span>
+              <span>· 24h</span>
             </span>
           </div>
           <div
@@ -188,6 +211,8 @@ export function DashboardScreen() {
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: 12.5,
               lineHeight: 1,
+              maxHeight: 348,      // ~8 rows; older events scroll into view
+              overflowY: 'auto',
             }}
           >
             {data.activity.length === 0 ? (
@@ -343,6 +368,63 @@ export function DashboardScreen() {
           </div>
 
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Slim banner: which cycle we're in + how long until it resets. */
+function CycleBanner({
+  cycleNumber,
+  cycleLabel,
+  daysLeft,
+  resetDate,
+}: {
+  cycleNumber: number;
+  cycleLabel: string;
+  daysLeft: number;
+  resetDate: string | null;
+}) {
+  const resetPretty = resetDate
+    ? new Date(resetDate + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+  const countdown = daysLeft === 0 ? 'resets today' : `resets in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+        flexWrap: 'wrap',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 14,
+        padding: '12px 18px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: 'var(--text-faint)',
+          }}
+        >
+          Cycle
+        </span>
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 18, color: 'var(--accent)' }}>
+          #{cycleNumber}
+        </span>
+        {cycleLabel && (
+          <span style={{ fontSize: 14, color: 'var(--text-dim)' }}>· {cycleLabel}</span>
+        )}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 12.5 }}>
+        <span style={{ color: daysLeft <= 3 ? 'var(--consume)' : 'var(--text)' }}>{countdown}</span>
+        {resetPretty && <span style={{ color: 'var(--text-faint)' }}>· {resetPretty}</span>}
       </div>
     </div>
   );

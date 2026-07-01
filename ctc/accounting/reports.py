@@ -19,9 +19,27 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     Returns a dict with exactly these keys:
         pledged, retained, rotated, donatedToNonPat, donatedThisWeek,
         fulfillmentRate, activeGivers, activeConsumers,
-        openCount, closedCount, activity, leaderboardSnapshot
+        openCount, closedCount, activity, leaderboardSnapshot,
+        cycleLabel, cycleNumber, resetDate, daysLeft
     """
     conn = engine.store.conn
+
+    # --- current cycle identity: label, 1-based ordinal (by start), reset info ---
+    cyc = conn.execute(
+        "SELECT label, starts_at, ends_at FROM cycles WHERE id=?", (cycle_id,)
+    ).fetchone()
+    cycle_label = cyc["label"] if cyc else ""
+    cycle_number = 0
+    reset_date = None
+    days_left = 0
+    if cyc:
+        cycle_number = conn.execute(
+            "SELECT COUNT(*) FROM cycles WHERE starts_at <= ?", (cyc["starts_at"],)
+        ).fetchone()[0]
+        ends_at = cyc["ends_at"]
+        days_left = max(0, -(-(ends_at - now) // 86400))  # ceil, floored at 0
+        reset_date = datetime.datetime.fromtimestamp(
+            min(ends_at, 32503680000), datetime.timezone.utc).strftime("%Y-%m-%d")
 
     # --- giver set (ids with a giver_cycle record) ---
     giver_rows = conn.execute(
@@ -112,12 +130,19 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     # --- activeConsumers: distinct consumer_ids in events that are NOT givers ---
     active_consumers = sum(1 for cid in all_consumers if cid not in giver_ids)
 
-    # --- activity: up to 8 most recent consumption events ---
+    # --- activity: consumption events from the last 24h (capped), newest-first.
+    # Both the shared pool ('pool' bucket) and directed marketplace chip-ins
+    # ('grant' bucket) flow through here; `kind` carries the bucket so the client
+    # can label/colour the two streams distinctly. Own-quota ('own'/'bypass')
+    # burn is excluded — it isn't marketplace/pool traffic. Cap keeps the payload
+    # bounded on very busy days. ---
+    DAY = 24 * 3600
+    ACTIVITY_CAP = 100
     activity_rows = conn.execute(
         "SELECT ts, consumer_id, bucket, credits "
-        "FROM consumption_events WHERE cycle_id=? "
-        "ORDER BY ts DESC, rowid DESC LIMIT 8",
-        (cycle_id,),
+        "FROM consumption_events WHERE cycle_id=? AND bucket IN ('pool','grant') AND ts >= ? "
+        "ORDER BY ts DESC, rowid DESC LIMIT ?",
+        (cycle_id, now - DAY, ACTIVITY_CAP),
     ).fetchall()
     name_by_id = {u.user_id: u.name for u in users}
     activity = [
@@ -126,9 +151,10 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
             # HH:MM clock time (UTC) and AIU amount, not raw epoch / nano-AIU.
             "time": datetime.datetime.fromtimestamp(
                 row["ts"], datetime.timezone.utc).strftime("%H:%M"),
-            "kind": "consume",
+            # 'pool' = drew from the shared pool; 'grant' = used a directed chip-in.
+            "kind": row["bucket"],
             "actorId": row["consumer_id"],
-            "detail": f"{name_by_id.get(row['consumer_id'], row['consumer_id'][:8])} via {row['bucket']}",
+            "detail": name_by_id.get(row["consumer_id"], row["consumer_id"][:8]),
             "amount": f"{row['credits'] / NANO_PER_AIU:.2f} AIU",
         }
         for row in activity_rows
@@ -167,6 +193,10 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         "closedCount": closed_count,
         "activity": activity,
         "leaderboardSnapshot": leaderboard_snapshot,
+        "cycleLabel": cycle_label,
+        "cycleNumber": cycle_number,
+        "resetDate": reset_date,
+        "daysLeft": days_left,
     }
 
 

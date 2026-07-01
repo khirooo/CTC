@@ -151,46 +151,57 @@ def test_open_closed_count():
 
 
 def test_activity_structure():
-    """activity = up to 8 most recent events, each with time/kind/actorId/detail/amount."""
+    """activity = pool+grant events from the last 24h (capped), time/kind/actorId/detail/amount."""
     e, users, giver_ids, req1, req2 = seed_full()
     dash = build_dashboard(e, users, CYC, NOW)
     activity = dash["activity"]
     assert isinstance(activity, list)
-    assert len(activity) <= 8
+    assert len(activity) <= 100
     assert len(activity) >= 1
     for item in activity:
         # time is a display-ready HH:MM string (not a raw epoch)
         assert re.fullmatch(r"\d{2}:\d{2}", item["time"]), item["time"]
-        assert item["kind"] == "consume"
+        # kind carries the bucket so the client can split pool vs marketplace streams
+        assert item["kind"] in ("pool", "grant")
         assert "actorId" in item
         assert "detail" in item
         # amount is a display-ready AIU string (not raw nano-AIU)
         assert re.fullmatch(r"\d+\.\d{2} AIU", item["amount"]), item["amount"]
-    # Most recent event first: amounts match the events ordered by ts DESC, and
-    # are formatted from nano-AIU to AIU with 2 decimals.
+    # Most recent event first: amounts match the pool/grant events within the last
+    # 24h ordered by ts DESC (own-bucket burn and >24h events are excluded).
     rows = e.store.conn.execute(
         "SELECT credits FROM consumption_events WHERE cycle_id=? "
-        "ORDER BY ts DESC, rowid DESC LIMIT 8",
-        (CYC,),
+        "AND bucket IN ('pool','grant') AND ts >= ? "
+        "ORDER BY ts DESC, rowid DESC LIMIT 100",
+        (CYC, NOW - 24 * 3600),
     ).fetchall()
     assert [it["amount"] for it in activity] == [
         f"{r['credits'] / 1_000_000_000:.2f} AIU" for r in rows
     ]
+    # own-bucket burn (g1's 100) must NOT appear in the marketplace/pool feed
+    assert "100.00 AIU" not in [it["amount"] for it in activity]
 
 
 def test_activity_detail_format():
-    """Each activity detail uses display name (or id[:8] fallback) + ' via {bucket}'."""
+    """Each activity detail is the resolved display name (or id[:8] fallback)."""
     e, users, giver_ids, req1, req2 = seed_full()
     dash = build_dashboard(e, users, CYC, NOW)
-    # Build a name lookup to verify resolved names
     name_by_id = {u.user_id: u.name for u in users}
     for item in dash["activity"]:
-        detail = item["detail"]
-        # Should contain " via " and a bucket name
-        assert " via " in detail
         actor_id = item["actorId"]
         expected_name = name_by_id.get(actor_id, actor_id[:8])
-        assert detail.startswith(expected_name + " via ")
+        assert item["detail"] == expected_name
+
+
+def test_cycle_number_and_reset():
+    """Dashboard carries the cycle ordinal, label, reset date and days-left."""
+    e, users, giver_ids, req1, req2 = seed_full()
+    dash = build_dashboard(e, users, CYC, NOW)
+    assert dash["cycleLabel"] == "June 2026"
+    assert dash["cycleNumber"] == 1  # only one cycle exists → ordinal 1
+    # cycle ends at ts=2_000_000_000; NOW=1_750_000_000 → ceil(250_000_000/86400) days
+    assert dash["daysLeft"] == -(-(2_000_000_000 - NOW) // 86400)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", dash["resetDate"])
 
 
 def test_leaderboard_snapshot_keys():
@@ -220,6 +231,7 @@ def test_all_keys_present():
         "pledged", "retained", "rotated", "donatedToNonPat", "donatedThisWeek",
         "fulfillmentRate", "activeGivers", "activeConsumers",
         "openCount", "closedCount", "activity", "leaderboardSnapshot",
+        "cycleLabel", "cycleNumber", "resetDate", "daysLeft",
     }
     assert required == set(dash.keys())
 

@@ -77,7 +77,9 @@ export interface RoleCounts {
 
 export interface ActivityEntry {
   time: string;
-  kind: 'donate' | 'request' | 'fulfill' | 'rotate';
+  // 'pool'/'grant' come from the live consumption feed (shared-pool draw vs
+  // directed marketplace chip-in); the others are legacy demo kinds.
+  kind: 'pool' | 'grant' | 'donate' | 'request' | 'fulfill' | 'rotate';
   detail: string;
   amount: string;
   actorId?: string | null;  // user id of the actor (undefined when no clear actor)
@@ -119,6 +121,14 @@ export interface DashboardData {
     generous: LeaderboardEntry[];
     topConsumers: LeaderboardEntry[];
   };
+  /** Current cycle's month label, e.g. "July 2026". */
+  cycleLabel: string;
+  /** 1-based ordinal of the current cycle since inception. */
+  cycleNumber: number;
+  /** ISO date (YYYY-MM-DD, UTC) the cycle resets; null if unknown. */
+  resetDate: string | null;
+  /** Whole days until the cycle resets (ceil, floored at 0). */
+  daysLeft: number;
 }
 
 export interface CycleReport {

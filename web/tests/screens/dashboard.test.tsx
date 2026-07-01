@@ -34,6 +34,12 @@ describe('dashboard', () => {
     // 3 open requests in seed (Lena, Diego, Priya unfunded/partial) — scoped to the hero
     expect(screen.getByTestId('hero-open-count')).toHaveTextContent('3');
     expect(screen.getByRole('heading', { name: /Overview/i })).toBeInTheDocument(); // topbar title
+    // Cycle banner: number + label + reset countdown
+    expect(screen.getByText('#7')).toBeInTheDocument();
+    expect(screen.getByText(/July 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/resets in 12 days/i)).toBeInTheDocument();
+    // Activity feed renamed to encompass pool + marketplace streams
+    expect(screen.getByText('Live activity')).toBeInTheDocument();
   });
 
   it('givers_only + no PAT shows the license CTA instead of the dashboard', async () => {

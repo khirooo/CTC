@@ -91,6 +91,7 @@ async def test_dashboard_shape_and_units():
             "pledged", "retained", "rotated", "donatedToNonPat", "donatedThisWeek",
             "fulfillmentRate", "activeGivers", "activeConsumers",
             "openCount", "closedCount", "activity", "leaderboardSnapshot",
+            "cycleLabel", "cycleNumber", "resetDate", "daysLeft",
         }
         assert d["pledged"] == 1000 * NANO_PER_AIU          # raw nano, not 1000
         assert set(d["leaderboardSnapshot"]) == {"generous", "topConsumers"}

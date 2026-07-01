@@ -255,8 +255,8 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const openCount = requests.filter(r => { const s = deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now); return s === 'open' || s === 'partially_funded'; }).length;
       const closedCount = requests.filter(r => { const s = deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now); return s === 'fulfilled' || s === 'expired'; }).length;
       const activity: ActivityEntry[] = [
-        { time: '12:48', kind: 'donate', detail: 'ada via grant', amount: '25.00 AIU', actorId: 'u_ada' },
-        { time: '12:45', kind: 'donate', detail: 'yuki via pool', amount: '30.00 AIU', actorId: 'u_kef' },
+        { time: '12:48', kind: 'grant', detail: 'Ada Lovelace', amount: '25.00 AIU', actorId: 'u_ada' },
+        { time: '12:45', kind: 'pool', detail: 'Yuki Tanaka', amount: '30.00 AIU', actorId: 'u_kef' },
       ];
       const lb = await api.getLeaderboard();
       const map = new Map<string, { value: number; userId: string }>();
@@ -269,6 +269,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
         pledged: 3600 * N, retained: 5680 * N, rotated: 1240 * N, donatedToNonPat: 2880 * N, donatedThisWeek: 4120 * N,
         fulfillmentRate: 86, activeGivers: 5, activeConsumers: 12, openCount, closedCount, activity,
         leaderboardSnapshot: { generous: lb.generous, topConsumers },
+        cycleLabel: 'July 2026', cycleNumber: 7, resetDate: '2026-08-01', daysLeft: 12,
       };
     },
 
