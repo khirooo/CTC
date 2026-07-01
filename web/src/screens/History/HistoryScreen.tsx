@@ -4,30 +4,6 @@ import { useAsync } from '@/store/useAsync';
 import { aiu, euros } from '@/domain/credit';
 import type { CycleReport } from '@/domain/types';
 
-function segBtnStyle(active: boolean): React.CSSProperties {
-  return active
-    ? {
-        padding: '6px 14px',
-        borderRadius: 7,
-        border: '1px solid var(--border-strong)',
-        background: 'var(--surface)',
-        color: 'var(--text)',
-        fontWeight: 600,
-        fontSize: 13,
-        cursor: 'pointer',
-      }
-    : {
-        padding: '6px 14px',
-        borderRadius: 7,
-        border: '1px solid transparent',
-        background: 'transparent',
-        color: 'var(--text-dim)',
-        fontWeight: 400,
-        fontSize: 13,
-        cursor: 'pointer',
-      };
-}
-
 function CycleDetail({ report, rate }: { report: CycleReport; rate?: number }) {
   const fillRate = Math.round((report.reqFilled / Math.max(1, report.reqTotal)) * 100);
   const patPct = Math.round((report.reqPat / Math.max(1, report.reqFilled)) * 100);
@@ -242,7 +218,9 @@ function CycleDetail({ report, rate }: { report: CycleReport; rate?: number }) {
                   {aiu(report.toPat)}
                 </span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>routed to Hosts</div>
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>
+                routed to Hosts · <span style={{ color: 'var(--give)' }}>≈ {euros(report.toPat, rate)}</span>
+              </div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
@@ -258,7 +236,9 @@ function CycleDetail({ report, rate }: { report: CycleReport; rate?: number }) {
                   {aiu(report.toNonPat)}
                 </span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>transferred to Guests</div>
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>
+                transferred to Guests · <span style={{ color: 'var(--give)' }}>≈ {euros(report.toNonPat, rate)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -366,6 +346,9 @@ function CycleDetail({ report, rate }: { report: CycleReport; rate?: number }) {
             }}
           >
             {aiu(report.budgetTotal - report.usedTotal)}
+          </div>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--give)', marginTop: 3 }}>
+            ≈ {euros(report.budgetTotal - report.usedTotal, rate)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
             {aiu(report.usedTotal)} of {aiu(report.budgetTotal)} used
@@ -738,45 +721,111 @@ export function HistoryScreen() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* Header + month selector */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'space-between',
-          gap: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>Monthly reports</div>
-          <div style={{ fontSize: 14, color: 'var(--text-dim)', marginTop: 4 }}>
-            Every cycle resets on the 1st — here's the archive of closed months.
-          </div>
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            background: 'var(--surface-2)',
-            border: '1px solid var(--border)',
-            borderRadius: 10,
-            padding: 4,
-            gap: 3,
-          }}
-        >
-          {data.map((month) => (
-            <button
-              key={month.id}
-              onClick={() => setSelectedId(month.id)}
-              style={segBtnStyle(month.id === activeId)}
-            >
-              {month.label}
-            </button>
-          ))}
+      {/* Header */}
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>Monthly reports</div>
+        <div style={{ fontSize: 14, color: 'var(--text-dim)', marginTop: 4 }}>
+          Every cycle resets on the 1st — here's the archive of closed months.
         </div>
       </div>
 
-      {selected && <CycleDetail report={selected} rate={session?.creditToEuroRate} />}
+      {/* Master–detail: scrollable cycle list on the left, report on the right.
+          The list scales to any number of cycles (scrolls past ~7 rows). */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div
+          style={{
+            flex: '0 0 240px',
+            minWidth: 220,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 14,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '13px 16px',
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Cycles</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)' }}>
+              {data.length}
+            </span>
+          </div>
+          <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+            {data.map((month) => (
+              <CycleListItem
+                key={month.id}
+                report={month}
+                active={month.id === activeId}
+                onSelect={() => setSelectedId(month.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, minWidth: 320 }}>
+          {selected && <CycleDetail report={selected} rate={session?.creditToEuroRate} />}
+        </div>
+      </div>
     </div>
+  );
+}
+
+/** One row in the cycle list rail: month label + a compact fulfillment badge.
+ *  Selected row gets an accent left-border and raised surface. */
+function CycleListItem({
+  report,
+  active,
+  onSelect,
+}: {
+  report: CycleReport;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const fillRate = Math.round((report.reqFilled / Math.max(1, report.reqTotal)) * 100);
+  return (
+    <button
+      onClick={onSelect}
+      aria-current={active ? 'true' : undefined}
+      style={{
+        display: 'flex',
+        width: '100%',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        padding: '12px 16px',
+        border: 'none',
+        borderLeft: `3px solid ${active ? 'var(--accent)' : 'transparent'}`,
+        borderBottom: '1px solid var(--border)',
+        background: active ? 'var(--surface-2)' : 'transparent',
+        color: active ? 'var(--text)' : 'var(--text-dim)',
+        cursor: 'pointer',
+        textAlign: 'left',
+        fontFamily: 'inherit',
+      }}
+    >
+      <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+        <span style={{ fontWeight: active ? 600 : 500, fontSize: 13.5, whiteSpace: 'nowrap' }}>{report.label}</span>
+        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)' }}>
+          {report.reqFilled}/{report.reqTotal} covered
+        </span>
+      </span>
+      <span
+        style={{
+          flex: 'none',
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 11,
+          fontWeight: 600,
+          color: active ? 'var(--give)' : 'var(--text-faint)',
+        }}
+      >
+        {fillRate}%
+      </span>
+    </button>
   );
 }
