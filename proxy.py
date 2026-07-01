@@ -34,6 +34,11 @@ KEY_FILE          = os.environ.get("KEY_FILE",  "key.pem")
 REAL_GHE_HOST     = os.environ.get("REAL_GHE_HOST", f"api.{contract.GHE_DOMAIN}")
 REAL_PAT          = os.environ.get("REAL_PAT", "")
 LISTEN_PORT       = int(os.environ.get("PORT", "8080"))
+# When the proxy is reachable from a public/untrusted network (e.g. a raw L4
+# port forwarded by a front server), set CTC_RESTRICT_CONNECT=1 so CONNECT is
+# only honored for the GitHub/GHE/Copilot host set — closing the open-relay
+# path. Default off keeps VPN/localhost-only deployments unchanged.
+RESTRICT_CONNECT  = os.environ.get("CTC_RESTRICT_CONNECT", "").strip().lower() in ("1", "true", "yes", "on")
 ATTRIBUTION = None  # set by _build_attribution() at startup; None => legacy single-PAT mode
 LIVE_QUOTA = None   # set by _build_attribution() in the DB-backed path; LiveQuotaCache or None
 
@@ -289,6 +294,22 @@ def decide_route(host: str, port: int, real_ghe_host: str):
     if host in _LOCALHOST_ALIASES:
         return True, real_ghe_host, 443
     return host in MITM_HOSTS, host, port
+
+
+def connect_allowed(host: str) -> bool:
+    """Whether a CONNECT to `host` is permitted when CTC_RESTRICT_CONNECT is on.
+
+    Allows the hosts we MITM plus the wider GitHub/GHE/Copilot ecosystem that
+    Copilot legitimately blind-tunnels (telemetry on the GHE domain, github.com,
+    *.githubcopilot.com). Everything else is refused, so a publicly reachable
+    proxy can't be used as an open relay to arbitrary hosts.
+    """
+    h = host.lower()
+    if h in MITM_HOSTS or h in _LOCALHOST_ALIASES:
+        return True
+    if contract.is_github_ish(h):        # GHE_DOMAIN / githubcopilot.com suffixes, api.github.com
+        return True
+    return h == "github.com" or h.endswith(".github.com")
 
 
 # ---------------------------------------------------------------------------
@@ -725,6 +746,14 @@ async def _dispatch(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
 
             # Decide: MITM or blind tunnel (also remaps localhost aliases)
             do_mitm, tunnel_host, tunnel_port = decide_route(host, port, REAL_GHE_HOST)
+
+            # Open-relay guard for publicly reachable proxies (CTC_RESTRICT_CONNECT).
+            # Refuse tunnels to anything outside the GitHub/GHE/Copilot ecosystem.
+            if RESTRICT_CONNECT and not connect_allowed(host):
+                log.warning("[CONNECT]   REJECTED (restricted) %s → %s:%s", peer, host, port)
+                writer.write(b"HTTP/1.1 403 Forbidden\r\nProxy-Agent: copilot-proxy\r\n\r\n")
+                await writer.drain()
+                return
 
             log.info("[CONNECT]   %s → %s:%s  [%s]", peer, host, port,
                      "MITM" if do_mitm else "tunnel")

@@ -32,6 +32,11 @@ services:
       # The port the proxy (CLI target) listens on. The `ctc` launcher connects
       # HTTPS_PROXY here; default 8080. Change via CTC_PROXY_PORT in .env.
       PORT: "${CTC_PROXY_PORT:-8080}"
+      # Open-relay guard. Set CTC_RESTRICT_CONNECT=1 in .env when the proxy is
+      # reachable from a public/untrusted network (e.g. a front server raw-L4
+      # forwards a port to it): CONNECT is then honored only for the
+      # GitHub/GHE/Copilot host set. Default off = VPN/localhost-only behavior.
+      CTC_RESTRICT_CONNECT: ${CTC_RESTRICT_CONNECT:-}
       # UPSTREAM_CA_BUNDLE: /certs/corp-ca.pem   # uncomment if GHE uses a corporate CA
     # Bind to an internal/VPN interface only. Default 127.0.0.1 = localhost-only;
     # set PROXY_BIND in .env to the VM's VPN-facing IP so teammates can reach it.
