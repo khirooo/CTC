@@ -113,7 +113,10 @@ services:
         # CTC_WEB_PORT appends ":<port>" only when set; blank = standard 80/443.
         VITE_API_BASE: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}${CTC_WEB_PORT:+:}${CTC_WEB_PORT}/api
         VITE_CTC_HOST: ${CTC_DOMAIN}${CTC_WEB_PORT:+:}${CTC_WEB_PORT}
-        VITE_PROXY_HOST: ${CTC_DOMAIN}:${CTC_PROXY_PORT:-8080}
+        # Public proxy address teammates' CLI connects to. Defaults to the
+        # internal proxy port; set CTC_PROXY_PUBLIC_PORT when a front server
+        # exposes it on a different port than the container binds.
+        VITE_PROXY_HOST: ${CTC_DOMAIN}:${CTC_PROXY_PUBLIC_PORT:-${CTC_PROXY_PORT:-8080}}
         # The PAT-help "Generate a token" link points at the GHE web host.
         VITE_GHE_HOST: https://${GHE_DOMAIN}
         CTC_DOMAIN: ${CTC_DOMAIN}
@@ -123,8 +126,9 @@ services:
         # Scheme the launcher scripts use to reach Caddy. Must match the transport
         # (http-mode Caddy has no :443, so an https install one-liner refuses).
         CTC_WEB_SCHEME: ${CTC_WEB_TRANSPORT:-http}
-        # Proxy port baked into the served `ctc` launcher (its HTTPS_PROXY target).
-        CTC_PROXY_PORT: ${CTC_PROXY_PORT:-8080}
+        # Public proxy port baked into the served `ctc` launcher (its HTTPS_PROXY
+        # target). Defaults to the internal proxy port.
+        CTC_PROXY_PUBLIC_PORT: ${CTC_PROXY_PUBLIC_PORT:-${CTC_PROXY_PORT:-8080}}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]

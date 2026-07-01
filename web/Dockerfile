@@ -44,9 +44,9 @@ ARG GHE_DOMAIN
 # rewrite that default so the install one-liner and `ctc login` cert download use
 # the same scheme Caddy actually serves (http-mode would otherwise hit :443).
 ARG CTC_WEB_SCHEME
-# Proxy port the launcher points HTTPS_PROXY at (default 8080). Baked so a custom
-# CTC_PROXY_PORT reaches teammates without them setting it by hand.
-ARG CTC_PROXY_PORT
+# Public proxy port the launcher points HTTPS_PROXY at (default 8080). Baked so a
+# custom/forwarded proxy port reaches teammates without them setting it by hand.
+ARG CTC_PROXY_PUBLIC_PORT
 RUN if [ -n "$CTC_DOMAIN" ]; then \
       sed -i "s/ctc\.local/$CTC_DOMAIN/g" /srv/www/install.sh /srv/www/ctc; \
     fi; \
@@ -56,8 +56,8 @@ RUN if [ -n "$CTC_DOMAIN" ]; then \
     if [ -n "$CTC_WEB_SCHEME" ]; then \
       sed -i "s/CTC_SCHEME:-https/CTC_SCHEME:-$CTC_WEB_SCHEME/g" /srv/www/install.sh /srv/www/ctc; \
     fi; \
-    if [ -n "$CTC_PROXY_PORT" ]; then \
-      sed -i "s/CTC_PROXY_PORT:-8080/CTC_PROXY_PORT:-$CTC_PROXY_PORT/g" /srv/www/ctc; \
+    if [ -n "$CTC_PROXY_PUBLIC_PORT" ]; then \
+      sed -i "s/CTC_PROXY_PORT:-8080/CTC_PROXY_PORT:-$CTC_PROXY_PUBLIC_PORT/g" /srv/www/ctc; \
     fi
 # Routing / TLS config.
 COPY Caddyfile /etc/caddy/Caddyfile
