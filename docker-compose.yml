@@ -129,6 +129,9 @@ services:
         # Public proxy port baked into the served `ctc` launcher (its HTTPS_PROXY
         # target). Defaults to the internal proxy port.
         CTC_PROXY_PUBLIC_PORT: ${CTC_PROXY_PUBLIC_PORT:-8080}
+        # Host the CLI reaches the proxy at, when it differs from the (public) web
+        # host — e.g. public website, VPN-only proxy. Blank → same as the web host.
+        CTC_PROXY_HOST: ${CTC_PROXY_HOST:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]

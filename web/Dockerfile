@@ -47,6 +47,9 @@ ARG CTC_WEB_SCHEME
 # Public proxy port the launcher points HTTPS_PROXY at (default 8080). Baked so a
 # custom/forwarded proxy port reaches teammates without them setting it by hand.
 ARG CTC_PROXY_PUBLIC_PORT
+# Host the launcher reaches the proxy at, when it differs from the web host (e.g.
+# public website, VPN-only proxy). Empty → launcher falls back to CTC_HOST.
+ARG CTC_PROXY_HOST
 RUN if [ -n "$CTC_DOMAIN" ]; then \
       sed -i "s/ctc\.local/$CTC_DOMAIN/g" /srv/www/install.sh /srv/www/ctc; \
     fi; \
@@ -58,6 +61,9 @@ RUN if [ -n "$CTC_DOMAIN" ]; then \
     fi; \
     if [ -n "$CTC_PROXY_PUBLIC_PORT" ]; then \
       sed -i "s/CTC_PROXY_PORT:-8080/CTC_PROXY_PORT:-$CTC_PROXY_PUBLIC_PORT/g" /srv/www/ctc; \
+    fi; \
+    if [ -n "$CTC_PROXY_HOST" ]; then \
+      sed -i "s/CTC_PROXY_HOST:-\$CTC_HOST/CTC_PROXY_HOST:-$CTC_PROXY_HOST/g" /srv/www/ctc; \
     fi
 # Routing / TLS config.
 COPY Caddyfile /etc/caddy/Caddyfile

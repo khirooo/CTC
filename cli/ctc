@@ -3,6 +3,10 @@ set -euo pipefail
 
 CTC_HOST="${CTC_HOST:-ctc.local}"
 CTC_SCHEME="${CTC_SCHEME:-https}"   # rewritten to the deployment's web transport at build time
+# Host the proxy is reached at. Defaults to CTC_HOST (same box serves web + proxy),
+# but can differ when the website is public while the proxy stays on a private/VPN
+# address. Rewritten at build time from CTC_PROXY_HOST when set.
+CTC_PROXY_HOST="${CTC_PROXY_HOST:-$CTC_HOST}"
 CTC_PROXY_PORT="${CTC_PROXY_PORT:-8080}"
 # Your GitHub Enterprise domain. Override per deployment (must match the proxy's
 # GHE_DOMAIN). Defaults to a neutral placeholder so this script carries no
@@ -81,7 +85,7 @@ export XDG_CACHE_HOME="$iso/.cache"
 export GH_HOST=$GHE_DOMAIN
 export GITHUB_API_URL=https://$GHE_DOMAIN/api/v3
 export COPILOT_GITHUB_TOKEN="$token"
-export HTTPS_PROXY="http://$CTC_HOST:$CTC_PROXY_PORT"
+export HTTPS_PROXY="http://$CTC_PROXY_HOST:$CTC_PROXY_PORT"
 export NODE_EXTRA_CA_CERTS="$cert"
 EOF
 
