@@ -155,13 +155,20 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         name = user["display_name"] or user["ghe_login"]
         gc = acct.get_giver_cycle(cycle.id, uid)
         is_giver = user["role"] == "giver" and gc is not None
-        donations_received = sum(g.amount for g in acct.grants_for_recipient(cycle.id, uid))
+        recv_grants = acct.grants_for_recipient(cycle.id, uid)
+        donations_received = sum(g.amount for g in recv_grants)
+        # How much of that received credit the recipient has actually burned vs.
+        # still has to draw (the profile "received" bar splits on this).
+        donations_received_remaining = sum(engine.grant_remaining(cycle.id, g.id) for g in recv_grants)
+        donations_received_consumed = max(0, donations_received - donations_received_remaining)
 
         common = dict(
             user=PublicUserDTO(id=uid, name=name, initials=initials(name), role=user["role"]),
             donated_so_far=engine.donated_live(cycle.id, uid),
             consumed=engine.consumed_total(cycle.id, uid),
             donations_received=donations_received,
+            donations_received_consumed=donations_received_consumed,
+            donations_received_remaining=donations_received_remaining,
         )
 
         # Aristocracy tier (givers-only) — computed over all givers this cycle so

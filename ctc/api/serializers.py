@@ -19,6 +19,7 @@ class PublicRequestDTO(CamelModel):
     requester_role: str          # 'pro' | 'noob'
     amount_needed: int           # nano-AIU
     amount_funded: int           # nano-AIU
+    funded_consumed: int = 0     # nano-AIU of amount_funded already burned by the recipient
     reason: str
     target: str | None
     created_at: int
@@ -104,7 +105,9 @@ class OwnProfileDTO(CamelModel):
     donated_so_far: int          # nano-AIU
     allowance: int | None        # nano-AIU remaining free allowance; None for givers
     consumed: int                # nano-AIU
-    donations_received: int      # nano-AIU
+    donations_received: int      # nano-AIU (total grants received this cycle)
+    donations_received_consumed: int = 0   # nano-AIU of received grants already burned
+    donations_received_remaining: int = 0  # nano-AIU of received grants still available
     entitlement: int | None = None       # nano-AIU; -1*NANO sentinel never used — see unlimited
     remaining: int | None = None
     used: int | None = None
@@ -146,6 +149,7 @@ def build_public_request(store, get_user, r: Request, now: int, viewer_id: str |
         id=r.id, requester_id=r.requester_id, requester_name=name, initials=initials(name),
         requester_role=ROLE_TO_REQUESTER[r.requester_role],
         amount_needed=r.amount_needed, amount_funded=funded,
+        funded_consumed=store.request_consumed(r.id),
         reason=r.reason, target=r.target, created_at=r.created_at,
         expires_at=r.expires_at, status=status.value,
         donor_count=store.request_donor_count(r.id),

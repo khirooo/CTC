@@ -252,7 +252,10 @@ export function ProfileScreen() {
               <div data-testid="credit-legend">
                 <CreditLegend items={[
                   { label: 'used', value: aiu(p.used ?? 0), color: 'var(--text-dim)', pattern: 'striped' },
-                  ...((p.donated ?? 0) > 0 ? [{ label: 'chipped in', value: aiu(p.donated ?? 0), color: 'var(--give)' }] : []),
+                  // Split "chipped in" into used-by-recipients (striped) vs still-available
+                  // (solid) — the two green tones already drawn in the bar.
+                  ...((p.donatedConsumed ?? 0) > 0 ? [{ label: 'chipped in · used', value: aiu(p.donatedConsumed ?? 0), color: 'var(--give)', pattern: 'striped' as const }] : []),
+                  ...((p.donatedRemaining ?? 0) > 0 ? [{ label: 'chipped in · left', value: aiu(p.donatedRemaining ?? 0), color: 'var(--give)' }] : []),
                   ...(poolOn ? [{ label: 'pledged', value: aiu(pledgedValue), color: 'var(--accent)' }] : []),
                   // Read backend field; only use local derivation while slider is actively being dragged.
                   { label: 'available', value: aiu(localPledged !== null ? Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - effPledged) : (p.left ?? 0)), color: 'var(--reroute)' },
@@ -327,8 +330,27 @@ export function ProfileScreen() {
           )}
 
           {p.donationsReceived > 0 && (
-            <div style={{ marginTop: 16, fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--give)' }}>
-              +{aiu(p.donationsReceived)} from supporters
+            <div style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+                <span style={monoLabel}>Received from supporters</span>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--received)' }}>
+                  +{aiu(p.donationsReceived)}
+                </span>
+              </div>
+              <CreditBar
+                max={p.donationsReceived}
+                segments={[
+                  { key: 'recvUsed', label: 'used', value: p.donationsReceivedConsumed, color: 'var(--received)', pattern: 'striped' as const },
+                  { key: 'recvLeft', label: 'left', value: p.donationsReceivedRemaining, color: 'var(--received)' },
+                ].filter((s) => s.value > 0)}
+              />
+              <CreditLegend items={[
+                { label: 'used', value: aiu(p.donationsReceivedConsumed), color: 'var(--received)', pattern: 'striped' },
+                { label: 'left', value: aiu(p.donationsReceivedRemaining), color: 'var(--received)' },
+              ]} />
+              <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '10px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
+                chip-ins from Hosts — separate from your free allowance above.
+              </p>
             </div>
           )}
         </div>

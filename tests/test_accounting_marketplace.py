@@ -77,3 +77,17 @@ def test_fund_expired_request_rejected():
     r = e.create_request(CYC, "c1", Role.CONSUMER, 100, "PR", None, 0, 10)
     with pytest.raises(RequestClosed):
         e.fund_request(r.id, "g1", 50, now=20)  # now > expires_at
+
+
+def test_request_consumed_tracks_recipient_burn():
+    """request_consumed = grant-bucket credits the recipient burned from a
+    request's grants; 0 before any draw, rising as the recipient consumes."""
+    from ctc.domain.types import Bucket
+    e, s = seed()
+    r = e.create_request(CYC, "c1", Role.CONSUMER, 100, "PR", None, 0, 1_000_000)
+    g = e.fund_request(r.id, "g1", 100, now=5)
+    assert s.request_funded(r.id) == 100
+    assert s.request_consumed(r.id) == 0          # funded but nothing used yet
+    e.record_consumption(CYC, "c1", "g1", Bucket.GRANT, 40, grant_id=g.id, ts=6)
+    assert s.request_consumed(r.id) == 40         # 40 of 100 burned
+    assert e.grant_remaining(CYC, g.id) == 60

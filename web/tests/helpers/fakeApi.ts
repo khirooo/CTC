@@ -23,10 +23,12 @@ interface FakeUser {
   donatedSoFar: number; allowance: number | null; consumed: number;
   donationsReceived: number; isAdmin?: boolean;
   consumedThisMonth?: number; poolConsumedFrom?: number; grantsConsumed?: number;
+  receivedConsumed?: number;  // nano-AIU of received grants already burned
 }
 interface FakeRequest {
   id: string; requesterId?: string; requesterName: string; initials: string;
   requesterRole: 'pro' | 'noob'; amountNeeded: number; amountFunded: number;
+  fundedConsumed?: number;
   reason: string; target: string | null; createdAt: number; expiresAt: number;
   donorCount: number;
 }
@@ -88,9 +90,9 @@ function seedRequests(now: number): FakeRequest[] {
     { id: 'req_3', requesterId: 'u_pn', requesterName: 'Priya Nair', initials: 'PN', requesterRole: 'noob',
       amountNeeded: 90 * N, amountFunded: 0, reason: 'Debugging a prod incident', target: 'Ada Lovelace', createdAt: now, expiresAt: now + 26 * 3_600_000, donorCount: 0 },
     { id: 'req_4', requesterId: 'u_at', requesterName: 'Amine Tazi', initials: 'AT', requesterRole: 'pro',
-      amountNeeded: 120 * N, amountFunded: 120 * N, reason: 'Ran dry mid-refactor', target: null, createdAt: now, expiresAt: now, donorCount: 3 },
+      amountNeeded: 120 * N, amountFunded: 120 * N, fundedConsumed: 72 * N, reason: 'Ran dry mid-refactor', target: null, createdAt: now, expiresAt: now, donorCount: 3 },
     { id: 'req_5', requesterName: 'Tom Becker', initials: 'TB', requesterRole: 'noob',
-      amountNeeded: 30 * N, amountFunded: 30 * N, reason: 'Writing test coverage', target: null, createdAt: now, expiresAt: now, donorCount: 1 },
+      amountNeeded: 30 * N, amountFunded: 30 * N, fundedConsumed: 30 * N, reason: 'Writing test coverage', target: null, createdAt: now, expiresAt: now, donorCount: 1 },
   ];
 }
 
@@ -103,7 +105,7 @@ function seedUsers(): FakeUser[] {
     { id: 'u_sl', name: 'Sofia Lindqvist', initials: 'SL', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1400 * N, allowance: null, consumed: 780 * N, donationsReceived: 0 },
     { id: 'u_mb', name: 'Marco Bianchi', initials: 'MB', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1540 * N, allowance: null, consumed: 540 * N, donationsReceived: 0 },
     { id: 'u_at', name: 'Amine Tazi', initials: 'AT', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 610 * N, allowance: null, consumed: 310 * N, donationsReceived: 0 },
-    { id: 'u_lh', name: 'Lena Hoffmann', initials: 'LH', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, allowance: 60 * N, consumed: 412 * N, donationsReceived: 0 },
+    { id: 'u_lh', name: 'Lena Hoffmann', initials: 'LH', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, allowance: 60 * N, consumed: 412 * N, donationsReceived: 120 * N, receivedConsumed: 85 * N },
     { id: 'u_dr', name: 'Diego Ramirez', initials: 'DR', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, allowance: 40 * N, consumed: 388 * N, donationsReceived: 0 },
     { id: 'u_pn', name: 'Priya Nair', initials: 'PN', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, allowance: 90 * N, consumed: 276 * N, donationsReceived: 0 },
   ];
@@ -169,6 +171,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
     return {
       id: r.id, requesterId: r.requesterId ?? '', requesterName: r.requesterName, initials: r.initials,
       requesterRole: r.requesterRole, amountNeeded: r.amountNeeded, amountFunded: r.amountFunded,
+      fundedConsumed: r.fundedConsumed ?? 0,
       reason: r.reason, target: r.target, createdAt: r.createdAt, expiresAt: r.expiresAt,
       status: deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now),
       donorCount: r.donorCount, isOwn: !!viewerId && r.requesterId === viewerId,
@@ -313,6 +316,8 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
         user: { id: u.id, name: u.name, initials: u.initials, role: u.role },
         totalCredit: u.totalCredit, pledgedSurplus: u.pledgedSurplus, retained, donatedSoFar: u.donatedSoFar,
         allowance: u.allowance, consumed: u.consumed, donationsReceived: u.donationsReceived,
+        donationsReceivedConsumed: Math.min(u.donationsReceived, u.receivedConsumed ?? 0),
+        donationsReceivedRemaining: Math.max(0, u.donationsReceived - (u.receivedConsumed ?? 0)),
         entitlement, remaining, used, pledged, donated, left, pledgedConsumed, donatedConsumed,
         donatedRemaining: donated !== null && donatedConsumed !== null ? Math.max(0, donated - donatedConsumed) : null,
         pledgedRemaining: pledged !== null && pledgedConsumed !== null ? Math.max(0, pledged - pledgedConsumed) : null,

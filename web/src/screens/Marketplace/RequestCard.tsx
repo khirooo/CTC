@@ -36,6 +36,7 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
     requesterRole,
     amountNeeded,
     amountFunded,
+    fundedConsumed,
     reason,
     target,
     expiresAt,
@@ -54,6 +55,11 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
   const donorLabel = `${donorCount} supporter${donorCount !== 1 ? 's' : ''}`;
   const statusLabel = isFulfilled ? 'covered' : isOpen ? 'open' : 'expired';
   const progress = pct(amountFunded, amountNeeded);
+  // Receiver-progress: how much of the raised credit the requester has actually
+  // burned. Shown once anything is funded — the key story on a closed card.
+  const consumed = Math.min(fundedConsumed, amountFunded);
+  const consumedPct = pct(consumed, amountFunded);
+  const showConsumption = amountFunded > 0;
 
   const cardStyle: React.CSSProperties = {
     background: 'var(--surface)',
@@ -102,6 +108,21 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
         </div>
         <ProgressBar pct={progress} color={isFulfilled ? 'var(--give)' : 'var(--accent)'} />
       </div>
+
+      {/* Receiver-progress: how much of the raised credit has been used vs. left. */}
+      {showConsumption && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--received)' }}>
+              used by receiver
+            </span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)' }}>
+              {aiu(consumed)} / {aiu(amountFunded)} · {aiu(Math.max(0, amountFunded - consumed))} left
+            </span>
+          </div>
+          <ProgressBar pct={consumedPct} color="var(--received)" />
+        </div>
+      )}
 
       {/* Action row */}
       {isOpen && (

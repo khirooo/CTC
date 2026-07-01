@@ -41,6 +41,15 @@ describe('marketplace', () => {
     await waitFor(() => expect(within(card).getByText('60.00 AIU / 60.00 AIU')).toBeInTheDocument());
   });
 
+  it('shows receiver-progress (used vs funded) on a funded request', async () => {
+    await setup();
+    // Amine's request is fully funded (120) with 72 already burned by the receiver.
+    await waitFor(() => expect(screen.getByText('Amine Tazi')).toBeInTheDocument());
+    const card = screen.getByText('Amine Tazi').closest('[data-request-card]') as HTMLElement;
+    expect(within(card).getByText('used by receiver')).toBeInTheDocument();
+    expect(within(card).getByText(/72\.00 AIU \/ 120\.00 AIU · 48\.00 AIU left/)).toBeInTheDocument();
+  });
+
   it('posts a new request', async () => {
     await setup();
     await userEvent.click(screen.getByRole('button', { name: /post a request/i }));

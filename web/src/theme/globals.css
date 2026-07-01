@@ -9,6 +9,8 @@ html,body{margin:0;padding:0;}
   --give:#34c1a8; --give-soft:rgba(52,193,168,.13);
   --reroute:#5b8def; --reroute-soft:rgba(91,141,239,.13);
   --consume:#f2660f; --consume-soft:rgba(242,102,15,.13);
+  /* credit received from supporters (grants) — a hue used nowhere else */
+  --received:#b57bff; --received-soft:rgba(181,123,255,.13);
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.5);
 }
 input::placeholder{color:var(--text-faint);}

@@ -188,6 +188,17 @@ class AccountingStore:
     def request_funded(self, request_id: str) -> int:
         return self._sum("SELECT SUM(amount) FROM grants WHERE request_id=?", (request_id,))
 
+    def request_consumed(self, request_id: str) -> int:
+        # Credit the recipient has actually burned out of this request's grants —
+        # grant-bucket consumption joined to the grants funding this request. Lets
+        # the marketplace card show how much of the raised credit has been used.
+        return self._sum(
+            "SELECT SUM(ce.credits) FROM consumption_events ce "
+            "JOIN grants g ON g.id = ce.grant_id "
+            "WHERE ce.bucket='grant' AND g.request_id=?",
+            (request_id,),
+        )
+
     def list_requests(self, cycle_id: str) -> list[Request]:
         rows = self.conn.execute(
             "SELECT * FROM requests WHERE cycle_id=? ORDER BY created_at DESC, id DESC",

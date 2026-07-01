@@ -43,6 +43,8 @@ export interface PublicRequest {
   requesterRole: RequesterRole;
   amountNeeded: number;
   amountFunded: number;
+  /** nano-AIU of amountFunded the recipient has already burned (receiver progress). */
+  fundedConsumed: number;
   reason: string;
   target: string | null;
   createdAt: number;
@@ -169,6 +171,8 @@ export interface OwnProfile {
   allowance: number | null;
   consumed: number;
   donationsReceived: number;
+  donationsReceivedConsumed: number;   // nano-AIU of received grants already burned
+  donationsReceivedRemaining: number;  // nano-AIU of received grants still available
   // Credit-segment fields (giver: from quota; consumer: from allowance)
   entitlement: number | null;
   remaining: number | null;

@@ -25,8 +25,21 @@ describe('ProfileScreen (merged profile + settings)', () => {
     // legend swatch labels (exact, so the "(N used)" value text doesn't double-match)
     await waitFor(() => expect(screen.getByText('used')).toBeInTheDocument());
     expect(screen.getByText('pledged')).toBeInTheDocument();
-    expect(screen.getByText('chipped in')).toBeInTheDocument();
+    // "chipped in" is now split into used/left green tones
+    expect(screen.getByText('chipped in · used')).toBeInTheDocument();
+    expect(screen.getByText('chipped in · left')).toBeInTheDocument();
     expect(screen.getByText(/resets/i)).toBeInTheDocument();
+  });
+
+  it('Guest: shows a "Received from supporters" bar split into used/left', async () => {
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'prof.recv' });
+    await api.signIn('lena@example.com', 'x'); // seed consumer with received grants
+    renderProfile(api);
+    await waitFor(() => expect(screen.getByText(/Received from supporters/i)).toBeInTheDocument());
+    // 120 received = 85 used + 35 left
+    expect(screen.getByText('+120.00 AIU')).toBeInTheDocument();
+    expect(screen.getByText('85.00 AIU')).toBeInTheDocument();
+    expect(screen.getByText('35.00 AIU')).toBeInTheDocument();
   });
 
   it('shows the GHE login as the immutable identity headline (no email field)', async () => {
