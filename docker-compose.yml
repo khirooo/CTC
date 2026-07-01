@@ -72,9 +72,9 @@ services:
       # The control plane validates that CTC_APP_ORIGIN scheme == CTC_WEB_TRANSPORT
       # and refuses to start on a mismatch.
       CTC_WEB_TRANSPORT: ${CTC_WEB_TRANSPORT:-http}
-      # Browser origin (CORS + post-login redirect). CTC_WEB_PORT appends ":<port>"
-      # only when set — blank keeps the standard portless 80/443 origin.
-      CTC_APP_ORIGIN: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}${CTC_WEB_PORT:+:}${CTC_WEB_PORT}
+      # Browser origin (CORS + post-login redirect). CTC_WEB_PORT_SUFFIX is blank
+      # for the standard portless 80/443, or ":<port>" for a custom public port.
+      CTC_APP_ORIGIN: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}${CTC_WEB_PORT_SUFFIX:-}
       GITLAB_BASE: ${GITLAB_BASE}
       GITLAB_OAUTH_CLIENT_ID: ${GITLAB_OAUTH_CLIENT_ID}
       GITLAB_OAUTH_CLIENT_SECRET: ${GITLAB_OAUTH_CLIENT_SECRET}
@@ -110,13 +110,13 @@ services:
       args:
         # Everything the web app + CLI assets need is derived from CTC_DOMAIN
         # (a hostname OR a raw IP — same VM serves the site and the proxy).
-        # CTC_WEB_PORT appends ":<port>" only when set; blank = standard 80/443.
-        VITE_API_BASE: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}${CTC_WEB_PORT:+:}${CTC_WEB_PORT}/api
-        VITE_CTC_HOST: ${CTC_DOMAIN}${CTC_WEB_PORT:+:}${CTC_WEB_PORT}
+        # CTC_WEB_PORT_SUFFIX is blank (standard 80/443) or ":<port>" for a custom port.
+        VITE_API_BASE: ${CTC_WEB_TRANSPORT:-http}://${CTC_DOMAIN}${CTC_WEB_PORT_SUFFIX:-}/api
+        VITE_CTC_HOST: ${CTC_DOMAIN}${CTC_WEB_PORT_SUFFIX:-}
         # Public proxy address teammates' CLI connects to. Defaults to the
         # internal proxy port; set CTC_PROXY_PUBLIC_PORT when a front server
         # exposes it on a different port than the container binds.
-        VITE_PROXY_HOST: ${CTC_DOMAIN}:${CTC_PROXY_PUBLIC_PORT:-${CTC_PROXY_PORT:-8080}}
+        VITE_PROXY_HOST: ${CTC_DOMAIN}:${CTC_PROXY_PUBLIC_PORT:-8080}
         # The PAT-help "Generate a token" link points at the GHE web host.
         VITE_GHE_HOST: https://${GHE_DOMAIN}
         CTC_DOMAIN: ${CTC_DOMAIN}
@@ -128,7 +128,7 @@ services:
         CTC_WEB_SCHEME: ${CTC_WEB_TRANSPORT:-http}
         # Public proxy port baked into the served `ctc` launcher (its HTTPS_PROXY
         # target). Defaults to the internal proxy port.
-        CTC_PROXY_PUBLIC_PORT: ${CTC_PROXY_PUBLIC_PORT:-${CTC_PROXY_PORT:-8080}}
+        CTC_PROXY_PUBLIC_PORT: ${CTC_PROXY_PUBLIC_PORT:-8080}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
