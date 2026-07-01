@@ -5,11 +5,11 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { HistoryScreen } from '@/screens/History/HistoryScreen';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 
 describe('history', () => {
   it('switches the selected month', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'hist.test' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'hist.test' });
     await api.signIn('ada@example.com', 'x');
     render(<ThemeProvider><AppProvider api={api}>
       <MemoryRouter initialEntries={['/app/history']}>

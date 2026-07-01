@@ -4,11 +4,11 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { PublicProfileScreen } from '@/screens/PublicProfile/PublicProfileScreen';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 
 describe('publicProfile', () => {
   it('renders another user\'s name and tier badge', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'pubprof.test' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'pubprof.test' });
     const session = await api.signIn('ada@example.com', 'x');
 
     // Find another user via the leaderboard standings
@@ -44,7 +44,7 @@ describe('publicProfile', () => {
   });
 
   it('redirects own id to /app/profile', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'pubprof-own.test' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'pubprof-own.test' });
     const session = await api.signIn('ada@example.com', 'x');
 
     render(

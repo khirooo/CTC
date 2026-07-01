@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { ComposeForm } from '@/screens/Marketplace/ComposeForm';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 import { NANO_PER_AIU } from '@/domain/credit';
 
 async function renderForm(onSubmit = vi.fn().mockResolvedValue(undefined)) {
-  const api = createMockApi({ latencyMs: 0, storageKey: 'composeForm.test' });
+  const api = makeFakeApi({ latencyMs: 0, storageKey: 'composeForm.test' });
   await api.signIn('ada@example.com', 'x');
   render(
     <ThemeProvider>

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HttpCtcApi } from '@/api/HttpCtcApi';
-import { createMockApi } from '@/api/mockApi';
 import { CtcApiError } from '@/api/http';
 
 function fakeFetch(status: number, body: unknown) {
@@ -16,8 +15,6 @@ describe('HttpCtcApi', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
 
   it('createRequest POSTs camelCase JSON with X-CTC-User and returns parsed body', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.test' });
-    await mock.signIn('ada@example.com', 'x');           // sets session userId = u_ada
     const created = { id: 'r1', requesterName: 'Ada Lovelace', amountNeeded: 50 };
     const f = fakeFetch(200, created);
     vi.stubGlobal('fetch', f);
@@ -33,8 +30,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('throws CtcApiError on non-ok with parsed flat code', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.test2' });
-    await mock.signIn('ada@example.com', 'x');
     vi.stubGlobal('fetch', fakeFetch(422, { error: 'insufficient_credit', message: 'nope' }));
     const api = new HttpCtcApi('http://api');
     const err = await api.donate('r1', 10).catch((e) => e);
@@ -95,8 +90,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('updateSettings({pat}) POSTs /api/pat then re-reads settings', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.pat' });
-    await mock.signIn('ada@example.com', 'x');
     const settings = { name: 'Ada', login: 'a', role: 'giver', hasPat: true, totalCredit: 1, pledgedSurplus: 0, allowance: null };
     const f = vi.fn(async (url: string) => ({
       ok: true, status: 200, statusText: 'x',
@@ -112,8 +105,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('updateSettings({pledgedSurplus}) PATCHes /api/settings', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.pledge' });
-    await mock.signIn('ada@example.com', 'x');
     const settings = { name: 'Ada', login: 'a', role: 'giver', hasPat: true, totalCredit: 1, pledgedSurplus: 7, allowance: null };
     const f = vi.fn(async () => ({ ok: true, status: 200, statusText: 'x', json: async () => settings })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', f);
@@ -124,8 +115,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('getDashboard/getLeaderboard/getHistory/getOwnProfile GET the read endpoints', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.reads' });
-    await mock.signIn('ada@example.com', 'x');
     const api = new HttpCtcApi('http://api');
 
     for (const [path, body, call] of [
@@ -144,8 +133,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('getCliCredentials POSTs /api/proxy-token and composes display fields', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.cli' });
-    await mock.signIn('ada@example.com', 'x');
     const f = vi.fn(async () => ({
       ok: true, status: 200, statusText: 'x',
       json: async () => ({ id: 't1', token: 'github_pat_REAL', fingerprint: 'ab' }),
@@ -162,8 +149,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('validatePat POSTs to /pat and maps ghe_login/quota_aiu/entitlement_aiu/remaining_aiu to camelCase', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.pat' });
-    await mock.signIn('ada@example.com', 'x');
     const f = fakeFetch(200, { ghe_login: 'ada', quota_aiu: 4000, entitlement_aiu: 4200, remaining_aiu: 3800, reset_date: '2026-07-01', used_nano: 400_000_000_000 });
     vi.stubGlobal('fetch', f);
     const api = new HttpCtcApi('http://api');
@@ -176,8 +161,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('validatePat surfaces a 409 owner-mismatch as CtcApiError', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.pat2' });
-    await mock.signIn('ada@example.com', 'x');
     vi.stubGlobal('fetch', fakeFetch(409, { error: 'conflict', message: 'PAT belongs to bob, not ada' }));
     const api = new HttpCtcApi('http://api');
     const err = await api.validatePat('github_pat_x').catch((e) => e);
@@ -186,8 +169,6 @@ describe('HttpCtcApi', () => {
   });
 
   it('markOnboarded POSTs to /onboarding/complete', async () => {
-    const mock = createMockApi({ latencyMs: 0, storageKey: 'h.onb' });
-    await mock.signIn('ada@example.com', 'x');
     const f = fakeFetch(204, undefined);
     vi.stubGlobal('fetch', f);
     const api = new HttpCtcApi('http://api');

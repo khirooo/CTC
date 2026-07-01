@@ -5,10 +5,10 @@ import { AppProvider } from '@/store/AppContext';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AdminScreen } from '@/screens/Admin/AdminScreen';
 import { AppRoutes } from '@/app/routes';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 
 function renderAdmin() {
-  const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'admin.scr' });
+  const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'admin.scr' });
   return render(
     <ThemeProvider>
       <AppProvider api={api}>
@@ -45,7 +45,7 @@ describe('AdminScreen', () => {
   });
 
   it('toggling shared pool and saving calls updateAdminSettings with sharedPoolEnabled', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'admin.toggle' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'admin.toggle' });
     const spy = vi.spyOn(api, 'updateAdminSettings');
     render(
       <ThemeProvider>
@@ -71,7 +71,7 @@ describe('AdminScreen', () => {
   });
 
   it('changing participants mode and saving calls updateAdminSettings with participantsMode', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'admin.mode' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'admin.mode' });
     const spy = vi.spyOn(api, 'updateAdminSettings');
     render(
       <ThemeProvider>
@@ -102,7 +102,7 @@ describe('AdminScreen', () => {
 describe('RequireAdmin guard', () => {
   it('redirects a non-admin user away from /app/admin to /app/dashboard', async () => {
     // u_kef has no isAdmin — sign in as kef, then navigate to /app/admin
-    const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'admin.guard' });
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'admin.guard' });
     await act(async () => {
       await api.signIn('kef@example.com', 'any');
     });

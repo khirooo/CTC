@@ -5,11 +5,11 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { MarketplaceScreen } from '@/screens/Marketplace/MarketplaceScreen';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 import { CtcApiError } from '@/api/http';
 
 async function setup() {
-  const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.test' });
+  const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.test' });
   await api.signIn('ada@example.com', 'x');
   render(
     <ThemeProvider><AppProvider api={api}>
@@ -21,7 +21,7 @@ async function setup() {
   return api;
 }
 
-async function setupWithApi(api: ReturnType<typeof createMockApi>) {
+async function setupWithApi(api: ReturnType<typeof makeFakeApi>) {
   render(
     <ThemeProvider><AppProvider api={api}>
       <MemoryRouter initialEntries={['/app/marketplace']}>
@@ -49,14 +49,14 @@ describe('marketplace', () => {
   });
 
   it('shows inline error and does not crash when donate rejects with CtcApiError', async () => {
-    const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.err.test' });
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.err.test' });
     await api.signIn('ada@example.com', 'x');
     const failingApi = Object.assign(Object.create(Object.getPrototypeOf(api)), api, {
       donate: async (_id: string, _amount: number) => {
         throw new CtcApiError('request_closed', 'This request is already closed.', 409);
       },
     });
-    await setupWithApi(failingApi as ReturnType<typeof createMockApi>);
+    await setupWithApi(failingApi as ReturnType<typeof makeFakeApi>);
     await waitFor(() => expect(screen.getByText('Lena Hoffmann')).toBeInTheDocument());
     const card = screen.getByText('Lena Hoffmann').closest('[data-request-card]') as HTMLElement;
     await userEvent.click(within(card).getByRole('button', { name: /chip in/i }));
@@ -68,14 +68,14 @@ describe('marketplace', () => {
   });
 
   it('shows inline error and does not crash when listRequests rejects with CtcApiError', async () => {
-    const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.load.err.test' });
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.load.err.test' });
     await api.signIn('ada@example.com', 'x');
     const failingApi = Object.assign(Object.create(Object.getPrototypeOf(api)), api, {
       listRequests: async () => {
         throw new CtcApiError('server_error', 'Service unavailable.', 503);
       },
     });
-    await setupWithApi(failingApi as ReturnType<typeof createMockApi>);
+    await setupWithApi(failingApi as ReturnType<typeof makeFakeApi>);
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent('Service unavailable.'),
     );

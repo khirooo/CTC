@@ -38,7 +38,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 interface AppProviderProps {
   children: ReactNode;
-  /** Pass a CtcApi instance (e.g. from createMockApi) — defaults to the module singleton. */
+  /** Pass a CtcApi instance (tests inject a fake) — defaults to the real HttpCtcApi. */
   api?: CtcApi;
 }
 

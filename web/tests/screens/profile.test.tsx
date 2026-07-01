@@ -5,10 +5,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppProvider } from '@/store/AppContext';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { ProfileScreen } from '@/screens/Profile/ProfileScreen';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 import { CtcApiError } from '@/api/http';
 
-function renderProfile(api: ReturnType<typeof createMockApi>) {
+function renderProfile(api: ReturnType<typeof makeFakeApi>) {
   render(
     <ThemeProvider><AppProvider api={api}>
       <MemoryRouter><ProfileScreen /></MemoryRouter>
@@ -19,7 +19,7 @@ beforeEach(() => localStorage.clear());
 
 describe('ProfileScreen (merged profile + settings)', () => {
   it('Host: shows the credit bar legend with used/chipped in/pledged and a reset line', async () => {
-    const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'prof.scr' });
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'prof.scr' });
     await api.signIn('ada@example.com', 'x');
     renderProfile(api);
     // legend swatch labels (exact, so the "(N used)" value text doesn't double-match)
@@ -30,7 +30,7 @@ describe('ProfileScreen (merged profile + settings)', () => {
   });
 
   it('shows the GHE login as the immutable identity headline (no email field)', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'prof.login' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'prof.login' });
     await api.signIn('ada@example.com', 'x');
     const login = (await api.getSettings()).login; // whatever identity the API reports
     renderProfile(api);
@@ -41,7 +41,7 @@ describe('ProfileScreen (merged profile + settings)', () => {
   });
 
   it('connecting a license calls updateSettings({pat})', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 's.pat' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 's.pat' });
     await api.signIn('priya@example.com', 'x'); // a Guest in the seed (no license yet)
     const spy = vi.spyOn(api, 'updateSettings');
     renderProfile(api);
@@ -52,7 +52,7 @@ describe('ProfileScreen (merged profile + settings)', () => {
   });
 
   it('giver: pledge slider commit calls updateSettings({pledgedSurplus})', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 's.slider' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 's.slider' });
     await api.signIn('ada@example.com', 'x'); // seed giver
     const profile = await api.getOwnProfile();
     const expectedMax = Math.max(
@@ -73,14 +73,14 @@ describe('ProfileScreen (merged profile + settings)', () => {
   });
 
   it('shows inline error and does not crash when a pledge save rejects', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'set.err.test' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'set.err.test' });
     await api.signIn('ada@example.com', 'x'); // seed giver already has a pledge
     const failingApi = Object.assign(Object.create(Object.getPrototypeOf(api)), api, {
       updateSettings: async () => {
         throw new CtcApiError('invalid_pledge', 'Cannot pledge more than your quota.', 422);
       },
     });
-    renderProfile(failingApi as ReturnType<typeof createMockApi>);
+    renderProfile(failingApi as ReturnType<typeof makeFakeApi>);
     const slider = await screen.findByRole('slider');
     fireEvent.change(slider, { target: { value: '1000000000' } });
     fireEvent.mouseUp(slider);
@@ -92,7 +92,7 @@ describe('ProfileScreen (merged profile + settings)', () => {
   });
 
   it('pool OFF: hides the pledge slider for a giver when sharedPoolEnabled is false', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'prof.pool-off', sharedPoolEnabled: false });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'prof.pool-off', sharedPoolEnabled: false });
     await api.signIn('ada@example.com', 'x'); // seed giver
     renderProfile(api);
     // Wait for data to load (identity card is always shown — login for u_ada is 'u_ada' since no email)

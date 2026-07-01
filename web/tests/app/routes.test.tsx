@@ -4,10 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { AppRoutes } from '@/app/routes';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 
 function renderAt(path: string) {
-  const api = createMockApi({ latencyMs: 0, storageKey: 'routes.' + path });
+  const api = makeFakeApi({ latencyMs: 0, storageKey: 'routes.' + path });
   return render(
     <ThemeProvider><AppProvider api={api}>
       <MemoryRouter initialEntries={[path]}><AppRoutes /></MemoryRouter>

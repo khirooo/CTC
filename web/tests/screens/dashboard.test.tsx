@@ -5,12 +5,12 @@ import { AppShell } from '@/app/AppShell';
 import { DashboardScreen } from '@/screens/Dashboard/DashboardScreen';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 
 beforeEach(() => localStorage.clear());
 
-async function setup(opts?: Parameters<typeof createMockApi>[0]) {
-  const api = createMockApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'dash.test', ...opts });
+async function setup(opts?: Parameters<typeof makeFakeApi>[0]) {
+  const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'dash.test', ...opts });
   await api.signIn('ada@example.com', 'x');
   await api.completeOnboarding({ name: 'Ada', email: 'ada@example.com', role: 'giver', pledgedSurplus: 2000 });
   render(
@@ -38,7 +38,7 @@ describe('dashboard', () => {
 
   it('givers_only + no PAT shows the license CTA instead of the dashboard', async () => {
     // Sign in as priya (no PAT in seed) in givers_only deployment mode
-    const api = createMockApi({ latencyMs: 0, storageKey: 'dash.gonly', participantsMode: 'givers_only' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'dash.gonly', participantsMode: 'givers_only' });
     await api.signIn('priya@example.com', 'x');
     render(
       <ThemeProvider><AppProvider api={api}>

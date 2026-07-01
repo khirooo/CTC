@@ -4,11 +4,11 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { LeaderboardScreen } from '@/screens/Leaderboard/LeaderboardScreen';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { AppProvider } from '@/store/AppContext';
-import { createMockApi } from '@/api/mockApi';
+import { makeFakeApi } from '../helpers/fakeApi';
 
 describe('leaderboard', () => {
   it('renders three tracks', async () => {
-    const api = createMockApi({ latencyMs: 0, storageKey: 'lb.test' });
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'lb.test' });
     await api.signIn('ada@example.com', 'x');
     render(<ThemeProvider><AppProvider api={api}>
       <MemoryRouter initialEntries={['/app/leaderboard']}>
