@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useApp } from '@/store/AppContext';
 
 /**
  * Public landing page mounted at `/`. Embeds the self-contained "How it works"
@@ -7,23 +7,24 @@ import { useNavigate } from 'react-router-dom';
  * full-viewport iframe.
  *
  * The deck renders its own sign-in CTAs (a primary button in the hero + a compact
- * one that appears in the sticky header on scroll). Those CTAs can't know which
- * auth mode the backend runs, so they postMessage up to here and we route to the
- * /login screen (which shows the GitLab OAuth button).
+ * one that appears in the sticky header on scroll). GitLab OAuth is the sole login
+ * path, so those CTAs postMessage up to here and we start the OAuth redirect
+ * directly — there is no intermediate login screen to click through.
  *
  * Logged-in users never reach this screen — the route is wrapped in RequireGuest,
  * which redirects them to /app/dashboard.
  */
 export function LandingScreen() {
-  const navigate = useNavigate();
+  const { signIn } = useApp();
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
-      if (e.data && e.data.type === 'ctc:login') navigate('/login');
+      // Real backend: signIn redirects straight to GitLab OAuth (args ignored).
+      if (e.data && e.data.type === 'ctc:login') signIn('', '');
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [navigate]);
+  }, [signIn]);
 
   return (
     <iframe

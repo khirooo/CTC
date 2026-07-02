@@ -2,14 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { LandingScreen } from '@/screens/Landing/LandingScreen';
+import { useApp } from '@/store/AppContext';
 
-const navigate = vi.fn();
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>();
-  return { ...actual, useNavigate: () => navigate };
+const signIn = vi.fn();
+vi.mock('@/store/AppContext', () => ({ useApp: vi.fn() }));
+
+beforeEach(() => {
+  signIn.mockClear();
+  vi.mocked(useApp).mockReturnValue({ signIn } as unknown as ReturnType<typeof useApp>);
 });
-
-beforeEach(() => navigate.mockClear());
 
 function renderLanding() {
   return render(
@@ -27,15 +28,15 @@ describe('LandingScreen', () => {
     expect(frame.getAttribute('src')).toBe('/howitworks.html');
   });
 
-  it("routes to the mode-aware /login screen when the deck posts 'ctc:login'", async () => {
+  it("starts GitLab OAuth directly when the deck posts 'ctc:login'", async () => {
     renderLanding();
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'ctc:login' } }));
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(signIn).toHaveBeenCalled());
   });
 
   it('ignores unrelated postMessages', () => {
     renderLanding();
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'something-else' } }));
-    expect(navigate).not.toHaveBeenCalled();
+    expect(signIn).not.toHaveBeenCalled();
   });
 });
