@@ -30,7 +30,7 @@ def load_exchanges(ndjson_path: str) -> list[dict]:
 
 
 def _is_billable(ex: dict) -> bool:
-    return (ex.get("upstream_host") == contract.BILLABLE_HOST
+    return (ex.get("host") == contract.BILLABLE_HOST
             and (ex.get("method") or "").upper() == contract.BILLABLE_METHOD
             and (ex.get("path") or "").split("?", 1)[0] in contract.BILLABLE_PATHS)
 
@@ -55,7 +55,7 @@ def evaluate(exchanges: list[dict], debited_nano_aiu: int | None) -> Verdict:
     extracted = None
     field_present = False
     for ex in ok_billable:
-        body = ex.get("response_body", "") or ""
+        body = ex.get("body", "") or ""
         content_type = ex.get("response_content_type", "") or ""
         path = ex.get("path", "") or ""
         classification = classify_usage(body, content_type, path)
@@ -72,8 +72,8 @@ def evaluate(exchanges: list[dict], debited_nano_aiu: int | None) -> Verdict:
                          "detail": f"debited={debited_nano_aiu} (paid model must debit > 0)"})
 
     # 4. Every observed host is within the contract's MITM set.
-    unexpected = sorted({ex.get("upstream_host") for ex in exchanges
-                         if ex.get("upstream_host") not in contract.EXPECTED_MITM_HOSTS})
+    unexpected = sorted({ex.get("host") for ex in exchanges
+                         if ex.get("host") not in contract.EXPECTED_MITM_HOSTS})
     if unexpected:
         failures.append({"assertion": "hosts_within_contract",
                          "detail": f"unexpected hosts: {unexpected}"})

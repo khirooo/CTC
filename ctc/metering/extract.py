@@ -10,7 +10,9 @@ def _usage_from_obj(obj) -> int | None:
         return None
     outer, inner = METERING_FIELD
     cu = obj.get(outer)
-    if isinstance(cu, dict) and isinstance(cu.get(inner), int):
+    # bool is an int subclass; exclude it so a stray `total_nano_aiu: true` isn't
+    # debited as 1 (matches sentinel._field_present, which also excludes bool).
+    if isinstance(cu, dict) and isinstance(cu.get(inner), int) and not isinstance(cu.get(inner), bool):
         return cu[inner]
     return None
 

@@ -18,7 +18,6 @@ Run:
 """
 
 import asyncio, ssl, os, json, logging, time
-from datetime import datetime, timezone
 from typing import Optional, Dict
 import aiohttp
 from ctc.metering.capture import record_exchange
@@ -135,11 +134,7 @@ _server_ssl: Optional[ssl.SSLContext]  = None
 # Helpers
 # ---------------------------------------------------------------------------
 def _tag(auth: str) -> str:
-    for p in ("Bearer ", "bearer ", "token ", "Token "):
-        if auth.startswith(p):
-            auth = auth[len(p):]
-            break
-    return auth.strip()[:12] or "(no-token)"
+    return strip_bearer(auth)[:12] or "(no-token)"
 
 def _emit_finding(finding):
     """Log one structured WARN line for a sentinel Finding; no-op on None."""
@@ -457,13 +452,21 @@ def is_quota_exceeded_402(status: int, body: bytes) -> bool:
 
 def candidate_givers(engine, cycle_id, consumer) -> set:
     """The set of giver_ids whose live quota is worth pre-checking for this
-    consumer: the consumer itself if it's a giver, plus every donor backing an
-    active grant to it."""
+    consumer: the consumer itself if it's a giver, every donor backing an active
+    grant to it, and — for a shared-pool-eligible consumer — every giver with pool
+    capacity. Pre-checking the pool givers is what lets select_source skip a dead
+    one and lets the caller's failover loop retry across them (otherwise a pool
+    consumer got max_attempts=1 and a dead top giver's 402 was relayed as-is)."""
     ids = set()
     if getattr(consumer, "is_giver", False):
         ids.add(consumer.user_id)
     for g in engine.active_grants(cycle_id, consumer.user_id):
         ids.add(g.donor_id)
+    if not getattr(consumer, "is_giver", False) \
+            and getattr(engine.config, "shared_pool_enabled", True) \
+            and engine.allowance_remaining(cycle_id, consumer.user_id) > 0:
+        for giver_id, _rem in engine.givers_with_pool_capacity(cycle_id):
+            ids.add(giver_id)
     return ids
 
 
@@ -544,7 +547,7 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         for k, v in hdrs.items():
             log.info("    %-30s %s", k + ":", "***MASKED***" if k == "authorization" else v)
         if body:
-            _log_block("REQUEST BODY", decode_body(body, "", hdrs.get("content-type", "")))
+            _log_block("REQUEST BODY", decode_body(body, "", hdrs.get("content-type", ""), LOG_BODY_CAP))
 
         source = None
         consumer = None
@@ -602,8 +605,21 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         # client's fake token is forwarded as-is and GHE returns 401 Bad credentials.
         # Borrow any stored giver PAT (no metering — these calls aren't billable).
         # Gated on should_swap so non-GHE MITM hosts (e.g. api.github.com) never
-        # receive a giver PAT.
+        # receive a giver PAT. Also require a recognized CTC proxy token: without
+        # this an unknown bearer could borrow a giver PAT for non-metered GHE calls
+        # (e.g. reading entitlement via /copilot_internal/user). Billable requests
+        # are already gated above; this closes the same hole on non-billable ones.
         if not pat_to_use and ATTRIBUTION is not None and should_swap(upstream_host):
+            if consumer is None:
+                consumer = ATTRIBUTION.resolve_consumer(strip_bearer(auth))
+            if consumer is None:
+                log.warning("[401] unrecognized token on non-billable GHE call (session=%s)", session)
+                resp = _ctc_block_response(
+                    path, 401,
+                    "Your CTC proxy token was not recognized. Run `ctc login` to refresh it.")
+                writer.write(resp)
+                await writer.drain()
+                continue
             pat_to_use = ATTRIBUTION.any_giver_pat() or pat_to_use
 
         # Forward with failover-on-402. For a billable request with a resolved
@@ -791,6 +807,8 @@ async def _dispatch(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
             host = hdrs.get("host", REAL_GHE_HOST).split(":")[0]
             replay = asyncio.StreamReader()
             replay.feed_data(raw)
+            replay.feed_eof()  # single one-shot request; without EOF _serve's next
+                               # _read_head blocks until the 30s timeout before close.
             _, up_host, _ = decide_route(host, 443, REAL_GHE_HOST)
             await _serve(replay, writer, up_host)
 

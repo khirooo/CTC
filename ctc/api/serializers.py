@@ -130,7 +130,6 @@ class OwnProfileDTO(CamelModel):
 
 
 ROLE_TO_REQUESTER: dict[Role, str] = {Role.GIVER: "pro", Role.CONSUMER: "noob"}
-REQUESTER_TO_ROLE: dict[str, Role] = {"pro": Role.GIVER, "noob": Role.CONSUMER}
 
 
 def initials(name: str) -> str:

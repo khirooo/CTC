@@ -1,1 +1,1 @@
-{"method":"POST","path":"/chat/completions","upstream_host":"copilot-api.example.ghe.com","status":401,"response_content_type":"application/json","response_body":"{\"error\":\"bad auth\"}"}
+{"method":"POST","path":"/chat/completions","host":"copilot-api.example.ghe.com","status":401,"response_content_type":"application/json","body":"{\"error\":\"bad auth\"}"}

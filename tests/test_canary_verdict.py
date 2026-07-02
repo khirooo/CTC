@@ -51,10 +51,10 @@ def test_null_total_nano_aiu_is_field_absent():
         {
             "method": "POST",
             "path": "/chat/completions",
-            "upstream_host": "copilot-api.example.ghe.com",
+            "host": "copilot-api.example.ghe.com",
             "status": 200,
             "response_content_type": "application/json",
-            "response_body": '{"error":"copilot_usage not available","copilot_usage":{"total_nano_aiu":null}}',
+            "body": '{"error":"copilot_usage not available","copilot_usage":{"total_nano_aiu":null}}',
         }
     ]
     v = canary.evaluate(exchanges, debited_nano_aiu=0)
@@ -72,23 +72,49 @@ def test_missing_status_key_does_not_raise():
         {
             "method": "POST",
             "path": "/chat/completions",
-            "upstream_host": "copilot-api.example.ghe.com",
+            "host": "copilot-api.example.ghe.com",
             "status": 403,
             "response_content_type": "application/json",
-            "response_body": "{}",
+            "body": "{}",
         },
         {
             "method": "POST",
             "path": "/chat/completions",
-            "upstream_host": "copilot-api.example.ghe.com",
+            "host": "copilot-api.example.ghe.com",
             # No "status" key — simulates a malformed/truncated record.
             "response_content_type": "application/json",
-            "response_body": "{}",
+            "body": "{}",
         },
     ]
     # Should not raise; we don't care about pass/fail, just no exception.
     v = canary.evaluate(exchanges, debited_nano_aiu=None)
     assert isinstance(v, canary.Verdict)
+
+
+def test_capture_record_schema_matches_canary_reader(tmp_path):
+    # Drift guard: the canary must read exactly what capture.record_exchange
+    # writes. This once diverged (writer used host/body, reader read
+    # upstream_host/response_body) so the contract canary failed on every real
+    # run while its hand-authored fixtures still passed. Feed a real captured
+    # record through evaluate() to keep the two in lockstep.
+    from ctc.metering.capture import record_exchange
+    from ctc import contract
+
+    record_exchange(
+        str(tmp_path),
+        method=contract.BILLABLE_METHOD,
+        path=next(iter(contract.BILLABLE_PATHS)),
+        upstream_host=contract.BILLABLE_HOST,
+        status=200,
+        request_headers={},
+        response_headers={},
+        response_body=b'{"copilot_usage":{"total_nano_aiu":8262952500}}',
+        response_content_type="application/json",
+    )
+    exchanges = canary.load_exchanges(str(tmp_path / "exchanges.ndjson"))
+    v = canary.evaluate(exchanges, debited_nano_aiu=8262952500)
+    assert v.verdict == "pass", v.failures
+    assert v.extracted_nano_aiu == 8262952500
 
 
 def test_write_status_roundtrip(tmp_path):

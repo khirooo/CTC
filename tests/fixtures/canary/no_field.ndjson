@@ -1,1 +1,1 @@
-{"method":"POST","path":"/chat/completions","upstream_host":"copilot-api.example.ghe.com","status":200,"response_content_type":"application/json","response_body":"{\"choices\":[{\"message\":{\"content\":\"hi\"}}]}"}
+{"method":"POST","path":"/chat/completions","host":"copilot-api.example.ghe.com","status":200,"response_content_type":"application/json","body":"{\"choices\":[{\"message\":{\"content\":\"hi\"}}]}"}
