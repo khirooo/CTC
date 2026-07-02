@@ -63,18 +63,17 @@ def _build_attribution():
     db_path = os.environ.get("CTC_DB_PATH")
     secret = os.environ.get("CTC_SECRET_KEY")
     if db_path and secret and not os.environ.get("CTC_IDENTITY_JSON"):
-        from ctc.accounting.engine import AccountingEngine
+        from ctc.accounting.wiring import build_live_engine
         from ctc.auth.crypto import derive_key
         from ctc.auth.registry import AuthRegistry
         from ctc.routing.attribution import AttributionService
         from ctc.store.auth_store import AuthStore
-        from ctc.store.accounting_store import AccountingStore
         from ctc.store.db import connect, init_db
         conn = connect(db_path)
         init_db(conn)
         store = AuthStore(conn)
         registry = AuthRegistry(store, derive_key(secret))  # implements IdentityProvider + PatRegistry
-        engine = AccountingEngine(AccountingStore(conn))
+        engine = build_live_engine(conn)
 
         # Proxy-side live-quota cache: lets the failover path pre-check each
         # candidate giver's real GitHub premium_interactions.remaining before
@@ -108,15 +107,14 @@ def _build_attribution():
     db_path = os.environ.get("CTC_DB_PATH")
     if not (ident and pats and db_path):
         return None
-    from ctc.accounting.engine import AccountingEngine
+    from ctc.accounting.wiring import build_live_engine
     from ctc.auth.identity import ConsumerIdentity, InMemoryIdentityProvider, InMemoryPatRegistry
     from ctc.routing.attribution import AttributionService
-    from ctc.store.accounting_store import AccountingStore
     from ctc.store.db import connect
 
     idmap = {tok: ConsumerIdentity(v["user_id"], bool(v["is_giver"]))
              for tok, v in _json.loads(ident).items()}
-    engine = AccountingEngine(AccountingStore(connect(db_path)))
+    engine = build_live_engine(connect(db_path))
     return AttributionService(engine, InMemoryIdentityProvider(idmap),
                               InMemoryPatRegistry(_json.loads(pats)))
 UPSTREAM_CA_BUNDLE = os.environ.get("UPSTREAM_CA_BUNDLE") or None

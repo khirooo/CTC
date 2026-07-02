@@ -12,8 +12,6 @@ from aiohttp import web
 
 from ctc.store.db import connect, init_db
 from ctc.store.auth_store import AuthStore
-from ctc.store.accounting_store import AccountingStore
-from ctc.accounting.engine import AccountingEngine
 from ctc.auth.crypto import derive_key
 from ctc.auth.registry import AuthRegistry
 from ctc.auth.sessions import SessionService
@@ -278,11 +276,8 @@ def build_from_env(session) -> web.Application:
     conn = connect(os.environ["CTC_DB_PATH"])
     init_db(conn)
     store = AuthStore(conn)
-    from ctc.store.settings_store import SettingsStore
-    from ctc.domain.settings import EffectiveConfig
-    settings_store = SettingsStore(conn)
-    effective_config = EffectiveConfig(settings_store)
-    engine = AccountingEngine(AccountingStore(conn), config=effective_config)
+    from ctc.accounting.wiring import build_live_engine
+    engine = build_live_engine(conn)
     # Never let a fresh/empty DB block the app on "no active cycle" — open the
     # current month's cycle on startup if none is active (idempotent).
     engine.ensure_active_cycle(int(time.time()))
