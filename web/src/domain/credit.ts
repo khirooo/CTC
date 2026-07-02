@@ -9,6 +9,13 @@ export const aiu = (nano: number): string =>
     maximumFractionDigits: 2,
   }) + ' AIU';
 
+/** Same number formatting as aiu(), but with the plain-word suffix used across the UI. */
+export const credits = (nano: number): string =>
+  (Number(nano || 0) / NANO_PER_AIU).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }) + ' credits';
+
 export const euros = (nano: number, rate: number = config.creditToEuroRate): string =>
   '€' +
   ((Number(nano || 0) / NANO_PER_AIU) * rate).toLocaleString('en-US', {
