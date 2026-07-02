@@ -61,16 +61,6 @@ export interface CreateRequestInput {
   expiryHours: number;
 }
 
-export interface Donation {
-  id: string;
-  requestId: string;
-  fromUserId: string;
-  toUserId: string;
-  amount: number;
-  kind: 'rotate' | 'transfer';
-  createdAt: number;
-}
-
 export interface RoleCounts {
   all: number;
   pro: number;
@@ -231,15 +221,9 @@ export interface Session {
   hasPat?: boolean;
 }
 
-export interface SignUpInput {
-  name: string;
-  email: string;
-  password: string;
-}
-
 export interface OnboardingInput {
   name: string;
-  /** Optional — captured at signup; unused by completeOnboarding today. */
+  /** Optional — carried through onboarding but not required by the backend. */
   email?: string;
   role: Role;
   pat?: string;

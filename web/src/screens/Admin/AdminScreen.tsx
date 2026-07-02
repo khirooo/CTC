@@ -3,27 +3,14 @@ import { useApp } from '@/store/AppContext';
 import { NANO_PER_AIU } from '@/domain/credit';
 import { NumberInput } from '@/components/NumberInput';
 import type { AdminUser, AdminSettings, AdminSettingsPatch } from '@/domain/types';
+import { monoLabel, card } from '@/theme/styles';
 
 // Numeric-only keys of AdminSettingsPatch (for the existing SettingRow number inputs)
 type NumericSettingKey = 'freeAllowanceAiu' | 'defaultPledgePct' | 'requestExpiryHours' | 'requestExpiryMaxHours' | 'creditToEuroRate' | 'defaultChipInAiu';
 
-// ─── Shared style constants ────────────────────────────────────────────────────
+// ─── Local style constants (shared ones live in @/theme/styles) ────────────────
 
-const card: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 16,
-  padding: 24,
-};
-
-const monoLabel: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono', monospace",
-  fontSize: 11,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
-  color: 'var(--text-faint)',
-};
-
+// Admin's field padding is tighter (9px) than the shared inputStyle (11px), kept local.
 const inputStyle: React.CSSProperties = {
   background: 'var(--surface-2)',
   border: '1px solid var(--border)',
@@ -146,7 +133,6 @@ interface SettingRowProps {
   isOverride: boolean;
   min?: number;
   max?: number;
-  step?: number;
   allowFloat?: boolean;
   onChange: (val: number) => void;
 }
@@ -366,7 +352,6 @@ export function AdminScreen() {
             value={effective('freeAllowanceAiu')}
             isOverride={settings.freeAllowanceAiu.isOverride}
             min={1}
-            step={10}
             onChange={(v) => handleFieldChange('freeAllowanceAiu', v)}
           />
           <SettingRow
@@ -401,7 +386,6 @@ export function AdminScreen() {
             value={effective('creditToEuroRate')}
             isOverride={settings.creditToEuroRate.isOverride}
             min={0}
-            step={0.001}
             allowFloat
             onChange={(v) => handleFieldChange('creditToEuroRate', v)}
           />
@@ -411,7 +395,6 @@ export function AdminScreen() {
             value={effective('defaultChipInAiu')}
             isOverride={settings.defaultChipInAiu.isOverride}
             min={1}
-            step={5}
             onChange={(v) => handleFieldChange('defaultChipInAiu', v)}
           />
 

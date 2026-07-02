@@ -22,10 +22,10 @@ describe('routes', () => {
   });
   it('redirects the old /signin path to the mode-aware /login screen', async () => {
     renderAt('/signin');
-    await waitFor(() => expect(screen.getByText('Welcome back')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Welcome to CTC')).toBeInTheDocument());
   });
   it('serves the mode-aware login screen at /login', async () => {
     renderAt('/login');
-    await waitFor(() => expect(screen.getByText('Welcome back')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Welcome to CTC')).toBeInTheDocument());
   });
 });

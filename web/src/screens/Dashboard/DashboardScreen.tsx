@@ -1,11 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
+import { ScreenStatus } from '@/components/ScreenStatus';
 import { MarketplaceHero } from './MarketplaceHero';
 import { StatTile } from '@/components';
 import { aiu, euros } from '@/domain/credit';
 import { PatHelp } from '@/components/PatHelp';
 import { UserLink } from '@/components/UserLink';
+import { LeaderRow } from '@/components/LeaderRow';
 
 const kindColor: Record<string, string> = {
   // live consumption feed
@@ -31,22 +33,11 @@ const kindLabel: Record<string, string> = {
 export function DashboardScreen() {
   const { api, session } = useApp();
   const navigate = useNavigate();
-  const { data, loading } = useAsync(() => api.getDashboard(), []);
+  const { data, loading, error } = useAsync(() => api.getDashboard(), []);
 
-  if (loading || !data) {
-    return (
-      <div
-        style={{
-          color: 'var(--text-faint)',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 13,
-          padding: 40,
-          textAlign: 'center',
-        }}
-      >
-        Loading…
-      </div>
-    );
+  if (loading) return <ScreenStatus message="Loading…" />;
+  if (error || !data) {
+    return <ScreenStatus message="Couldn't load your overview. Refresh to try again." tone="dim" />;
   }
 
   // givers_only mode + no PAT → block with license CTA
@@ -102,7 +93,7 @@ export function DashboardScreen() {
       />
 
       {/* Marketplace flow hero */}
-      <MarketplaceHero data={data} closedCount={data.closedCount} activeNonPatCount={data.activeConsumers} />
+      <MarketplaceHero data={data} />
 
       {/* Secondary stat row */}
       <div
@@ -294,29 +285,20 @@ export function DashboardScreen() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginBottom: 18 }}>
             {generous.slice(0, 3).map((entry, i) => (
-              <div
-                key={entry.name}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}
-              >
-                <span
-                  style={{
-                    color: i === 0 ? 'var(--give)' : 'var(--text-faint)',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    width: 14,
-                  }}
-                >
-                  {i + 1}
-                </span>
-                <span style={{ flex: 1 }}><UserLink userId={entry.userId} name={entry.name} /></span>
-                <span
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: 'var(--give)',
-                  }}
-                >
-                  {aiu(entry.value)}
-                </span>
-              </div>
+              <LeaderRow
+                key={entry.userId}
+                rank={i + 1}
+                userId={entry.userId}
+                name={entry.name}
+                value={aiu(entry.value)}
+                valueColor="var(--give)"
+                rankColor={i === 0 ? 'var(--give)' : undefined}
+                rankWidth={14}
+                rankWeight={400}
+                gap={10}
+                rowFontSize={13}
+                valueStyle={{ fontWeight: 400 }}
+              />
             ))}
             {generous.length === 0 && (
               <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>No data yet</div>
@@ -338,29 +320,20 @@ export function DashboardScreen() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {topConsumers.slice(0, 3).map((entry, i) => (
-              <div
-                key={entry.name}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}
-              >
-                <span
-                  style={{
-                    color: i === 0 ? 'var(--consume)' : 'var(--text-faint)',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    width: 14,
-                  }}
-                >
-                  {i + 1}
-                </span>
-                <span style={{ flex: 1 }}><UserLink userId={entry.userId} name={entry.name} /></span>
-                <span
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: 'var(--consume)',
-                  }}
-                >
-                  {aiu(entry.value)}
-                </span>
-              </div>
+              <LeaderRow
+                key={entry.userId}
+                rank={i + 1}
+                userId={entry.userId}
+                name={entry.name}
+                value={aiu(entry.value)}
+                valueColor="var(--consume)"
+                rankColor={i === 0 ? 'var(--consume)' : undefined}
+                rankWidth={14}
+                rankWeight={400}
+                gap={10}
+                rowFontSize={13}
+                valueStyle={{ fontWeight: 400 }}
+              />
             ))}
             {topConsumers.length === 0 && (
               <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>No data yet</div>

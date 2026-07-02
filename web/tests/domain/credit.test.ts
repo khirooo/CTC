@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { euros, aiu, fmt, deriveStatus, donationKind, pct, NANO_PER_AIU } from '@/domain/credit';
+import { euros, aiu, deriveStatus, pct, NANO_PER_AIU } from '@/domain/credit';
 
 describe('credit math', () => {
   it('converts nano-AIU credits to euros at 0.0088/AIU', () => {
@@ -10,9 +10,6 @@ describe('credit math', () => {
     expect(aiu(35 * NANO_PER_AIU)).toBe('35.00 AIU');
     expect(aiu(9800 * NANO_PER_AIU)).toBe('9,800.00 AIU');
     expect(aiu(0)).toBe('0.00 AIU');
-  });
-  it('formats numbers with thousands separators', () => {
-    expect(fmt(5680)).toBe('5,680');
   });
   it('clamps funded percentage 0..100', () => {
     expect(pct(35, 60)).toBe(58);
@@ -27,9 +24,5 @@ describe('credit math', () => {
     expect(deriveStatus(10, 60, now - 1, now)).toBe('expired');
     // fulfilled wins even if expired
     expect(deriveStatus(60, 60, now - 1, now)).toBe('fulfilled');
-  });
-  it('classifies donation kind by recipient role', () => {
-    expect(donationKind('pro', 'pro')).toBe('rotate');
-    expect(donationKind('pro', 'noob')).toBe('transfer');
   });
 });

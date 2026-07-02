@@ -33,3 +33,16 @@ body{
   color:var(--text);
   -webkit-font-smoothing:antialiased;
 }
+
+/* Interaction polish (applies app-wide; screens use inline styles otherwise).
+   - Keyboard focus is now visible everywhere (was outline:none with no ring). */
+button,a,input,textarea,select,[role="button"]{
+  transition:background-color .15s ease,border-color .15s ease,color .15s ease,
+             box-shadow .15s ease,opacity .15s ease,filter .15s ease;
+}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px;}
+input:focus,textarea:focus,select:focus{
+  outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);
+}
+button:not(:disabled):hover{filter:brightness(1.07);}
+button:disabled{opacity:.55;cursor:not-allowed;}

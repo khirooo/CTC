@@ -5,10 +5,12 @@ import { useAsync } from '@/store/useAsync';
 import { CtcApiError } from '@/api/http';
 import { aiu } from '@/domain/credit';
 import { Card } from '@/components';
+import { ScreenStatus } from '@/components/ScreenStatus';
 import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar';
 import { CopyButton } from '@/components/CopyButton';
 import { PatHelp } from '@/components/PatHelp';
 import { TierBadge } from '@/components/TierBadge';
+import { monoLabel, card, inputStyle } from '@/theme/styles';
 
 function resetLine(resetDate: string | null | undefined): string | null {
   if (!resetDate) return null;
@@ -25,32 +27,6 @@ function nudgeLine(tier: string | null, netToNext: number | null): string | null
   return null;
 }
 
-const monoLabel: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono', monospace",
-  fontSize: 11,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
-  color: 'var(--text-faint)',
-};
-
-const card: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 16,
-  padding: 24,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--surface-2)',
-  border: '1px solid var(--border)',
-  borderRadius: 10,
-  padding: '11px 13px',
-  color: 'var(--text)',
-  fontFamily: 'inherit',
-  fontSize: 14,
-  outline: 'none',
-};
 
 /**
  * The single account screen — identity, credit cycle (with the giver pledge
@@ -73,12 +49,9 @@ export function ProfileScreen() {
   const [rotating, setRotating] = useState(false);
   const [revoking, setRevoking] = useState(false);
 
-  if (settings.loading || !settings.data) {
-    return (
-      <div style={{ color: 'var(--text-faint)', fontFamily: "'JetBrains Mono', monospace", fontSize: 13, padding: 40, textAlign: 'center' }}>
-        Loading…
-      </div>
-    );
+  if (settings.loading) return <ScreenStatus message="Loading…" />;
+  if (settings.error || !settings.data) {
+    return <ScreenStatus message="Couldn't load your profile. Refresh to try again." tone="dim" />;
   }
 
   const data = settings.data;

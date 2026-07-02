@@ -7,6 +7,7 @@ import { NANO_PER_AIU, aiu } from '@/domain/credit';
 import { CreditBar, CreditLegend } from '@/components/CreditBar';
 import { CopyButton } from '@/components/CopyButton';
 import { PatHelp } from '@/components/PatHelp';
+import { monoLabel } from '@/theme/styles';
 
 type Role = 'giver' | 'consumer';
 type Step = 'role' | 'pat' | 'pledge' | 'install';
@@ -124,14 +125,6 @@ export function OnboardingScreen() {
     borderRadius: 18,
     padding: 32,
     boxShadow: 'var(--shadow)',
-  };
-
-  const monoLabel: React.CSSProperties = {
-    fontFamily: "'JetBrains Mono',monospace",
-    fontSize: 11,
-    letterSpacing: '.12em',
-    textTransform: 'uppercase',
-    color: 'var(--text-faint)',
   };
 
   const primaryBtn: React.CSSProperties = {

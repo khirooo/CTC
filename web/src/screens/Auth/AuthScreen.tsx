@@ -1,18 +1,13 @@
 import { useApp } from '@/store/AppContext';
 import { TerminalMotif } from './TerminalMotif';
 
-interface AuthScreenProps {
-  mode: 'signin' | 'signup';
-}
-
-export function AuthScreen({ mode }: AuthScreenProps) {
+export function AuthScreen() {
   const { signIn } = useApp();
 
-  const heading = mode === 'signup' ? 'Create account' : 'Welcome back';
-  const subtitle =
-    mode === 'signup'
-      ? 'Sign in with GitLab to get started — your account is created on first login.'
-      : 'Sign in to route surplus across your team.';
+  // Single OAuth entry point. Accounts are created on first GitLab login, so
+  // there is no separate sign-up screen (the old /signup route redirects here).
+  const heading = 'Welcome to CTC';
+  const subtitle = 'Sign in with GitLab — your account is created on first login.';
 
   const submitBtnStyle: React.CSSProperties = {
     marginTop: 6,

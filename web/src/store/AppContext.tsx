@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { CtcApi } from '@/api/CtcApi';
 import { HttpCtcApi } from '@/api/HttpCtcApi';
-import type { Session, OnboardingInput } from '@/domain/types';
+import type { Session } from '@/domain/types';
 
 // The default api talks to the real control-plane. There is no mock backend in
 // the shipped app — VITE_API_BASE must be set at build/dev time. (Tests inject a
@@ -28,7 +28,6 @@ function makeDefaultApi(): CtcApi {
 interface AppContextValue {
   session: Session | null;
   signIn(email: string, password: string): Promise<void>;
-  completeOnboarding(input: OnboardingInput): Promise<void>;
   signOut(): Promise<void>;
   api: CtcApi;
   refresh(): Promise<Session | null>;
@@ -40,16 +39,20 @@ interface AppProviderProps {
   children: ReactNode;
   /** Pass a CtcApi instance (tests inject a fake) — defaults to the real HttpCtcApi. */
   api?: CtcApi;
+  /** Seed the session synchronously (dev-preview harness / tests) so guarded
+   *  routes render on first paint instead of after the async getSession resolves.
+   *  Production leaves this undefined → session starts null as before. */
+  initialSession?: Session | null;
 }
 
-export function AppProvider({ children, api: apiProp }: AppProviderProps) {
+export function AppProvider({ children, api: apiProp, initialSession = null }: AppProviderProps) {
   // Resolve the api once on first render and hand the same real CtcApi instance
   // to consumers — typed, referentially stable, methods callable with correct `this`.
   // The `api` prop does not change after mount in practice.
   const apiRef = useRef<CtcApi>(apiProp ?? makeDefaultApi());
   const api = apiRef.current;
 
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(initialSession);
 
   // Restore session from the api on mount.
   // Cancelled guard prevents setState after unmount.
@@ -71,15 +74,9 @@ export function AppProvider({ children, api: apiProp }: AppProviderProps) {
 
   const signIn = useCallback(
     async (email: string, password: string): Promise<void> => {
+      // Real backend: OAuth redirect (args ignored, never resolves). Test fake:
+      // `email` selects the seeded user to log in as.
       const s = await api.signIn(email, password);
-      setSession(s);
-    },
-    [api],
-  );
-
-  const completeOnboarding = useCallback(
-    async (input: OnboardingInput): Promise<void> => {
-      const s = await api.completeOnboarding(input);
       setSession(s);
     },
     [api],
@@ -91,8 +88,8 @@ export function AppProvider({ children, api: apiProp }: AppProviderProps) {
   }, [api]);
 
   const value: AppContextValue = useMemo(
-    () => ({ session, signIn, completeOnboarding, signOut, api, refresh }),
-    [session, signIn, completeOnboarding, signOut, api, refresh],
+    () => ({ session, signIn, signOut, api, refresh }),
+    [session, signIn, signOut, api, refresh],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

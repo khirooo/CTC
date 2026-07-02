@@ -47,3 +47,7 @@ docs/superpowers/
 
 # Metering capture spike output (CTC_CAPTURE_DIR) — the tests/fixtures copy is the only tracked one
 /exchanges.ndjson
+
+# dev-only preview harness (not shipped)
+web/dev-preview.html
+web/dev-preview.tsx

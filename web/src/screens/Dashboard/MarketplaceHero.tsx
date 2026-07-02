@@ -5,8 +5,6 @@ import { useApp } from '@/store/AppContext';
 
 interface Props {
   data: DashboardData;
-  closedCount?: number;
-  activeNonPatCount?: number;
 }
 
 const connector = (color: string) => ({
@@ -31,12 +29,12 @@ const connectorMix = (a: string, b: string) => ({
   opacity: 0.7,
 });
 
-export function MarketplaceHero({ data, closedCount, activeNonPatCount }: Props) {
+export function MarketplaceHero({ data }: Props) {
   const navigate = useNavigate();
   const { session } = useApp();
   const eur = (nano: number) => euros(nano, session?.creditToEuroRate);
-  const _closedCount = closedCount ?? data.closedCount ?? 0;
-  const _activeNonPatCount = activeNonPatCount ?? data.activeConsumers;
+  const _closedCount = data.closedCount ?? 0;
+  const _activeNonPatCount = data.activeConsumers;
 
   return (
     <div

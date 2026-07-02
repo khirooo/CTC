@@ -26,6 +26,8 @@ export interface ListRequestsResult {
 export interface CtcApi {
   // Auth (real backend is OAuth-only: signIn redirects to GHE; accounts are
   // created on first login, so there is no separate sign-up).
+  // email/password are ignored by the real OAuth backend (signIn redirects to
+  // GitLab); the test fake uses `email` to select which seeded user to log in as.
   signIn(email: string, password: string): Promise<Session>;
   signOut(): Promise<void>;
   getSession(): Promise<Session | null>;

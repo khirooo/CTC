@@ -26,7 +26,7 @@ export function AppRoutes() {
             are redirected to /app/dashboard by RequireGuest. */}
         <Route path="/" element={<LandingScreen />} />
         {/* Login screen: single "Continue with GitLab" button. */}
-        <Route path="/login" element={<AuthScreen mode="signin" />} />
+        <Route path="/login" element={<AuthScreen />} />
         {/* Old standalone paths now point at the mode-aware login screen. */}
         <Route path="/signin" element={<Navigate to="/login" replace />} />
         <Route path="/signup" element={<Navigate to="/login" replace />} />

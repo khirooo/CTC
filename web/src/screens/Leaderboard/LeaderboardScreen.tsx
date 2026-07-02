@@ -1,9 +1,10 @@
 import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
+import { ScreenStatus } from '@/components/ScreenStatus';
 import { aiu } from '@/domain/credit';
 import type { LeaderboardEntry } from '@/domain/types';
 import { TierBadge } from '@/components/TierBadge';
-import { UserLink } from '@/components/UserLink';
+import { LeaderRow } from '@/components/LeaderRow';
 
 interface TrackConfig {
   label: string;
@@ -48,47 +49,17 @@ function TrackCard({ label, subtitle, icon, color, softColor, entries }: TrackCo
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
         {entries.map((entry, i) => (
-          <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontWeight: 600,
-                color: i === 0 ? color : 'var(--text-faint)',
-                width: 16,
-              }}
-            >
-              {i + 1}
-            </span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600 }}><UserLink userId={entry.userId} name={entry.name} /></div>
-              <div
-                style={{
-                  height: 5,
-                  borderRadius: 3,
-                  background: softColor,
-                  overflow: 'hidden',
-                  marginTop: 6,
-                }}
-              >
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.round((entry.value / max) * 100)}%`,
-                    background: color,
-                  }}
-                />
-              </div>
-            </div>
-            <span
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontWeight: 600,
-                color,
-              }}
-            >
-              {aiu(entry.value)}
-            </span>
-          </div>
+          <LeaderRow
+            key={entry.userId}
+            rank={i + 1}
+            userId={entry.userId}
+            name={entry.name}
+            value={aiu(entry.value)}
+            valueColor={color}
+            rankColor={i === 0 ? color : undefined}
+            nameStyle={{ fontSize: 13.5, fontWeight: 600 }}
+            bar={{ fraction: entry.value / max, color, track: softColor }}
+          />
         ))}
         {entries.length === 0 && (
           <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>No data yet</div>
@@ -100,22 +71,11 @@ function TrackCard({ label, subtitle, icon, color, softColor, entries }: TrackCo
 
 export function LeaderboardScreen() {
   const { api } = useApp();
-  const { data, loading } = useAsync(() => api.getLeaderboard(), []);
+  const { data, loading, error } = useAsync(() => api.getLeaderboard(), []);
 
-  if (loading || !data) {
-    return (
-      <div
-        style={{
-          color: 'var(--text-faint)',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 13,
-          padding: 40,
-          textAlign: 'center',
-        }}
-      >
-        Loading…
-      </div>
-    );
+  if (loading) return <ScreenStatus message="Loading…" />;
+  if (error || !data) {
+    return <ScreenStatus message="Couldn't load the leaderboard. Refresh to try again." tone="dim" />;
   }
 
   const tracks: TrackConfig[] = [
@@ -172,31 +132,18 @@ export function LeaderboardScreen() {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {data.standings.map((s, i) => (
-            <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span
-                style={{
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontWeight: 600,
-                  color: 'var(--text-faint)',
-                  width: 18,
-                }}
-              >
-                {i + 1}
-              </span>
-              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}><UserLink userId={s.userId} name={s.name} /></span>
-              <TierBadge tier={s.tier} />
-              <span
-                style={{
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontWeight: 600,
-                  width: 110,
-                  textAlign: 'right',
-                  color: s.net < 0 ? 'var(--consume)' : 'var(--give)',
-                }}
-              >
-                {s.net >= 0 ? '+' : ''}{aiu(s.net)}
-              </span>
-            </div>
+            <LeaderRow
+              key={s.userId}
+              rank={i + 1}
+              userId={s.userId}
+              name={s.name}
+              value={`${s.net >= 0 ? '+' : ''}${aiu(s.net)}`}
+              valueColor={s.net < 0 ? 'var(--consume)' : 'var(--give)'}
+              rankWidth={18}
+              nameStyle={{ fontSize: 13.5, fontWeight: 600 }}
+              trailing={<TierBadge tier={s.tier} />}
+              valueStyle={{ width: 110, textAlign: 'right' }}
+            />
           ))}
           {data.standings.length === 0 && (
             <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>No standings yet</div>

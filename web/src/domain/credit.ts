@@ -3,8 +3,6 @@ import type { RequestStatus } from './types';
 
 export const NANO_PER_AIU = 1_000_000_000;
 
-export const fmt = (n: number): string => Number(n || 0).toLocaleString('en-US');
-
 export const aiu = (nano: number): string =>
   (Number(nano || 0) / NANO_PER_AIU).toLocaleString('en-US', {
     minimumFractionDigits: 2,
@@ -32,8 +30,3 @@ export function deriveStatus(
   if (amountFunded > 0) return 'partially_funded';
   return 'open';
 }
-
-export const donationKind = (
-  _fromRole: 'pro' | 'noob',
-  toRole: 'pro' | 'noob',
-): 'rotate' | 'transfer' => (toRole === 'pro' ? 'rotate' : 'transfer');

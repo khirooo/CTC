@@ -5,6 +5,7 @@ import { aiu, euros } from '@/domain/credit';
 import { tierMeta } from '@/domain/tiers';
 import { TierBadge } from '@/components/TierBadge';
 import { Avatar } from '@/components/Avatar';
+import { monoLabel as monoLabelBase } from '@/theme/styles';
 
 // Short, aristocracy-flavoured blurb keyed to the giver's standing tier.
 function tierBlurb(tier: string | null): string {
@@ -20,24 +21,22 @@ function tierBlurb(tier: string | null): string {
   }
 }
 
-const monoLabel: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono', monospace",
-  fontSize: 10,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase',
-  color: 'var(--text-faint)',
-};
+// PublicProfile uses a slightly smaller (10px) mono caption than the shared 11px.
+const monoLabel: React.CSSProperties = { ...monoLabelBase, fontSize: 10 };
 
 export function PublicProfileScreen() {
   const { id } = useParams<{ id: string }>();
   const { api, session } = useApp();
 
-  // Redirect own profile to the editable profile screen
+  // Hooks must run unconditionally and in a stable order — keep useAsync above
+  // any early return. (session restores asynchronously, so an early return that
+  // gated this hook would change the hook count between renders and crash.)
+  const { data: p, loading, error } = useAsync(() => api.getUserProfile(id!), [id]);
+
+  // Redirect own profile to the editable profile screen.
   if (id && session && id === session.userId) {
     return <Navigate to="/app/profile" replace />;
   }
-
-  const { data: p, loading, error } = useAsync(() => api.getUserProfile(id!), [id]);
 
   if (loading) {
     return (
