@@ -1,6 +1,7 @@
 import { aiu, euros, NANO_PER_AIU } from '@/domain/credit';
 import type { CycleReport } from '@/domain/types';
 import { monoLabel } from '@/theme/styles';
+import { InfoTip } from '@/components/InfoTip';
 
 /** One KPI card in the cycle-summary stat row (mono value; optional bar/sub below). */
 function StatCard({ label, value, children }: {
@@ -57,7 +58,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
               {report.label} · cycle summary
             </div>
             <div style={{ fontSize: 15, color: 'var(--text-dim)', marginTop: 3 }}>
-              Where credits were pledged, chipped in and routed
+              Where credits came from and where they went
             </div>
           </div>
           <span
@@ -86,7 +87,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                 color: 'var(--text-faint)',
               }}
             >
-              Pledged
+              Shared with the pool
             </span>
             <span
               style={{
@@ -100,7 +101,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
               {aiu(report.pledged)}
             </span>
             <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-              total pledged surplus · <span style={{ color: 'var(--give)' }}>≈ {euros(report.pledged, rate)}</span>
+              total set aside by Hosts · <span style={{ color: 'var(--give)' }}>≈ {euros(report.pledged, rate)}</span>
             </span>
           </div>
 
@@ -136,9 +137,13 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                 letterSpacing: '0.12em',
                 textTransform: 'uppercase',
                 color: 'var(--text-faint)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
               }}
             >
               Actually chipped in
+              <InfoTip term="chipIn" />
             </span>
             <div
               style={{
@@ -239,7 +244,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                 </span>
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>
-                routed to Hosts · <span style={{ color: 'var(--give)' }}>≈ {euros(report.toPat, rate)}</span>
+                routed to Hosts <InfoTip term="routed" /> · <span style={{ color: 'var(--give)' }}>≈ {euros(report.toPat, rate)}</span>
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>

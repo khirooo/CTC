@@ -131,7 +131,7 @@ export function MarketplaceHero({ data }: Props) {
                   display: 'inline-block',
                 }}
               />
-              Pledged credits
+              Shared with the pool
             </span>
             <span
               style={{
@@ -154,7 +154,7 @@ export function MarketplaceHero({ data }: Props) {
               ≈ {eur(data.pledged)}
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
-              free allowance for Guests
+              what Hosts set aside for everyone
             </span>
           </div>
 
@@ -169,7 +169,7 @@ export function MarketplaceHero({ data }: Props) {
                 color: 'var(--text-faint)',
               }}
             >
-              Retained
+              Kept for themselves
             </span>
             <span
               style={{
@@ -192,7 +192,7 @@ export function MarketplaceHero({ data }: Props) {
               ≈ {eur(data.retained)}
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
-              the Host&apos;s own credit — kept out of the pool
+              each Host&apos;s own credits — not in the pool
             </span>
           </div>
         </div>
@@ -322,7 +322,7 @@ export function MarketplaceHero({ data }: Props) {
                   color: 'var(--text-dim)',
                 }}
               >
-                Guests on free allowance
+                Guests using free credits
               </span>
             </div>
           </div>

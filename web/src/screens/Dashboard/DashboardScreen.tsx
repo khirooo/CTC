@@ -4,8 +4,8 @@ import { useAsync } from '@/store/useAsync';
 import { ScreenStatus } from '@/components/ScreenStatus';
 import { MarketplaceHero } from './MarketplaceHero';
 import { SetupChecklist } from './SetupChecklist';
-import { StatTile } from '@/components';
-import { aiu, euros } from '@/domain/credit';
+import { StatTile, InfoTip } from '@/components';
+import { credits, euros } from '@/domain/credit';
 import { PatHelp } from '@/components/PatHelp';
 import { UserLink } from '@/components/UserLink';
 import { LeaderRow } from '@/components/LeaderRow';
@@ -111,10 +111,15 @@ export function DashboardScreen() {
         }}
       >
         <StatTile
-          label="Chipped in this week"
+          label={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Chipped in this week
+              <InfoTip term="chipIn" />
+            </span>
+          }
           value={
             <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-              {aiu(data.donatedThisWeek)}{' '}
+              {credits(data.donatedThisWeek)}{' '}
               <span style={{ fontSize: 12, color: 'var(--give)' }}>≈ {euros(data.donatedThisWeek, session?.creditToEuroRate)}</span>
             </span>
           }
@@ -200,6 +205,7 @@ export function DashboardScreen() {
               </span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--reroute)' }} /> pool
+                <InfoTip term="pool" />
               </span>
               <span>· 24h</span>
             </span>
@@ -297,7 +303,7 @@ export function DashboardScreen() {
                 rank={i + 1}
                 userId={entry.userId}
                 name={entry.name}
-                value={aiu(entry.value)}
+                value={credits(entry.value)}
                 valueColor="var(--give)"
                 rankColor={i === 0 ? 'var(--give)' : undefined}
                 rankWidth={14}
@@ -332,7 +338,7 @@ export function DashboardScreen() {
                 rank={i + 1}
                 userId={entry.userId}
                 name={entry.name}
-                value={aiu(entry.value)}
+                value={credits(entry.value)}
                 valueColor="var(--consume)"
                 rankColor={i === 0 ? 'var(--consume)' : undefined}
                 rankWidth={14}

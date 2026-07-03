@@ -150,7 +150,7 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
               fontSize: 13,
             }}
             onClick={() => {
-              const raw = window.prompt(`Chip in how many AIU?`, String(chipInAiu));
+              const raw = window.prompt(`Chip in how many credits?`, String(chipInAiu));
               if (raw == null) return;
               const n = Number(raw);
               if (!Number.isFinite(n) || n <= 0) return;

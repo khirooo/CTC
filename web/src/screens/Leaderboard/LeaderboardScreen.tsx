@@ -1,10 +1,11 @@
 import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
 import { ScreenStatus } from '@/components/ScreenStatus';
-import { aiu } from '@/domain/credit';
+import { credits } from '@/domain/credit';
 import type { LeaderboardEntry } from '@/domain/types';
 import { TierBadge } from '@/components/TierBadge';
 import { LeaderRow } from '@/components/LeaderRow';
+import { InfoTip } from '@/components/InfoTip';
 
 interface TrackConfig {
   label: string;
@@ -54,7 +55,7 @@ function TrackCard({ label, subtitle, icon, color, softColor, entries }: TrackCo
             rank={i + 1}
             userId={entry.userId}
             name={entry.name}
-            value={aiu(entry.value)}
+            value={credits(entry.value)}
             valueColor={color}
             rankColor={i === 0 ? color : undefined}
             nameStyle={{ fontSize: 13.5, fontWeight: 600 }}
@@ -128,7 +129,7 @@ export function LeaderboardScreen() {
       >
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Standings</div>
         <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 18 }}>
-          Net contribution this cycle — given minus taken. Nobody hides.
+          Net contribution <InfoTip term="net" /> this cycle — given minus taken. Nobody hides.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {data.standings.map((s, i) => (
@@ -137,7 +138,7 @@ export function LeaderboardScreen() {
               rank={i + 1}
               userId={s.userId}
               name={s.name}
-              value={`${s.net >= 0 ? '+' : ''}${aiu(s.net)}`}
+              value={`${s.net >= 0 ? '+' : ''}${credits(s.net)}`}
               valueColor={s.net < 0 ? 'var(--consume)' : 'var(--give)'}
               rankWidth={18}
               nameStyle={{ fontSize: 13.5, fontWeight: 600 }}
