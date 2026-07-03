@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { OnboardingScreen } from '@/screens/Onboarding/OnboardingScreen';
@@ -70,6 +70,26 @@ function renderWithRealGuard(mockApi: any) {
 
 beforeEach(() => vi.restoreAllMocks());
 
+const fakeSessionUserId = 'u1';
+
+function defaultOnboardingApi(overrides: Record<string, unknown> = {}) {
+  return {
+    validatePat: vi.fn().mockResolvedValue({ gheLogin: 'ada', quotaAiu: 1500, pledgedNano: 150 * 1_000_000_000 }),
+    updateSettings: vi.fn().mockResolvedValue({}),
+    markOnboarded: vi.fn().mockResolvedValue(undefined),
+    getCliCredentials: vi.fn().mockResolvedValue({
+      token: 'github_pat_TOK', proxyHost: 'localhost:8080',
+      installCommand: 'curl -fsSL https://localhost/install.sh | sh -s -- --token github_pat_TOK',
+    }),
+    ...overrides,
+  };
+}
+
+function renderOnboarding(apiOverrides: Record<string, unknown> = {}) {
+  stubApp(defaultOnboardingApi(apiOverrides));
+  renderScreen();
+}
+
 describe('OnboardingScreen wizard', () => {
   it('giver path: validates PAT, shows quota, caps pledge slider to quota', async () => {
     const api = {
@@ -83,7 +103,7 @@ describe('OnboardingScreen wizard', () => {
     };
     stubApp(api);
     renderScreen();
-    await userEvent.click(screen.getByRole('button', { name: /host/i }));
+    await userEvent.click(screen.getByRole("button", { name: /join as a host/i }));
     await userEvent.click(screen.getByRole('button', { name: /continue|next/i }));
     await userEvent.type(screen.getByPlaceholderText(/github_pat/i), 'github_pat_abc');
     await userEvent.click(screen.getByRole('button', { name: /validate|verify/i }));
@@ -133,7 +153,7 @@ describe('OnboardingScreen wizard', () => {
     };
     stubApp(api);
     renderScreen();
-    await userEvent.click(screen.getByRole('button', { name: /host/i }));
+    await userEvent.click(screen.getByRole("button", { name: /join as a host/i }));
     await userEvent.click(screen.getByRole('button', { name: /continue|next/i }));
     await userEvent.type(screen.getByPlaceholderText(/github_pat/i), 'github_pat_x');
     await userEvent.click(screen.getByRole('button', { name: /validate|verify/i }));
@@ -211,7 +231,7 @@ describe('OnboardingScreen wizard', () => {
     };
     stubApp(api);
     renderScreen();
-    await userEvent.click(screen.getByRole('button', { name: /host/i }));
+    await userEvent.click(screen.getByRole("button", { name: /join as a host/i }));
     await userEvent.click(screen.getByRole('button', { name: /continue|next/i }));
     await userEvent.type(screen.getByPlaceholderText(/github_pat/i), 'github_pat_abc');
     await userEvent.click(screen.getByRole('button', { name: /validate|verify/i }));
@@ -235,7 +255,7 @@ describe('OnboardingScreen wizard', () => {
     renderScreen();
 
     // Navigate to giver → PAT step
-    await userEvent.click(screen.getByRole('button', { name: /host/i }));
+    await userEvent.click(screen.getByRole("button", { name: /join as a host/i }));
     await userEvent.click(screen.getByRole('button', { name: /continue|next/i }));
 
     // Enter PAT and validate
@@ -245,13 +265,55 @@ describe('OnboardingScreen wizard', () => {
     // Wait for pledge step
     await waitFor(() => expect(screen.getByRole('slider')).toBeInTheDocument());
 
-    // Click Save pledge
-    await userEvent.click(screen.getByRole('button', { name: /save pledge/i }));
+    // Click Save
+    await userEvent.click(screen.getByRole('button', { name: /^Save/i }));
 
     // updateSettings must be called with a pledgedSurplus number
     await waitFor(() => expect(api.updateSettings).toHaveBeenCalledOnce());
     const [patch] = api.updateSettings.mock.calls[0];
     expect(patch).toHaveProperty('pledgedSurplus');
     expect(typeof patch.pledgedSurplus).toBe('number');
+  });
+
+  it('frames the role choice around having a license', async () => {
+    renderOnboarding();
+    expect(await screen.findByText('Do you have a GitHub Copilot license?')).toBeInTheDocument();
+    expect(screen.getByText('Yes — join as a Host')).toBeInTheDocument();
+    expect(screen.getByText('No — join as a Guest')).toBeInTheDocument();
+    expect(screen.getByText(/If you can use Copilot in your IDE today/)).toBeInTheDocument();
+  });
+
+  it('shows a step indicator', async () => {
+    renderOnboarding();
+    expect(await screen.findByText(/Step 1 of/)).toBeInTheDocument();
+  });
+
+  it('explains why the PAT is needed before the input', async () => {
+    renderOnboarding();
+    fireEvent.click(await screen.findByText('Yes — join as a Host'));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    expect(await screen.findByText(/measure your monthly quota/)).toBeInTheDocument();
+  });
+
+  it('install step is a numbered terminal ritual with explicit CTAs', async () => {
+    renderOnboarding(); // as a consumer/Guest path
+    fireEvent.click(await screen.findByText('No — join as a Guest'));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    expect(await screen.findByText('Open a terminal on your laptop')).toBeInTheDocument();
+    expect(screen.getByText('Paste this command and press Enter')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /I ran it — enter CTC/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /I'll do it later/ })).toBeInTheDocument();
+  });
+
+  it('"I ran it" persists installAck=true', async () => {
+    localStorage.clear();
+    renderOnboarding();
+    fireEvent.click(await screen.findByText('No — join as a Guest'));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /I ran it — enter CTC/ }));
+    await waitFor(() => {
+      const uid = fakeSessionUserId;
+      expect(JSON.parse(localStorage.getItem(`ctc:setup:${uid}`)!)?.installAck).toBe(true);
+    });
   });
 });

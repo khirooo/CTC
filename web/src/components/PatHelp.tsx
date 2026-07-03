@@ -7,7 +7,7 @@
  * The required Account permissions are confirmed: Copilot Requests / Chat / Editor
  * Context → Read-only; Gists → Read and write.
  */
-export function PatHelp({ style }: { style?: React.CSSProperties }) {
+export function PatHelp({ style, heading = "Don't have a token yet?" }: { style?: React.CSSProperties; heading?: string }) {
   const gheHost = (import.meta.env.VITE_GHE_HOST as string | undefined)?.replace(/\/+$/, '');
   const tokenUrl = gheHost ? `${gheHost}/settings/personal-access-tokens/new` : null;
 
@@ -24,7 +24,7 @@ export function PatHelp({ style }: { style?: React.CSSProperties }) {
       }}
     >
       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: tokenUrl ? 10 : 8 }}>
-        Don&apos;t have a token yet?
+        {heading}
       </div>
 
       {tokenUrl && (

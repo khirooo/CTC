@@ -3,14 +3,38 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { CtcApiError } from '@/api/http';
 import { config } from '@/domain/config';
-import { NANO_PER_AIU, aiu } from '@/domain/credit';
+import { NANO_PER_AIU, aiu, credits } from '@/domain/credit';
+import { saveSetupState } from '@/domain/setupState';
 import { CreditBar, CreditLegend } from '@/components/CreditBar';
-import { CopyButton } from '@/components/CopyButton';
+import { TerminalBlock } from '@/components/TerminalBlock';
 import { PatHelp } from '@/components/PatHelp';
 import { monoLabel } from '@/theme/styles';
 
 type Role = 'giver' | 'consumer';
 type Step = 'role' | 'pat' | 'pledge' | 'install';
+
+const stepHint: React.CSSProperties = { fontSize: 12.5, color: 'var(--text-faint)', margin: '4px 0 0', lineHeight: 1.5 };
+
+function InstallStep({ n, title, children }: { n: number; title: string; children?: React.ReactNode }) {
+  return (
+    <li style={{ display: 'flex', gap: 12 }}>
+      <span
+        style={{
+          width: 22, height: 22, borderRadius: '50%', flex: 'none', marginTop: 1,
+          background: 'var(--accent-soft)', color: 'var(--accent)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 600,
+        }}
+      >
+        {n}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{title}</span>
+        {children}
+      </span>
+    </li>
+  );
+}
 
 export function OnboardingScreen() {
   const { session, api, refresh } = useApp();
@@ -105,6 +129,11 @@ export function OnboardingScreen() {
     }
   }
 
+  async function finishInstall(ranIt: boolean) {
+    if (session) saveSetupState(session.userId, { installAck: ranIt });
+    await finish(); // existing markOnboarded + navigate
+  }
+
   // Compute nano-AIU values for the pledge CreditBar from validatePat results.
   // usedNano is the backend's single-source figure (own_consumed + bypass_consumed),
   // NOT a TS recompute of entitlement − remaining; max slider = remaining.
@@ -152,6 +181,21 @@ export function OnboardingScreen() {
     fontSize: 14,
     cursor: 'pointer',
   };
+
+  const stepLabels: Record<Step, string> = {
+    role: 'Choose your role',
+    pat: 'Connect license',
+    pledge: 'Share with the pool',
+    install: 'Terminal setup',
+  };
+  // Hosts: role→pat→(pledge)→install; Guests: role→install.
+  const visibleSteps: Step[] =
+    role === 'giver'
+      ? session?.sharedPoolEnabled === false
+        ? ['role', 'pat', 'install']
+        : ['role', 'pat', 'pledge', 'install']
+      : ['role', 'install'];
+  const stepIndex = Math.max(0, visibleSteps.indexOf(step));
 
   const roleCardStyle = (selected: boolean): React.CSSProperties => ({
     border: selected ? '1.5px solid var(--accent)' : '1px solid var(--border)',
@@ -203,14 +247,27 @@ export function OnboardingScreen() {
 
       <div style={cardStyle}>
 
+        {/* ── STEP INDICATOR ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: 'var(--text-faint)', letterSpacing: '0.08em' }}>
+            Step {stepIndex + 1} of {visibleSteps.length}
+          </span>
+          <div style={{ display: 'flex', gap: 5, flex: 1 }}>
+            {visibleSteps.map((s, i) => (
+              <span key={s} title={stepLabels[s]} style={{ height: 3, flex: 1, borderRadius: 2, background: i <= stepIndex ? 'var(--accent)' : 'var(--border)' }} />
+            ))}
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{stepLabels[step]}</span>
+        </div>
+
         {/* ── ROLE STEP ── */}
         {step === 'role' && (
           <>
             <h2 style={{ fontSize: 22, fontWeight: 600, margin: '0 0 4px', letterSpacing: '-.01em' }}>
-              How will you use CTC?
+              Do you have a GitHub Copilot license?
             </h2>
             <p style={{ color: 'var(--text-dim)', margin: '0 0 22px', fontSize: 14 }}>
-              Pick one — you can change it later in settings.
+              This just decides how you join — Guests can become Hosts anytime from Profile → Connect license.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {/* Giver card */}
@@ -229,12 +286,12 @@ export function OnboardingScreen() {
                   }}
                 >↑</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>
-                    I have a Copilot license — be a <span style={{ color: 'var(--give)' }}>Host</span>
-                  </div>
-                  <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 3 }}>
-                    Share your surplus with teammates who run out of credits.
-                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>Yes — join as a Host</div>
+                  <ul style={{ color: 'var(--text-dim)', fontSize: 13, margin: '6px 0 0', paddingLeft: 16, lineHeight: 1.65 }}>
+                    <li>You&apos;ll connect a token from your GHE account</li>
+                    <li>Your unused credits go to teammates who run out</li>
+                    <li>Your token never leaves the server</li>
+                  </ul>
                 </div>
                 <span style={{ color: role === 'giver' ? 'var(--accent)' : 'var(--text-faint)', fontSize: 18 }}>
                   {role === 'giver' ? '●' : '○'}
@@ -257,18 +314,22 @@ export function OnboardingScreen() {
                   }}
                 >↓</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>
-                    No license — be a <span style={{ color: 'var(--consume)' }}>Guest</span>
-                  </div>
-                  <div style={{ color: 'var(--text-dim)', fontSize: 13, marginTop: 3 }}>
-                    Start with free credits; request more when you run out.
-                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>No — join as a Guest</div>
+                  <ul style={{ color: 'var(--text-dim)', fontSize: 13, margin: '6px 0 0', paddingLeft: 16, lineHeight: 1.65 }}>
+                    <li>You start with {credits(config.freeAllowance)} free each month</li>
+                    <li>When you run out, ask Hosts for more on the Marketplace</li>
+                    <li>No token needed</li>
+                  </ul>
                 </div>
                 <span style={{ color: role === 'consumer' ? 'var(--accent)' : 'var(--text-faint)', fontSize: 18 }}>
                   {role === 'consumer' ? '●' : '○'}
                 </span>
               </button>
             </div>
+
+            <p style={{ fontSize: 12.5, color: 'var(--text-faint)', margin: '14px 0 0', lineHeight: 1.5 }}>
+              Not sure? If you can use Copilot in your IDE today, you have a license → Host.
+            </p>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
               <button type="button" onClick={afterRole} disabled={busy} style={primaryBtn}>
@@ -287,8 +348,10 @@ export function OnboardingScreen() {
             <h2 style={{ fontSize: 22, fontWeight: 600, margin: '0 0 4px', letterSpacing: '-.01em' }}>
               Connect your license
             </h2>
-            <p style={{ color: 'var(--text-dim)', margin: '0 0 18px', fontSize: 14 }}>
-              Your Copilot license stays in the proxy — never shared with teammates.
+            <p style={{ color: 'var(--text-dim)', margin: '0 0 18px', fontSize: 14, lineHeight: 1.6 }}>
+              CTC uses this token to measure your monthly quota and route your unused credits to
+              teammates. It&apos;s stored encrypted, only the proxy process ever uses it, and no
+              teammate can ever see it.
             </p>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               <span style={monoLabel}>Copilot license</span>
@@ -311,7 +374,7 @@ export function OnboardingScreen() {
                 }}
               />
             </label>
-            <PatHelp style={{ marginTop: 14 }} />
+            <PatHelp heading="Generate your token — 3 steps" style={{ marginTop: 14 }} />
             <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
               <button type="button" onClick={validatePat} disabled={busy} style={primaryBtn}>
                 {busy ? 'Validating…' : 'Validate license'}
@@ -327,14 +390,14 @@ export function OnboardingScreen() {
         {step === 'pledge' && identity && (
           <>
             <h2 style={{ fontSize: 22, fontWeight: 600, margin: '0 0 12px', letterSpacing: '-.01em' }}>
-              Set your pledge
+              Share with the pool
             </h2>
             <p style={{ color: 'var(--text-dim)', margin: '0 0 18px', fontSize: 14 }}>
-              ✓ Verified — belongs to <b>@{identity.gheLogin}</b> · {identity.entitlementAiu.toLocaleString()} AIU available.
+              ✓ Verified — belongs to <b>@{identity.gheLogin}</b> · {identity.entitlementAiu.toLocaleString()} AIU monthly quota.
             </p>
             <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span style={monoLabel}>
-                Pledged surplus <span style={{ color: 'var(--give)', textTransform: 'none', letterSpacing: 0 }}>· private</span>
+                Shared with the pool <span style={{ color: 'var(--give)', textTransform: 'none', letterSpacing: 0 }}>· private</span>
               </span>
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, color: 'var(--give)' }}>
                 {aiu(pledgedSurplus)}
@@ -344,8 +407,8 @@ export function OnboardingScreen() {
               max={entitlementNano}
               segments={[
                 { key: 'used', label: 'used', value: usedNano, color: 'var(--text-dim)', pattern: 'striped' as const },
-                { key: 'pledged', label: 'pledged', value: pledgedSurplus, color: 'var(--accent)' },
-                { key: 'left', label: 'left', value: Math.max(0, remainingNano - pledgedSurplus), color: 'var(--reroute)' },
+                { key: 'shared', label: 'shared', value: pledgedSurplus, color: 'var(--accent)' },
+                { key: 'kept', label: 'kept', value: Math.max(0, remainingNano - pledgedSurplus), color: 'var(--reroute)' },
               ].filter((s) => s.value > 0)}
               slider={{
                 value: pledgedSurplus,
@@ -360,16 +423,16 @@ export function OnboardingScreen() {
             <div data-testid="credit-legend">
               <CreditLegend items={[
                 { label: 'used', value: aiu(usedNano), color: 'var(--text-dim)', pattern: 'striped' as const },
-                { label: 'pledged', value: aiu(pledgedSurplus), color: 'var(--accent)' },
-                { label: 'available', value: aiu(Math.max(0, remainingNano - pledgedSurplus)), color: 'var(--reroute)' },
+                { label: 'shared', value: aiu(pledgedSurplus), color: 'var(--accent)' },
+                { label: 'kept', value: aiu(Math.max(0, remainingNano - pledgedSurplus)), color: 'var(--reroute)' },
               ]} />
             </div>
             <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '12px 0 0', fontFamily: "'JetBrains Mono',monospace" }}>
-              🔒 private — pledges to the pool. Only you see this.
+              🔒 Private — only you see this. It&apos;s the slice of your quota Guests can draw from; not a cap on chipping in.
             </p>
             <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
               <button type="button" onClick={savePledge} disabled={busy} style={primaryBtn}>
-                {busy ? 'Saving…' : 'Save pledge →'}
+                {busy ? 'Saving…' : 'Save →'}
               </button>
               <button type="button" onClick={finish} disabled={busy} style={ghostBtn}>
                 Skip for now
@@ -381,51 +444,42 @@ export function OnboardingScreen() {
         {/* ── INSTALL STEP ── */}
         {step === 'install' && (
           <>
-            <h2 style={{ fontSize: 22, fontWeight: 600, margin: '0 0 12px', letterSpacing: '-.01em' }}>
-              Set up the CLI
+            <h2 style={{ fontSize: 22, fontWeight: 600, margin: '0 0 4px', letterSpacing: '-.01em' }}>
+              One last step — connect your terminal
             </h2>
-            {role === 'consumer' && session.sharedPoolEnabled !== false && (
-              <p style={{ color: 'var(--text-dim)', fontSize: 14, margin: '0 0 14px' }}>
-                You start with {aiu(config.freeAllowance)} free credits.
-              </p>
-            )}
+            <p style={{ color: 'var(--text-dim)', fontSize: 14, margin: '0 0 20px', lineHeight: 1.6 }}>
+              {role === 'consumer' && session.sharedPoolEnabled !== false
+                ? <>Copilot runs through CTC from your terminal. You start with {credits(config.freeAllowance)} free.</>
+                : <>Copilot runs through CTC from your terminal — this is how your usage gets counted.</>}
+            </p>
             {cli && (
-              <>
-                <pre
-                  style={{
-                    background: 'var(--surface-2)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 10,
-                    padding: '12px 14px',
-                    fontFamily: "'JetBrains Mono',monospace",
-                    fontSize: 12,
-                    overflowX: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-all',
-                    margin: '0 0 10px',
-                  }}
-                >
-                  {cli.installCommand}
-                </pre>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '-4px 0 6px' }}>
-                  <CopyButton text={cli.installCommand} />
-                </div>
-                <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: '0 0 18px' }}>
-                  The token is baked in — no separate paste. Rotate anytime in Settings.
-                </p>
-                {cli.caFingerprint && (
-                  <p style={{ fontSize: 11, color: 'var(--text-faint)', margin: '0 0 18px', wordBreak: 'break-all' }}>
-                    CA fingerprint (SHA-256): <code>{cli.caFingerprint}</code> — <code>ctc login</code> prints this; verify they match.
-                  </p>
-                )}
-              </>
+              <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <InstallStep n={1} title="Open a terminal on your laptop">
+                  <p style={stepHint}>macOS: Terminal or iTerm · Windows: PowerShell · Linux: any shell.</p>
+                </InstallStep>
+                <InstallStep n={2} title="Paste this command and press Enter">
+                  <TerminalBlock
+                    command={cli.installCommand}
+                    caption="This installs the ctc launcher with your personal token baked in — nothing else to paste. Rotate the token anytime in Profile."
+                    style={{ marginTop: 8 }}
+                  />
+                  {cli.caFingerprint && (
+                    <p style={{ fontSize: 11, color: 'var(--text-faint)', margin: '8px 2px 0', wordBreak: 'break-all' }}>
+                      CA fingerprint (SHA-256): <code>{cli.caFingerprint}</code> — <code>ctc login</code> prints this; verify they match.
+                    </p>
+                  )}
+                </InstallStep>
+                <InstallStep n={3} title="Type ctc to start Copilot through CTC">
+                  <p style={stepHint}>That&apos;s it — use Copilot normally; CTC handles credits behind the scenes.</p>
+                </InstallStep>
+              </ol>
             )}
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button type="button" onClick={finish} disabled={busy} style={primaryBtn}>
-                {busy ? 'Entering…' : 'Enter CTC →'}
+            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+              <button type="button" onClick={() => finishInstall(true)} disabled={busy} style={primaryBtn}>
+                {busy ? 'Entering…' : 'I ran it — enter CTC'}
               </button>
-              <button type="button" onClick={finish} disabled={busy} style={ghostBtn}>
-                Skip for now
+              <button type="button" onClick={() => finishInstall(false)} disabled={busy} style={ghostBtn}>
+                I&apos;ll do it later
               </button>
             </div>
           </>
