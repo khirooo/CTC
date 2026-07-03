@@ -6,11 +6,11 @@ import type { LeaderboardEntry } from '@/domain/types';
 import { TierBadge } from '@/components/TierBadge';
 import { LeaderRow } from '@/components/LeaderRow';
 import { InfoTip } from '@/components/InfoTip';
-import type { GlossaryTerm } from '@/domain/glossary';
 
 interface TrackConfig {
   label: string;
-  term: GlossaryTerm;
+  /** What this ranking means — shown in the ⓘ popover. */
+  tip: string;
   subtitle: string;
   icon: string;
   color: string;
@@ -18,7 +18,7 @@ interface TrackConfig {
   entries: LeaderboardEntry[];
 }
 
-function TrackCard({ label, term, subtitle, icon, color, softColor, entries }: TrackConfig) {
+function TrackCard({ label, tip, subtitle, icon, color, softColor, entries }: TrackConfig) {
   const max = entries[0]?.value ?? 1;
   return (
     <div
@@ -48,7 +48,7 @@ function TrackCard({ label, term, subtitle, icon, color, softColor, entries }: T
         <div>
           <div style={{ fontWeight: 600, fontSize: 15, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {label}
-            <InfoTip term={term} />
+            <InfoTip title={label} body={tip} />
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{subtitle}</div>
         </div>
@@ -87,7 +87,7 @@ export function LeaderboardScreen() {
   const tracks: TrackConfig[] = [
     {
       label: 'Most generous',
-      term: 'chipIn',
+      tip: 'Ranks Hosts by how much of their credit teammates actually used this cycle — pool draws and chip-ins alike. The people keeping everyone else running.',
       subtitle: 'most chipped in overall',
       icon: '♥',
       color: 'var(--give)',
@@ -96,7 +96,7 @@ export function LeaderboardScreen() {
     },
     {
       label: 'Top Host (by usage)',
-      term: 'credits',
+      tip: 'Ranks Hosts by how many credits they used themselves this cycle. About using, not giving.',
       subtitle: 'Host · most credit used',
       icon: '◆',
       color: 'var(--reroute)',
@@ -105,7 +105,7 @@ export function LeaderboardScreen() {
     },
     {
       label: 'Top Guest',
-      term: 'credits',
+      tip: 'Ranks Guests by how many credits they used this cycle — free allowance, pool and chip-ins combined.',
       subtitle: 'Guest · most credit used',
       icon: '▲',
       color: 'var(--consume)',
