@@ -8,3 +8,4 @@ export { Avatar } from './Avatar';
 export { StatTile } from './StatTile';
 export { InfoTip } from './InfoTip';
 export { TerminalBlock } from './TerminalBlock';
+export { Tour } from './Tour';

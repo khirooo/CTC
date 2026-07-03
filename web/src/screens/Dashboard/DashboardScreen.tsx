@@ -97,10 +97,13 @@ export function DashboardScreen() {
       />
 
       {/* Marketplace flow hero */}
-      <MarketplaceHero data={data} />
+      <div data-tour="marketplace-hero">
+        <MarketplaceHero data={data} />
+      </div>
 
       {/* Secondary stat row */}
       <div
+        data-tour="stats"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(4, 1fr)',
@@ -368,6 +371,7 @@ function CycleBanner({
   const countdown = daysLeft === 0 ? 'resets today' : `resets in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
   return (
     <div
+      data-tour="cycle-banner"
       style={{
         display: 'flex',
         alignItems: 'center',

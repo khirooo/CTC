@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { HeaderSearch } from '@/components/HeaderSearch';
+import { Tour } from '@/components/Tour';
+import { loadSetupState, saveSetupState } from '@/domain/setupState';
 
 const NAV_ITEMS = [
   { path: '/app/dashboard', icon: '◧', label: 'Overview' },
@@ -35,6 +38,21 @@ export function AppShell() {
     : '??';
 
   const role = session?.role ?? 'consumer';
+
+  const [tourOpen, setTourOpen] = useState(false);
+  // Auto-run once per user on their first dashboard visit.
+  useEffect(() => {
+    if (!session) return;
+    if (location.pathname !== '/app/dashboard') return;
+    if (loadSetupState(session.userId).tourDone) return;
+    const t = setTimeout(() => setTourOpen(true), 400); // let the dashboard paint
+    return () => clearTimeout(t);
+  }, [session, location.pathname]);
+
+  function closeTour() {
+    setTourOpen(false);
+    if (session) saveSetupState(session.userId, { tourDone: true });
+  }
 
   async function handleSignOut() {
     await signOut();
@@ -121,7 +139,7 @@ export function AppShell() {
         </div>
 
         {/* Nav */}
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <nav data-tour="nav" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {NAV_ITEMS.map(({ path, icon, label }) => (
             <NavLink
               key={path}
@@ -262,9 +280,21 @@ export function AppShell() {
           <h1 style={{ fontSize: 17, fontWeight: 600, margin: 0, letterSpacing: '-0.01em' }}>
             {pageTitle}
           </h1>
-          <div style={{ marginLeft: 'auto' }}>
-            <HeaderSearch api={api} />
-          </div>
+          <button
+            type="button"
+            onClick={() => setTourOpen(true)}
+            title="Take the tour"
+            aria-label="Take the tour"
+            style={{
+              marginLeft: 'auto',
+              background: 'none', border: '1px solid var(--border)', borderRadius: 8,
+              color: 'var(--text-dim)', width: 28, height: 28, cursor: 'pointer',
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+            }}
+          >
+            ?
+          </button>
+          <HeaderSearch api={api} />
         </header>
 
         {/* Page content */}
@@ -272,6 +302,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+      <Tour open={tourOpen} onClose={closeTour} />
     </div>
   );
 }
