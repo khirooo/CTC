@@ -41,6 +41,38 @@ case ":$PATH:" in
 esac
 
 echo "✓ Installed."
+
+# Ensure the GitHub Copilot CLI (the 'copilot' binary the launcher execs) is present.
+if command -v copilot >/dev/null 2>&1; then
+  echo "✓ GitHub Copilot CLI already installed ($(command -v copilot))."
+else
+  echo "GitHub Copilot CLI not found — installing (npm install -g @github/copilot) ..."
+  copilot_installed=0
+  if command -v npm >/dev/null 2>&1; then
+    if npm install -g @github/copilot; then
+      copilot_installed=1
+    else
+      echo "npm install -g @github/copilot failed." >&2
+    fi
+  elif command -v brew >/dev/null 2>&1; then
+    echo "npm not found — trying brew install --cask copilot-cli ..."
+    if brew install --cask copilot-cli; then
+      copilot_installed=1
+    else
+      echo "brew install --cask copilot-cli failed." >&2
+    fi
+  fi
+
+  if [ "$copilot_installed" -eq 1 ] && command -v copilot >/dev/null 2>&1; then
+    echo "✓ GitHub Copilot CLI installed ($(command -v copilot))."
+  else
+    echo "Could not install the GitHub Copilot CLI automatically." >&2
+    echo "Install Node (https://nodejs.org) then run: npm install -g @github/copilot" >&2
+    echo "(or: brew install --cask copilot-cli)" >&2
+    echo "ctc will not work until 'copilot' is on your PATH." >&2
+  fi
+fi
+
 if [ -n "$TOKEN" ]; then
   "$BIN_DIR/ctc" login --token "$TOKEN"
 else

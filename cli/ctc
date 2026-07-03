@@ -139,6 +139,12 @@ cmd_launch() {
       ln -s "$real_home/$disc" "$HOME/$disc"
     fi
   fi
+  if ! command -v copilot >/dev/null 2>&1; then
+    echo "ctc: 'copilot' (GitHub Copilot CLI) not found on PATH." >&2
+    echo "  Install it with: npm install -g @github/copilot" >&2
+    echo "  (or re-run the CTC installer)" >&2
+    exit 1
+  fi
   printf '\033]0;CTC ◆ copilot\007' >&2     # terminal tab title
   echo "◆ CTC mode — credits via the donation pool (your normal 'copilot' is untouched)" >&2
   exec copilot "$@"
