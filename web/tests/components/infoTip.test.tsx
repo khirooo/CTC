@@ -44,4 +44,11 @@ describe('InfoTip', () => {
     fireEvent.click(button);
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
   });
+
+  it('portals the popover to document.body so ancestor overflow/stacking cannot clip it', () => {
+    render(<InfoTip term="pool" />);
+    fireEvent.click(screen.getByRole('button', { name: 'About Shared pool' }));
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip.parentElement).toBe(document.body);
+  });
 });
