@@ -107,7 +107,7 @@ export function Tour({ open, onClose }: TourProps) {
         }}
       >
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{step.title}</div>
-        <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-dim)', marginBottom: 14 }}>{step.body}</div>
+        <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-dim)', marginBottom: 14, whiteSpace: 'pre-line' }}>{step.body}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ display: 'flex', gap: 5 }}>
             {steps.map((_, i) => (

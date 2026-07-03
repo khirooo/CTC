@@ -11,12 +11,12 @@ export const TOUR_STEPS: TourStep[] = [
   {
     target: 'nav',
     title: 'The screens',
-    body: 'Overview — the numbers. Marketplace — ask for or give credits. Leaderboard — who gives most. Monthly reports — the archive. Your profile — your license and terminal setup.',
+    body: 'Overview — the numbers.\nMarketplace — ask for or give credits.\nLeaderboard — who gives most.\nMonthly reports — the archive.\nYour profile — your license and terminal setup.',
   },
   {
     target: 'cycle-banner',
     title: glossary.cycle.title,
-    body: glossary.cycle.body,
+    body: 'One calendar month of activity.\nEverything — quotas, standings, reports — resets on the 1st.',
   },
   {
     target: 'stats',
@@ -25,8 +25,8 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     target: 'marketplace-hero',
-    title: 'Out of credits?',
-    body: 'Post a request on the Marketplace — a Host chips in and you keep working. Requests auto-close once covered.',
+    title: 'How credits flow',
+    body: 'Left: what Hosts hold — shared with the pool (top), kept for themselves (bottom).\nMiddle: open Marketplace requests (top) and Guests drawing from the pool (bottom).\nRight: where surplus went — routed between Hosts (top), chipped in to Guests (bottom).\nOut of credits? Post a request here.',
   },
   {
     target: 'setup-checklist',
