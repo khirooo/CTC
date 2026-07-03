@@ -205,7 +205,6 @@ export function DashboardScreen() {
               </span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--reroute)' }} /> pool
-                <InfoTip term="pool" />
               </span>
               <span>· 24h</span>
             </span>
