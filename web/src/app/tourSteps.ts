@@ -26,7 +26,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     target: 'marketplace-hero',
     title: 'How credits flow',
-    body: 'Left: what Hosts hold — shared with the pool (top), kept for themselves (bottom).\nMiddle: open Marketplace requests (top) and Guests drawing from the pool (bottom).\nRight: where surplus went — routed between Hosts (top), chipped in to Guests (bottom).\nOut of credits? Post a request here.',
+    body: "Credits flow left to right: from what Hosts hold, to the teammates who ended up using them.\nIn the middle: what's happening right now — open requests and Guests running on the pool.\nCurious about a number? Hover its ⓘ.\nOut of credits? Post a request on the Marketplace.",
   },
   {
     target: 'setup-checklist',
