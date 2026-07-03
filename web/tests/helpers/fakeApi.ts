@@ -273,7 +273,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const topConsumers: LeaderboardEntry[] = [...map.entries()].map(([name, v]) => ({ name, value: v.value, userId: v.userId })).sort((a, b) => b.value - a.value).slice(0, 5);
       return {
         pledged: 3600 * N, retained: 5680 * N, rotated: 1240 * N, donatedToNonPat: 2880 * N, donatedThisWeek: 4120 * N,
-        fulfillmentRate: 86, activeGivers: 5, activeConsumers: 12, openCount, closedCount, activity,
+        fulfillmentRate: 86, activeGivers: 5, activeConsumers: 12, poolGuests: 7, openCount, closedCount, activity,
         leaderboardSnapshot: { generous: lb.generous, topConsumers },
         cycleLabel: 'July 2026', cycleNumber: 7, resetDate: '2026-08-01', daysLeft: 12,
       };

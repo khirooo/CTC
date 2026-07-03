@@ -18,7 +18,7 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
 
     Returns a dict with exactly these keys:
         pledged, retained, rotated, donatedToNonPat, donatedThisWeek,
-        fulfillmentRate, activeGivers, activeConsumers,
+        fulfillmentRate, activeGivers, activeConsumers, poolGuests,
         openCount, closedCount, activity, leaderboardSnapshot,
         cycleLabel, cycleNumber, resetDate, daysLeft
     """
@@ -130,6 +130,18 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     # --- activeConsumers: distinct consumer_ids in events that are NOT givers ---
     active_consumers = sum(1 for cid in all_consumers if cid not in giver_ids)
 
+    # --- poolGuests: distinct consumer_ids with a POOL-bucket event this cycle
+    # that are NOT givers. Narrower than activeConsumers (which counts ANY
+    # bucket, including directed 'grant' chip-ins): this is specifically guests
+    # currently drawing from the SHARED POOL. ---
+    pool_consumer_rows = conn.execute(
+        "SELECT DISTINCT consumer_id FROM consumption_events "
+        "WHERE cycle_id=? AND bucket='pool'",
+        (cycle_id,),
+    ).fetchall()
+    pool_consumers = {r["consumer_id"] for r in pool_consumer_rows}
+    pool_guests = sum(1 for cid in pool_consumers if cid not in giver_ids)
+
     # --- activity: consumption events from the last 24h (capped), newest-first.
     # Both the shared pool ('pool' bucket) and directed marketplace chip-ins
     # ('grant' bucket) flow through here; `kind` carries the bucket so the client
@@ -189,6 +201,7 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         "fulfillmentRate": fulfillment_rate,
         "activeGivers": active_givers,
         "activeConsumers": active_consumers,
+        "poolGuests": pool_guests,
         "openCount": open_count,
         "closedCount": closed_count,
         "activity": activity,

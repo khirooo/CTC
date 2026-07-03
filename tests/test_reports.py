@@ -140,6 +140,64 @@ def test_active_consumers():
     dash = build_dashboard(e, users, CYC, NOW)
     # Only c1 is a non-giver consumer
     assert dash["activeConsumers"] == 1
+    # c1's usage is all POOL bucket in this fixture, so it also counts as a poolGuest
+    assert dash["poolGuests"] == 1
+
+
+def test_pool_guests_excludes_grant_only_and_givers():
+    """poolGuests = distinct non-giver consumers with a POOL-bucket event this
+    cycle. A guest who only received a directed GRANT (not pool) must NOT
+    count in poolGuests, even though they DO count in activeConsumers. A guest
+    who drew from the POOL must count in both."""
+    e, s = make_engine()
+    s.add_cycle(Cycle(CYC, "June 2026", 0, 2_000_000_000, "active"))
+
+    e.set_quota(CYC, "g1", 1000)
+    e.set_pledge(CYC, "g1", 300)
+
+    # c_grant: only ever received a directed GRANT chip-in (not pool) — funded
+    # via a request/grant, as GRANT-bucket consumption must reference a grant.
+    req = e.create_request(CYC, "c_grant", Role.CONSUMER, 10, "need help", None,
+                            created_at=NOW - 2000, expires_at=NOW + 100000)
+    grant = e.fund_request(req.id, "g1", 10, NOW - 1500)
+    e.record_consumption(CYC, "c_grant", "g1", Bucket.GRANT, 10, grant_id=grant.id, ts=NOW - 1000)
+    # c_pool: drew from the shared POOL.
+    e.record_consumption(CYC, "c_pool", "g1", Bucket.POOL, 20, ts=NOW - 2000)
+
+    users = [
+        LeaderboardUser("g1", "Giver One", is_giver=True),
+        LeaderboardUser("c_grant", "Grant Consumer", is_giver=False),
+        LeaderboardUser("c_pool", "Pool Consumer", is_giver=False),
+    ]
+
+    dash = build_dashboard(e, users, CYC, NOW)
+    # Both non-giver consumers count in activeConsumers (any bucket).
+    assert dash["activeConsumers"] == 2
+    # Only the pool consumer counts in poolGuests.
+    assert dash["poolGuests"] == 1
+
+
+def test_pool_guests_excludes_givers_who_draw_from_pool():
+    """A giver who consumes from the pool must not count as a poolGuest —
+    mirrors the activeConsumers giver-exclusion rule."""
+    e, s = make_engine()
+    s.add_cycle(Cycle(CYC, "June 2026", 0, 2_000_000_000, "active"))
+
+    e.set_quota(CYC, "g1", 1000)
+    e.set_pledge(CYC, "g1", 300)
+    e.set_quota(CYC, "g2", 500)
+    e.set_pledge(CYC, "g2", 0)
+
+    # g2 (a giver) draws from g1's pool.
+    e.record_consumption(CYC, "g2", "g1", Bucket.POOL, 50, ts=NOW - 1000)
+
+    users = [
+        LeaderboardUser("g1", "Lender", is_giver=True),
+        LeaderboardUser("g2", "Borrower Host", is_giver=True),
+    ]
+
+    dash = build_dashboard(e, users, CYC, NOW)
+    assert dash["poolGuests"] == 0
 
 
 def test_open_closed_count():
@@ -229,7 +287,7 @@ def test_all_keys_present():
     dash = build_dashboard(e, users, CYC, NOW)
     required = {
         "pledged", "retained", "rotated", "donatedToNonPat", "donatedThisWeek",
-        "fulfillmentRate", "activeGivers", "activeConsumers",
+        "fulfillmentRate", "activeGivers", "activeConsumers", "poolGuests",
         "openCount", "closedCount", "activity", "leaderboardSnapshot",
         "cycleLabel", "cycleNumber", "resetDate", "daysLeft",
     }
@@ -250,6 +308,7 @@ def test_empty_cycle():
     assert dash["fulfillmentRate"] == 0
     assert dash["activeGivers"] == 0
     assert dash["activeConsumers"] == 0
+    assert dash["poolGuests"] == 0
     assert dash["openCount"] == 0
     assert dash["closedCount"] == 0
     assert dash["activity"] == []
@@ -290,6 +349,7 @@ def test_active_host_who_only_consumed_counts():
     assert dash["activeGivers"] == 2
     # g2 is a giver, so they must NOT be counted as a guest.
     assert dash["activeConsumers"] == 0
+    assert dash["poolGuests"] == 0
 
 
 def test_dashboard_top_consumers_carry_userid():

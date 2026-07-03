@@ -106,6 +106,8 @@ export interface DashboardData {
   fulfillmentRate: number;
   activeGivers: number;
   activeConsumers: number;
+  /** Distinct non-giver consumers currently drawing from the shared pool this cycle. */
+  poolGuests: number;
   openCount: number;
   closedCount: number;
   activity: ActivityEntry[];

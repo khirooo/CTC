@@ -89,7 +89,7 @@ async def test_dashboard_shape_and_units():
         # exact key set matches DashboardData in web/src/domain/types.ts
         assert set(d) == {
             "pledged", "retained", "rotated", "donatedToNonPat", "donatedThisWeek",
-            "fulfillmentRate", "activeGivers", "activeConsumers",
+            "fulfillmentRate", "activeGivers", "activeConsumers", "poolGuests",
             "openCount", "closedCount", "activity", "leaderboardSnapshot",
             "cycleLabel", "cycleNumber", "resetDate", "daysLeft",
         }

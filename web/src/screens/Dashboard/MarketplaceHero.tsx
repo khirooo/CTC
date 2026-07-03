@@ -35,7 +35,7 @@ export function MarketplaceHero({ data }: Props) {
   const { session } = useApp();
   const eur = (nano: number) => euros(nano, session?.creditToEuroRate);
   const _closedCount = data.closedCount ?? 0;
-  const _activeNonPatCount = data.activeConsumers;
+  const _poolGuestCount = data.poolGuests;
 
   return (
     <div
@@ -313,7 +313,7 @@ export function MarketplaceHero({ data }: Props) {
                     lineHeight: 1,
                   }}
                 >
-                  {_activeNonPatCount}
+                  {_poolGuestCount}
                 </span>
                 <span
                   style={{
@@ -335,8 +335,11 @@ export function MarketplaceHero({ data }: Props) {
                   gap: 5,
                 }}
               >
-                Guests using free credits
-                <InfoTip title="Active Guests" body="Guests who used credits this cycle." />
+                Guests drawing from the pool
+                <InfoTip
+                  title="Drawing from the pool"
+                  body="Guests currently covered by the shared pool — they used pool credits this cycle."
+                />
               </span>
             </div>
           </div>
