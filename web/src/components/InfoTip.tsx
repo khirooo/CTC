@@ -45,7 +45,7 @@ export function InfoTip({ term, title, body, style }: InfoTipProps) {
       <button
         type="button"
         aria-label={`About ${entry.title}`}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(true)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         style={{
