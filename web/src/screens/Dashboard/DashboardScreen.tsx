@@ -3,6 +3,7 @@ import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
 import { ScreenStatus } from '@/components/ScreenStatus';
 import { MarketplaceHero } from './MarketplaceHero';
+import { SetupChecklist } from './SetupChecklist';
 import { StatTile } from '@/components';
 import { aiu, euros } from '@/domain/credit';
 import { PatHelp } from '@/components/PatHelp';
@@ -84,6 +85,9 @@ export function DashboardScreen() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {/* Persistent "Finish setting up" checklist — renders null once done/dismissed */}
+      <SetupChecklist />
+
       {/* Cycle banner — current cycle number/label + reset countdown */}
       <CycleBanner
         cycleNumber={data.cycleNumber}

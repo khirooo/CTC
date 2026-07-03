@@ -131,7 +131,7 @@ export interface FakeApiOpts {
   sharedPoolEnabled?: boolean;
 }
 
-export type FakeApi = CtcApi & { _users(): FakeUser[] };
+export type FakeApi = CtcApi & { _users(): FakeUser[]; _setSession(s: Session | null): void };
 
 let _idCounter = 0;
 
@@ -185,6 +185,9 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
 
   const api: FakeApi = {
     _users: () => users,
+    // Directly inject a session (bypassing signIn's seeded-user lookup) for tests
+    // that need an arbitrary role/hasPat combo not present in the seed data.
+    _setSession: (s: Session | null) => { session = s; },
 
     async signIn(email: string) {
       const u = users.find(x => x.id === emailToUserId(email)) ?? users[0];
