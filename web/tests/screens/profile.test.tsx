@@ -24,11 +24,12 @@ describe('ProfileScreen (merged profile + settings)', () => {
     renderProfile(api);
     // legend swatch labels (exact, so the "(N used)" value text doesn't double-match)
     await waitFor(() => expect(screen.getByText('used')).toBeInTheDocument());
-    expect(screen.getByText('pledged')).toBeInTheDocument();
+    expect(screen.getByText('shared')).toBeInTheDocument();
     // "chipped in" is now split into used/left green tones
     expect(screen.getByText('chipped in · used')).toBeInTheDocument();
     expect(screen.getByText('chipped in · left')).toBeInTheDocument();
-    expect(screen.getByText(/resets/i)).toBeInTheDocument();
+    // "Resets <date> · resets today / in N days" — scoped to avoid matching the pool explainer's "Resets on the 1st."
+    expect(screen.getByText(/Resets .*(today|day)/)).toBeInTheDocument();
   });
 
   it('Guest: shows a "Received from supporters" bar split into used/left', async () => {
@@ -40,6 +41,7 @@ describe('ProfileScreen (merged profile + settings)', () => {
     expect(screen.getByText('+120.00 AIU')).toBeInTheDocument();
     expect(screen.getByText('85.00 AIU')).toBeInTheDocument();
     expect(screen.getByText('35.00 AIU')).toBeInTheDocument();
+    expect(screen.getByText(/chip-ins from Hosts — on top of your free allowance above\./)).toBeInTheDocument();
   });
 
   it('shows the GHE login as the immutable identity headline (no email field)', async () => {

@@ -7,7 +7,8 @@ import { aiu } from '@/domain/credit';
 import { Card } from '@/components';
 import { ScreenStatus } from '@/components/ScreenStatus';
 import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar';
-import { CopyButton } from '@/components/CopyButton';
+import { TerminalBlock } from '@/components/TerminalBlock';
+import { InfoTip } from '@/components/InfoTip';
 import { PatHelp } from '@/components/PatHelp';
 import { TierBadge } from '@/components/TierBadge';
 import { monoLabel, card, inputStyle } from '@/theme/styles';
@@ -132,9 +133,9 @@ export function ProfileScreen() {
     { key: 'donatedC', label: 'chipped in', value: p?.donatedConsumed ?? 0, color: 'var(--give)', pattern: 'striped' as const },
     { key: 'donatedR', label: 'chipped in', value: p?.donatedRemaining ?? 0, color: 'var(--give)' },
     ...(poolOn ? [
-      { key: 'pledgedC', label: 'pledged', value: localPledged !== null ? Math.min(pledgedValue, p?.pledgedConsumed ?? 0) : (p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
+      { key: 'pledgedC', label: 'shared', value: localPledged !== null ? Math.min(pledgedValue, p?.pledgedConsumed ?? 0) : (p?.pledgedConsumed ?? 0), color: 'var(--accent)', pattern: 'striped' as const },
       // While dragging (localPledged != null), show the optimistic preview; once saved, read the backend field.
-      { key: 'pledgedR', label: 'pledged', value: localPledged !== null ? Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)) : (p?.pledgedRemaining ?? 0), color: 'var(--accent)' },
+      { key: 'pledgedR', label: 'shared', value: localPledged !== null ? Math.max(0, pledgedValue - (p?.pledgedConsumed ?? 0)) : (p?.pledgedRemaining ?? 0), color: 'var(--accent)' },
     ] : []),
     // left: read backend field; no client recompute.
     { key: 'left', label: 'left', value: p?.left ?? 0, color: 'var(--reroute)' },
@@ -164,6 +165,7 @@ export function ProfileScreen() {
           {p?.tier && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
               <TierBadge tier={p.tier} />
+              <InfoTip term="tier" />
               {nudgeLine(p.tier, p.netToNext) && (
                 <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
                   {nudgeLine(p.tier, p.netToNext)}
@@ -189,7 +191,10 @@ export function ProfileScreen() {
       {isGiver && p && (
         <div style={{ ...card, padding: '22px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-            <span style={monoLabel}>Credit cycle</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={monoLabel}>Your monthly credits</span>
+              <InfoTip term="cycle" />
+            </span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 18, color: 'var(--accent)' }}>
               {p.unlimited ? '∞' : aiu(poolOn && localPledged !== null ? pledgedValue : (p.left ?? 0))}
             </span>
@@ -201,12 +206,18 @@ export function ProfileScreen() {
                 Unlimited entitlement
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 6 }}>
-                chipped in {aiu(p.donated ?? 0)}{poolOn ? ` · pledged ${aiu(pledgedValue)}` : ''}
+                chipped in {aiu(p.donated ?? 0)}{poolOn ? ` · shared ${aiu(pledgedValue)}` : ''}
               </div>
             </div>
           ) : (
             <>
-              <div style={{ marginTop: 14 }}>
+              {poolOn && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 14, fontSize: 11, color: 'var(--text-faint)', fontFamily: "'JetBrains Mono', monospace" }}>
+                  <span>Shared with the pool</span>
+                  <InfoTip term="pledge" />
+                </div>
+              )}
+              <div style={{ marginTop: poolOn ? 8 : 14 }}>
                 <CreditBar
                   max={E}
                   segments={giverSegs}
@@ -229,7 +240,7 @@ export function ProfileScreen() {
                   // (solid) — the two green tones already drawn in the bar.
                   ...((p.donatedConsumed ?? 0) > 0 ? [{ label: 'chipped in · used', value: aiu(p.donatedConsumed ?? 0), color: 'var(--give)', pattern: 'striped' as const }] : []),
                   ...((p.donatedRemaining ?? 0) > 0 ? [{ label: 'chipped in · left', value: aiu(p.donatedRemaining ?? 0), color: 'var(--give)' }] : []),
-                  ...(poolOn ? [{ label: 'pledged', value: aiu(pledgedValue), color: 'var(--accent)' }] : []),
+                  ...(poolOn ? [{ label: 'shared', value: aiu(pledgedValue), color: 'var(--accent)' }] : []),
                   // Read backend field; only use local derivation while slider is actively being dragged.
                   { label: 'available', value: aiu(localPledged !== null ? Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - effPledged) : (p.left ?? 0)), color: 'var(--reroute)' },
                 ]} />
@@ -250,10 +261,9 @@ export function ProfileScreen() {
 
           {poolOn && (
             <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '14px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
-              <span style={{ color: 'var(--accent)' }}>🔒 private</span> — the surplus you pledge
-              to the common pool; Guests draw from it directly. Not a cap on giving: you can
-              still chip in more to specific requests from your retained balance. Never shown
-              publicly.
+              <span style={{ color: 'var(--accent)' }}>🔒 Private</span> — only you see this.
+              "Shared with the pool" is the slice of your quota Guests can draw from; not a
+              cap on chipping in. Resets on the 1st.
             </p>
           )}
           {saveError && (
@@ -267,7 +277,10 @@ export function ProfileScreen() {
       {!isGiver && p && (
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 18 }}>
-            <span style={monoLabel}>Credits used</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={monoLabel}>Credits used</span>
+              <InfoTip term="credits" />
+            </span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text-dim)' }}>
               {(p.allowance ?? 0) > 0 ? `${aiu(p.allowance ?? 0)} free + chip-ins` : 'chip-ins'}
             </span>
@@ -321,8 +334,9 @@ export function ProfileScreen() {
                 { label: 'used', value: aiu(p.donationsReceivedConsumed), color: 'var(--received)', pattern: 'striped' },
                 { label: 'left', value: aiu(p.donationsReceivedRemaining), color: 'var(--received)' },
               ]} />
-              <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '10px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
-                chip-ins from Hosts — separate from your free allowance above.
+              <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '10px 0 0', fontFamily: "'JetBrains Mono', monospace", display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>chip-ins from Hosts — on top of your free allowance above.</span>
+                <InfoTip term="chipIn" />
               </p>
             </div>
           )}
@@ -399,9 +413,9 @@ export function ProfileScreen() {
         <div style={card}>
           <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Become a Host</div>
           <div style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 14 }}>
-            Connect your Copilot license (a GitHub Enterprise PAT with Copilot access).
-            We validate it against your identity and read your quota. Stored encrypted;
-            never shown again.
+            Connect your Copilot license (a GitHub Enterprise token). CTC validates it,
+            reads your monthly quota, and stores it encrypted — it never leaves the
+            server and teammates can't see it.
           </div>
           {patSaveError && (
             <p role="alert" style={{ color: 'var(--consume)', fontSize: 13, margin: '0 0 12px', fontFamily: "'JetBrains Mono', monospace" }}>
@@ -434,15 +448,13 @@ export function ProfileScreen() {
         <Card>
           <h3 style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, marginBottom: 8 }}>Set up CLI</h3>
           <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
-            Install once, then launch Copilot through CTC with <code>ctc</code>.
+            Install once, then launch Copilot with the ctc command. New laptop or lost the command? Just run it again.
           </p>
-          <pre style={{ background: 'var(--bg-sunken)', padding: 10, borderRadius: 6, overflowX: 'auto', fontSize: 12 }}>
-{cli.data.installCommand}
-          </pre>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '-4px 0 8px' }}>
-            <CopyButton text={cli.data.installCommand} />
-          </div>
-          <p style={{ color: 'var(--text-faint)', fontSize: 11 }}>Proxy: {cli.data.proxyHost}</p>
+          <TerminalBlock
+            command={cli.data.installCommand}
+            caption="Paste in a terminal and press Enter, then type ctc to start Copilot through CTC."
+          />
+          <p style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 12 }}>Proxy: {cli.data.proxyHost}</p>
           {cli.data.caFingerprint && (
             <p style={{ color: 'var(--text-faint)', fontSize: 11, wordBreak: 'break-all' }}>
               CA fingerprint (SHA-256): <code>{cli.data.caFingerprint}</code> — <code>ctc login</code> prints this; verify they match.
