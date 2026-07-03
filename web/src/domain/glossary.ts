@@ -12,7 +12,9 @@ export type GlossaryTerm =
   | 'cycle'
   | 'net'
   | 'tier'
-  | 'pledge';
+  | 'pledge'
+  | 'kept'
+  | 'requests';
 
 export const glossary: Record<GlossaryTerm, { title: string; body: string }> = {
   credits: {
@@ -50,5 +52,13 @@ export const glossary: Record<GlossaryTerm, { title: string; body: string }> = {
   pledge: {
     title: 'Shared with the pool',
     body: 'The slice of your own monthly quota you make available to teammates. Private — only you see this number. Not a cap on chipping in.',
+  },
+  kept: {
+    title: 'Kept for themselves',
+    body: "The share of a Host's monthly quota they haven't shared with the pool. Theirs alone — never given away automatically.",
+  },
+  requests: {
+    title: 'Open requests',
+    body: 'Asks for credits posted on the Marketplace, waiting for a Host to chip in. They auto-close when covered or expired.',
   },
 };

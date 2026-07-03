@@ -4,7 +4,7 @@ import { credits, aiu } from '@/domain/credit';
 
 describe('glossary', () => {
   it('defines every term with a title and a non-empty body', () => {
-    const keys = ['credits', 'pool', 'chipIn', 'routed', 'quota', 'cycle', 'net', 'tier', 'pledge'] as const;
+    const keys = ['credits', 'pool', 'chipIn', 'routed', 'quota', 'cycle', 'net', 'tier', 'pledge', 'kept', 'requests'] as const;
     for (const k of keys) {
       expect(glossary[k].title.length).toBeGreaterThan(0);
       expect(glossary[k].body.length).toBeGreaterThan(10);

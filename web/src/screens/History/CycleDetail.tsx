@@ -4,14 +4,18 @@ import { monoLabel } from '@/theme/styles';
 import { InfoTip } from '@/components/InfoTip';
 
 /** One KPI card in the cycle-summary stat row (mono value; optional bar/sub below). */
-function StatCard({ label, value, children }: {
+function StatCard({ label, value, children, infoTip }: {
   label: string;
   value: React.ReactNode;
   children?: React.ReactNode;
+  infoTip?: React.ReactNode;
 }) {
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px' }}>
-      <div style={monoLabel}>{label}</div>
+      <div style={{ ...monoLabel, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        {label}
+        {infoTip}
+      </div>
       <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 26, marginTop: 8 }}>
         {value}
       </div>
@@ -55,7 +59,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                 color: 'var(--text-faint)',
               }}
             >
-              {report.label} · cycle summary
+              {report.label} · cycle summary <InfoTip term="cycle" />
             </div>
             <div style={{ fontSize: 15, color: 'var(--text-dim)', marginTop: 3 }}>
               Where credits came from and where they went
@@ -85,9 +89,13 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                 letterSpacing: '0.12em',
                 textTransform: 'uppercase',
                 color: 'var(--text-faint)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
               }}
             >
               Shared with the pool
+              <InfoTip term="pledge" />
             </span>
             <span
               style={{
@@ -274,7 +282,16 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
         <StatCard label="Requests covered" value={report.reqFilled}>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>covered this cycle</div>
         </StatCard>
-        <StatCard label="Fulfillment rate" value={`${fillRate}%`}>
+        <StatCard
+          label="Fulfillment rate"
+          value={`${fillRate}%`}
+          infoTip={
+            <InfoTip
+              title="Fulfillment rate"
+              body="Share of requests that got fully covered before expiring."
+            />
+          }
+        >
           <div
             style={{
               height: 5,
@@ -287,7 +304,16 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
             <div style={{ height: '100%', width: `${fillRate}%`, background: 'var(--give)' }} />
           </div>
         </StatCard>
-        <StatCard label="Unused budget" value={aiu(report.budgetTotal - report.usedTotal)}>
+        <StatCard
+          label="Unused budget"
+          value={aiu(report.budgetTotal - report.usedTotal)}
+          infoTip={
+            <InfoTip
+              title="Unused budget"
+              body="Credits the whole team had this cycle but never used — quota that expired on the reset."
+            />
+          }
+        >
           <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--give)', marginTop: 3 }}>
             ≈ {euros(report.budgetTotal - report.usedTotal, rate)}
           </div>

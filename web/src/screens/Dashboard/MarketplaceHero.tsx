@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import type { DashboardData } from '@/domain/types';
 import { aiu, euros } from '@/domain/credit';
 import { useApp } from '@/store/AppContext';
+import { InfoTip } from '@/components/InfoTip';
 
 interface Props {
   data: DashboardData;
@@ -132,6 +133,7 @@ export function MarketplaceHero({ data }: Props) {
                 }}
               />
               Shared with the pool
+              <InfoTip term="pool" />
             </span>
             <span
               style={{
@@ -167,9 +169,13 @@ export function MarketplaceHero({ data }: Props) {
                 letterSpacing: '0.12em',
                 textTransform: 'uppercase',
                 color: 'var(--text-faint)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
               }}
             >
               Kept for themselves
+              <InfoTip term="kept" />
             </span>
             <span
               style={{
@@ -275,9 +281,13 @@ export function MarketplaceHero({ data }: Props) {
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: 11,
                   color: 'var(--text-dim)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
                 }}
               >
                 requests awaiting a supporter
+                <InfoTip term="requests" />
               </span>
             </div>
           </div>
@@ -320,9 +330,13 @@ export function MarketplaceHero({ data }: Props) {
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: 11,
                   color: 'var(--text-dim)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
                 }}
               >
                 Guests using free credits
+                <InfoTip title="Active Guests" body="Guests who used credits this cycle." />
               </span>
             </div>
           </div>
@@ -394,6 +408,7 @@ export function MarketplaceHero({ data }: Props) {
                 }}
               />
               Routed to Hosts
+              <InfoTip term="routed" />
             </span>
             <span
               style={{
@@ -446,6 +461,7 @@ export function MarketplaceHero({ data }: Props) {
                 }}
               />
               Chipped in to Guests
+              <InfoTip term="chipIn" />
             </span>
             <span
               style={{

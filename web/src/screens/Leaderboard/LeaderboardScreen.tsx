@@ -6,9 +6,11 @@ import type { LeaderboardEntry } from '@/domain/types';
 import { TierBadge } from '@/components/TierBadge';
 import { LeaderRow } from '@/components/LeaderRow';
 import { InfoTip } from '@/components/InfoTip';
+import type { GlossaryTerm } from '@/domain/glossary';
 
 interface TrackConfig {
   label: string;
+  term: GlossaryTerm;
   subtitle: string;
   icon: string;
   color: string;
@@ -16,7 +18,7 @@ interface TrackConfig {
   entries: LeaderboardEntry[];
 }
 
-function TrackCard({ label, subtitle, icon, color, softColor, entries }: TrackConfig) {
+function TrackCard({ label, term, subtitle, icon, color, softColor, entries }: TrackConfig) {
   const max = entries[0]?.value ?? 1;
   return (
     <div
@@ -44,7 +46,10 @@ function TrackCard({ label, subtitle, icon, color, softColor, entries }: TrackCo
           {icon}
         </span>
         <div>
-          <div style={{ fontWeight: 600, fontSize: 15 }}>{label}</div>
+          <div style={{ fontWeight: 600, fontSize: 15, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {label}
+            <InfoTip term={term} />
+          </div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{subtitle}</div>
         </div>
       </div>
@@ -82,6 +87,7 @@ export function LeaderboardScreen() {
   const tracks: TrackConfig[] = [
     {
       label: 'Most generous',
+      term: 'chipIn',
       subtitle: 'most chipped in overall',
       icon: '♥',
       color: 'var(--give)',
@@ -90,6 +96,7 @@ export function LeaderboardScreen() {
     },
     {
       label: 'Top Host (by usage)',
+      term: 'credits',
       subtitle: 'Host · most credit used',
       icon: '◆',
       color: 'var(--reroute)',
@@ -98,6 +105,7 @@ export function LeaderboardScreen() {
     },
     {
       label: 'Top Guest',
+      term: 'credits',
       subtitle: 'Guest · most credit used',
       icon: '▲',
       color: 'var(--consume)',
