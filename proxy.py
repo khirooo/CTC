@@ -38,6 +38,15 @@ LISTEN_PORT       = int(os.environ.get("PORT", "8080"))
 # only honored for the GitHub/GHE/Copilot host set — closing the open-relay
 # path. Default off keeps VPN/localhost-only deployments unchanged.
 RESTRICT_CONNECT  = os.environ.get("CTC_RESTRICT_CONNECT", "").strip().lower() in ("1", "true", "yes", "on")
+# Extra hostnames to allow through CONNECT when CTC_RESTRICT_CONNECT=1 — e.g.
+# an internal Jira/Confluence/other MCP host that legitimate tooling (like an
+# MCP server) needs to reach. Comma-separated, case-insensitive. Exact host
+# match only (no wildcard/suffix matching) to keep the allowlist explicit.
+EXTRA_ALLOWED_HOSTS = {
+    h.strip().lower()
+    for h in os.environ.get("CTC_EXTRA_ALLOWED_HOSTS", "").split(",")
+    if h.strip()
+}
 ATTRIBUTION = None  # set by _build_attribution() at startup; None => legacy single-PAT mode
 LIVE_QUOTA = None   # set by _build_attribution() in the DB-backed path; LiveQuotaCache or None
 
@@ -294,11 +303,15 @@ def connect_allowed(host: str) -> bool:
 
     Allows the hosts we MITM plus the wider GitHub/GHE/Copilot ecosystem that
     Copilot legitimately blind-tunnels (telemetry on the GHE domain, github.com,
-    *.githubcopilot.com). Everything else is refused, so a publicly reachable
-    proxy can't be used as an open relay to arbitrary hosts.
+    *.githubcopilot.com), plus any operator-trusted hosts named in
+    CTC_EXTRA_ALLOWED_HOSTS (e.g. an internal Jira/Confluence host an MCP
+    server needs to reach). Everything else is refused, so a publicly
+    reachable proxy can't be used as an open relay to arbitrary hosts.
     """
     h = host.lower()
     if h in MITM_HOSTS or h in _LOCALHOST_ALIASES:
+        return True
+    if h in EXTRA_ALLOWED_HOSTS:
         return True
     if contract.is_github_ish(h):        # GHE_DOMAIN / githubcopilot.com suffixes, api.github.com
         return True

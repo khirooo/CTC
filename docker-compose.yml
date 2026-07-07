@@ -37,6 +37,10 @@ services:
       # forwards a port to it): CONNECT is then honored only for the
       # GitHub/GHE/Copilot host set. Default off = VPN/localhost-only behavior.
       CTC_RESTRICT_CONNECT: ${CTC_RESTRICT_CONNECT:-}
+      # Comma-separated hostnames to trust in addition to the GitHub/GHE/Copilot
+      # set above, e.g. an internal Jira/Confluence host an MCP server needs to
+      # reach. Only consulted when CTC_RESTRICT_CONNECT=1. Empty by default.
+      CTC_EXTRA_ALLOWED_HOSTS: ${CTC_EXTRA_ALLOWED_HOSTS:-}
       # Credit-model config. MUST match controlplane below: the proxy's
       # attribution gate (select_source) reads participants_mode/shared_pool from
       # its OWN process env, so if these are omitted here the proxy silently falls
