@@ -8,6 +8,7 @@ exactly that.
 """
 from __future__ import annotations
 
+import json
 import os
 
 # Your GitHub Enterprise domain. Override per deployment via the GHE_DOMAIN env
@@ -35,6 +36,23 @@ SWAP_HOSTS: set[str] = {
 BILLABLE_HOST: str = f"copilot-api.{GHE_DOMAIN}"
 BILLABLE_PATHS: set[str] = {"/chat/completions", "/v1/messages", "/responses"}
 BILLABLE_METHOD: str = "POST"
+
+# Resolves auto_mode.model_hints (e.g. ["auto"]) to a concrete model and
+# issues a copilot-session-token used on the following billable call. Not
+# itself billable/metered, but the session token it returns is bound to
+# whichever giver identity requested it -- see
+# AttributionService.pin_source/pinned_source in ctc/routing/attribution.py.
+SESSION_BOOTSTRAP_PATH: str = "/models/session"
+
+# Plain-text marker returned when a session_token minted for one giver is sent
+# through a different giver's PAT on the next billable call.
+INVALID_AUTO_MODE_SELECTOR_BODY: str = "Invalid auto-mode selector"
+
+# Header carrying the opaque session_token from /models/session to billable calls.
+COPILOT_SESSION_TOKEN_HEADER: str = "copilot-session-token"
+
+# Default auto-mode bootstrap body used by the proxy's nested self-heal retry.
+SESSION_BOOTSTRAP_BODY: bytes = json.dumps({"auto_mode": {"model_hints": ["auto"]}}).encode()
 
 # copilot-api rejects "token <pat>" with 400 badly formatted.
 AUTH_SCHEME: str = "Bearer"

@@ -97,6 +97,74 @@ def test_any_giver_pat_none_when_no_pats():
     assert svc.any_giver_pat() is None
 
 
+def test_pinned_source_returns_pinned_giver_before_expiry():
+    """A giver pinned from a /models/session bootstrap call is returned as-is
+    (not re-derived from select_source) as long as it hasn't expired."""
+    svc, _ = _service()
+    src = Source(bucket=Bucket.POOL, giver_id="bob", pat="ghp_bob")
+    svc.pin_source(("carol", "sess-1"), src, expires_at=2000, now=1000)
+    assert svc.pinned_source(("carol", "sess-1"), now=1500) == src
+
+
+def test_pinned_source_none_after_expiry():
+    svc, _ = _service()
+    src = Source(bucket=Bucket.POOL, giver_id="bob", pat="ghp_bob")
+    svc.pin_source(("carol", "sess-1"), src, expires_at=1100, now=1000)
+    # expires_at - now (100s) is clamped up to SESSION_PIN_MIN_TTL_S (60s), so
+    # this hasn't expired yet at +90s...
+    assert svc.pinned_source(("carol", "sess-1"), now=1090) == src
+    # ...but has by +9000s (well past even the max clamp).
+    assert svc.pinned_source(("carol", "sess-1"), now=10000) is None
+
+
+def test_pinned_source_ttl_clamped_to_max():
+    """A bogus far-future expires_at doesn't pin forever -- clamped to
+    SESSION_PIN_MAX_TTL_S (30 min)."""
+    svc, _ = _service()
+    src = Source(bucket=Bucket.POOL, giver_id="bob", pat="ghp_bob")
+    svc.pin_source(("carol", "sess-1"), src, expires_at=10**9, now=1000)
+    assert svc.pinned_source(("carol", "sess-1"), now=1000 + 30 * 60 - 1) == src
+    assert svc.pinned_source(("carol", "sess-1"), now=1000 + 30 * 60 + 1) is None
+
+
+def test_pinned_source_missing_or_malformed_expiry_uses_max_ttl():
+    svc, _ = _service()
+    src = Source(bucket=Bucket.POOL, giver_id="bob", pat="ghp_bob")
+    svc.pin_source(("carol", "sess-1"), src, expires_at=None, now=1000)
+    assert svc.pinned_source(("carol", "sess-1"), now=1000 + 30 * 60 - 1) == src
+    assert svc.pinned_source(("carol", "sess-1"), now=1000 + 30 * 60 + 1) is None
+
+
+def test_pinned_source_none_when_no_pin():
+    svc, _ = _service()
+    assert svc.pinned_source(("carol", "sess-1")) is None
+    assert svc.pinned_source(None) is None
+
+
+def test_pinned_source_none_when_giver_reported_dead():
+    """A pin is not resurrected if the pinned giver has since gone dead in the
+    live-quota health map (mirrors select_source's own health gating)."""
+    svc, _ = _service()
+    src = Source(bucket=Bucket.POOL, giver_id="bob", pat="ghp_bob")
+    svc.pin_source(("carol", "sess-1"), src, expires_at=2000, now=1000)
+    assert svc.pinned_source(("carol", "sess-1"), health={"bob": 0}, now=1500) is None
+    assert svc.pinned_source(("carol", "sess-1"), health={"bob": 5}, now=1500) == src
+    assert svc.pinned_source(("carol", "sess-1"), health={"alice": 0}, now=1500) == src
+
+
+def test_pinned_source_scoped_per_consumer_and_session_id():
+    """Different (consumer, x-client-session-id) pairs don't collide, even for
+    the same consumer running two concurrent CLI sessions."""
+    svc, _ = _service()
+    src_a = Source(bucket=Bucket.POOL, giver_id="alice", pat="ghp_alice")
+    src_b = Source(bucket=Bucket.POOL, giver_id="bob", pat="ghp_bob")
+    svc.pin_source(("carol", "sess-a"), src_a, expires_at=2000, now=1000)
+    svc.pin_source(("carol", "sess-b"), src_b, expires_at=2000, now=1000)
+    assert svc.pinned_source(("carol", "sess-a"), now=1500) == src_a
+    assert svc.pinned_source(("carol", "sess-b"), now=1500) == src_b
+    assert svc.pinned_source(("dave", "sess-a"), now=1500) is None
+
+
 def test_giver_with_credit_but_no_pat_falls_through_to_grant():
     """A giver who has personal_remaining > 0 but whose giver_id is NOT in the PAT
     registry must NOT be returned as an OWN Source — select_source should fall through

@@ -246,6 +246,16 @@ def is_billable(upstream_host: str, method: str, path: str) -> bool:
             and path.split("?", 1)[0] in _BILLABLE_PATHS)
 
 
+def is_session_bootstrap(upstream_host: str, method: str, path: str) -> bool:
+    """POST /models/session: resolves auto_mode -> concrete model + a
+    copilot-session-token bound to whichever giver identity requests it.
+    Not billable/metered itself, but its giver pick must be pinned and reused
+    on the client's next billable call -- see ctc/routing/attribution.py."""
+    return (upstream_host == _COPILOT_API_HOST
+            and method.upper() == contract.BILLABLE_METHOD
+            and path.split("?", 1)[0] == contract.SESSION_BOOTSTRAP_PATH)
+
+
 def strip_bearer(auth: str) -> str:
     for p in ("Bearer ", "bearer ", "token ", "Token "):
         if auth.startswith(p):
@@ -461,6 +471,56 @@ def is_quota_exceeded_402(status: int, body: bytes) -> bool:
     return err.get("code") == "quota_exceeded"
 
 
+def is_invalid_auto_mode_selector_401(status: int, body: bytes) -> bool:
+    if status != 401:
+        return False
+    try:
+        return contract.INVALID_AUTO_MODE_SELECTOR_BODY in body.decode("utf-8", errors="replace")
+    except Exception:
+        return False
+
+
+def _patch_json_model_field(body: bytes, new_model: str) -> bytes:
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return body
+    if not isinstance(payload, dict) or "model" not in payload:
+        return body
+    if payload.get("model") == new_model:
+        return body
+    payload["model"] = new_model
+    try:
+        return json.dumps(payload).encode()
+    except Exception:
+        return body
+
+
+async def _bootstrap_session_token(source, hdrs, auth) -> Optional[dict]:
+    if source is None or _http is None:
+        return None
+    try:
+        fwd = build_upstream_headers(
+            hdrs, contract.BILLABLE_HOST, auth, len(contract.SESSION_BOOTSTRAP_BODY), source.pat)
+        async with _http.request(
+            "POST",
+            f"https://{contract.BILLABLE_HOST}{contract.SESSION_BOOTSTRAP_PATH}",
+            headers=fwd,
+            data=contract.SESSION_BOOTSTRAP_BODY,
+            ssl=build_upstream_ssl_context(UPSTREAM_INSECURE, UPSTREAM_CA_BUNDLE),
+            allow_redirects=False,
+            timeout=aiohttp.ClientTimeout(sock_connect=10, sock_read=15),
+        ) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            if not isinstance(data, dict) or "session_token" not in data:
+                return None
+            return data
+    except Exception:
+        return None
+
+
 def candidate_givers(engine, cycle_id, consumer) -> set:
     """The set of giver_ids whose live quota is worth pre-checking for this
     consumer: the consumer itself if it's a giver, every donor backing an active
@@ -564,24 +624,45 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         consumer = None
         pat_to_use = REAL_PAT
         billable = ATTRIBUTION is not None and is_billable(upstream_host, method, path)
-        if billable:
+        # /models/session resolves auto_mode -> a copilot-session-token bound to
+        # whichever giver identity requested it. It isn't billable/metered, but
+        # its giver pick has to be pinned so the client's next billable call
+        # (matched by consumer + x-client-session-id) reuses the same giver —
+        # otherwise upstream rejects the session token with
+        # 401 "Invalid auto-mode selector" whenever the two picks diverge.
+        session_bootstrap = (not billable and ATTRIBUTION is not None
+                              and is_session_bootstrap(upstream_host, method, path))
+        client_session_id = hdrs.get("x-client-session-id", "")
+        pin_key = None
+        health: Dict[str, Optional[int]] = {}
+        if billable or session_bootstrap:
             # ensure_active_cycle also rolls a month-ended cycle over (archive +
             # open + seed) on first access. It is fully synchronous — no `await`
             # between its BEGIN IMMEDIATE and COMMIT — so it respects the no-await
             # invariant documented below for select_source/debit.
             cycle = ATTRIBUTION.engine.ensure_active_cycle(_now())
             consumer = ATTRIBUTION.resolve_consumer(strip_bearer(auth)) if cycle else None
+            if consumer and client_session_id:
+                pin_key = (consumer.user_id, client_session_id)
             # Live-quota health gate: pre-fetch each candidate giver's real GitHub
             # premium_interactions.remaining so select_source can skip a giver that
             # is already dead at the source. This awaits BEFORE select_source, so
             # the no-await-inside-transaction invariant below still holds.
-            health: Dict[str, Optional[int]] = {}
             if cycle and consumer and LIVE_QUOTA is not None:
                 for gid in candidate_givers(ATTRIBUTION.engine, cycle.id, consumer):
                     health[gid] = await reconcile_candidate(
                         ATTRIBUTION.engine, LIVE_QUOTA, cycle.id, gid)
-            source = (ATTRIBUTION.select_source(cycle.id, consumer, health=health)
-                      if (cycle and consumer) else None)
+        if billable:
+            # Reuse the giver pinned by this client's /models/session bootstrap
+            # call (same consumer + x-client-session-id), if any is still valid,
+            # instead of letting select_source()'s independent dynamic pick land
+            # on a different giver. Falls back to normal selection when there's
+            # no pin (client skipped auto-mode / pinned a specific model) or the
+            # pinned giver has expired/gone dead.
+            source = ATTRIBUTION.pinned_source(pin_key, health=health) if pin_key else None
+            if source is None:
+                source = (ATTRIBUTION.select_source(cycle.id, consumer, health=health)
+                          if (cycle and consumer) else None)
             if source is None:
                 # Pre-gate failed: no eligible credit. Block BEFORE forwarding.
                 # Log the specific cause so operators can distinguish misconfigurations.
@@ -609,6 +690,16 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             # all fully synchronous — no `await` occurs between BEGIN IMMEDIATE and
             # COMMIT, so the event loop cannot interleave two transactions.
             pat_to_use = source.pat
+        elif session_bootstrap and cycle and consumer:
+            # Same selection path as billable calls (not any_giver_pat()'s static
+            # first-in-list pick) so the giver chosen here is the one we can
+            # meaningfully pin. No credit is consumed — this call isn't metered.
+            # If nothing is eligible (e.g. pool exhausted), leave pat_to_use as-is
+            # so the non-billable fallback below borrows any giver PAT; the
+            # actual billable call afterward will 402-block on its own merits.
+            source = ATTRIBUTION.select_source(cycle.id, consumer, health=health)
+            if source is not None:
+                pat_to_use = source.pat
 
         # Non-billable GHE calls (token validation/exchange: /copilot_internal/*)
         # still need a real PAT, but attribution only selects one for billable
@@ -685,8 +776,58 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                         _status = resp.status
                         _ct = resp.headers.get("Content-Type", "")
                         break
+                    if (billable and source is not None and attempts < max_attempts
+                            and resp.status == 401
+                            and hdrs.get(contract.COPILOT_SESSION_TOKEN_HEADER, "")):
+                        # Same retry pattern as the 402 failover above, but for the
+                        # auto-mode session token being bound to the wrong giver.
+                        peek = await resp.read()
+                        if is_invalid_auto_mode_selector_401(resp.status, peek):
+                            exclude.add(source.grant_id or source.giver_id)
+                            nxt = ATTRIBUTION.select_source(
+                                cycle.id, consumer, health=health, exclude=frozenset(exclude))
+                            if nxt is not None:
+                                healed = await _bootstrap_session_token(nxt, hdrs, auth)
+                                if healed is not None:
+                                    new_token = healed["session_token"]
+                                    selected_model = healed.get("selected_model")
+                                    expires_at = healed.get("expires_at")
+                                    # Mutate hdrs (not fwd): fwd is rebuilt from hdrs at
+                                    # the top of the next loop iteration via
+                                    # build_upstream_headers(), so patching fwd here
+                                    # would be silently discarded on retry.
+                                    hdrs[contract.COPILOT_SESSION_TOKEN_HEADER] = new_token
+                                    if isinstance(selected_model, str):
+                                        current_model = None
+                                        model_present = False
+                                        try:
+                                            parsed_body = json.loads(body or b"{}")
+                                            if isinstance(parsed_body, dict) and "model" in parsed_body:
+                                                model_present = True
+                                                current_model = parsed_body.get("model")
+                                        except Exception:
+                                            model_present = False
+                                        if model_present and current_model != selected_model:
+                                            log.warning("[failover] model changed %s -> %s; retry via %s",
+                                                        current_model, selected_model, nxt.giver_id)
+                                            patched_body = _patch_json_model_field(body, selected_model)
+                                            if patched_body != body:
+                                                body = patched_body
+                                                fwd["content-length"] = str(len(body))
+                                    if pin_key:
+                                        try:
+                                            ATTRIBUTION.pin_source(pin_key, nxt, expires_at)
+                                        except Exception as exc:
+                                            log.warning("[!] failed to pin healed giver from /models/session response: %s", exc)
+                                    source = nxt
+                                    continue
+                        _write_buffered(writer, resp, peek)
+                        await writer.drain()
+                        _status = resp.status
+                        _ct = resp.headers.get("Content-Type", "")
+                        break
                     full_body = await _relay_response(writer, resp, upstream_host, path, method,
-                                                      hdrs, capture_full=billable)
+                                                      hdrs, capture_full=(billable or session_bootstrap))
                     _status = resp.status
                     _ct = resp.headers.get("Content-Type", "")
                 if billable and _status == 200:
@@ -698,6 +839,17 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                         ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now())
                     except Exception as exc:  # debit must never break the sent response
                         log.error("[!] debit failed (logged, not surfaced): %s", exc)
+                if session_bootstrap and _status == 200 and source is not None and pin_key is not None:
+                    # Pin the giver we bootstrapped auto-mode with so the client's
+                    # next billable call (matched by consumer + x-client-session-id)
+                    # reuses the same identity as the copilot-session-token we just
+                    # got back — avoiding the 401 "Invalid auto-mode selector" that
+                    # follows a mismatched giver pick.
+                    try:
+                        data = json.loads(full_body or b"{}")
+                        ATTRIBUTION.pin_source(pin_key, source, data.get("expires_at"))
+                    except Exception as exc:
+                        log.warning("[!] failed to pin giver from /models/session response: %s", exc)
                 if is_billable(upstream_host, method, path) and _status in (400, 401, 403):
                     _safe_sentinel_emit(sentinel.check_billable_rejection, _status, path.split("?", 1)[0])
                 break

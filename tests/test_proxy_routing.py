@@ -1,3 +1,5 @@
+import json
+
 import proxy
 
 
@@ -10,6 +12,44 @@ def test_is_billable_matches_only_completion_posts():
     assert not proxy.is_billable("copilot-api.example.ghe.com", "GET", "/v1/messages")
     assert not proxy.is_billable("api.example.ghe.com", "POST", "/chat/completions")
     assert not proxy.is_billable("copilot-api.example.ghe.com", "POST", "/models")
+
+
+def test_is_session_bootstrap_matches_models_session_post():
+    assert proxy.is_session_bootstrap("copilot-api.example.ghe.com", "POST", "/models/session")
+    # query string tolerated
+    assert proxy.is_session_bootstrap("copilot-api.example.ghe.com", "POST", "/models/session?x=1")
+    # wrong method / host / path
+    assert not proxy.is_session_bootstrap("copilot-api.example.ghe.com", "GET", "/models/session")
+    assert not proxy.is_session_bootstrap("api.example.ghe.com", "POST", "/models/session")
+    assert not proxy.is_session_bootstrap("copilot-api.example.ghe.com", "POST", "/responses")
+    # never overlaps with is_billable -- the whole point is they're mutually exclusive
+    assert not proxy.is_billable("copilot-api.example.ghe.com", "POST", "/models/session")
+    assert not proxy.is_session_bootstrap("copilot-api.example.ghe.com", "POST", "/v1/messages")
+
+
+def test_is_invalid_auto_mode_selector_401():
+    assert proxy.is_invalid_auto_mode_selector_401(401, b"Invalid auto-mode selector")
+    assert not proxy.is_invalid_auto_mode_selector_401(401, b"something else")
+    assert not proxy.is_invalid_auto_mode_selector_401(200, b"Invalid auto-mode selector")
+    assert not proxy.is_invalid_auto_mode_selector_401(401, b"")
+    assert not proxy.is_invalid_auto_mode_selector_401(403, b"Invalid auto-mode selector")
+
+
+def test_patch_json_model_field():
+    body = b'{"model": "gpt-5.3-codex", "other": 1}'
+    patched = proxy._patch_json_model_field(body, "claude-sonnet-4.6")
+    payload = json.loads(patched)
+    assert payload["model"] == "claude-sonnet-4.6"
+    assert payload["other"] == 1
+
+    already = b'{"model": "claude-sonnet-4.6", "other": 1}'
+    assert proxy._patch_json_model_field(already, "claude-sonnet-4.6") == already
+
+    malformed = b"not json"
+    assert proxy._patch_json_model_field(malformed, "claude-sonnet-4.6") == malformed
+
+    no_model = b'{"other": 1}'
+    assert proxy._patch_json_model_field(no_model, "claude-sonnet-4.6") == no_model
 
 
 def test_strip_bearer():

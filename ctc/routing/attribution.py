@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from ..accounting.engine import AccountingEngine
@@ -15,11 +16,24 @@ class Source:
     grant_id: str | None = None
 
 
+# A GitHub auto-mode `session_token` (minted by POST /models/session) is bound
+# to the specific giver identity that requested it — presenting it while
+# authenticated as a *different* giver gets rejected upstream with
+# `401 Invalid auto-mode selector`. Pin the giver chosen for a client's
+# /models/session bootstrap call so the client's subsequent billable calls
+# (within the token's lifetime) reuse the same giver. Bounds guard against a
+# missing/malformed `expires_at` from upstream.
+SESSION_PIN_MIN_TTL_S = 60
+SESSION_PIN_MAX_TTL_S = 30 * 60
+
+
 class AttributionService:
     def __init__(self, engine: AccountingEngine, identity: IdentityProvider, pats: PatRegistry):
         self.engine = engine
         self.identity = identity
         self.pats = pats
+        # (consumer_user_id, client_session_id) -> (Source, expires_at_epoch_s)
+        self._session_pins: dict[tuple[str, str], tuple[Source, int]] = {}
 
     def resolve_consumer(self, fake_token: str) -> ConsumerIdentity | None:
         return self.identity.resolve(fake_token)
@@ -83,6 +97,54 @@ class AttributionService:
                 if pat is not None:
                     return Source(Bucket.POOL, giver_id, pat)
         return None
+
+    def _sweep_expired_pins(self, now: float) -> None:
+        """Drop stale pins opportunistically. Called on every insert/lookup so
+        the dict never grows unbounded; cheap since it's a single dict scan and
+        the proxy is a single asyncio process (no concurrent mutation)."""
+        expired = [k for k, (_src, exp) in self._session_pins.items() if exp <= now]
+        for k in expired:
+            del self._session_pins[k]
+
+    def pin_source(self, session_key: tuple[str, str] | None, source: Source,
+                    expires_at: int | None, *, now: float | None = None) -> None:
+        """Remember which giver was chosen for a client's /models/session
+        bootstrap call, so the client's next billable call (same
+        consumer + x-client-session-id) can reuse it instead of letting
+        select_source()'s independent, dynamic pick land on a different
+        giver -> upstream 401 "Invalid auto-mode selector".
+
+        `expires_at` is the epoch-seconds value from the /models/session
+        response; clamped to [SESSION_PIN_MIN_TTL_S, SESSION_PIN_MAX_TTL_S]
+        from now so a missing/malformed/clock-skewed value can't pin forever
+        or expire before it's ever used.
+        """
+        if session_key is None:
+            return
+        now = time.time() if now is None else now
+        self._sweep_expired_pins(now)
+        ttl = SESSION_PIN_MAX_TTL_S
+        if isinstance(expires_at, (int, float)):
+            ttl = max(SESSION_PIN_MIN_TTL_S, min(SESSION_PIN_MAX_TTL_S, expires_at - now))
+        self._session_pins[session_key] = (source, now + ttl)
+
+    def pinned_source(self, session_key: tuple[str, str] | None, *,
+                       health: dict | None = None, now: float | None = None) -> Source | None:
+        """The giver pinned for this (consumer, client_session_id) pair, if
+        any, not yet expired, and not currently reported dead in `health`.
+        None means "no pin, or it's no longer usable" -> caller should fall
+        back to select_source()."""
+        if session_key is None:
+            return None
+        now = time.time() if now is None else now
+        self._sweep_expired_pins(now)
+        entry = self._session_pins.get(session_key)
+        if entry is None:
+            return None
+        source, expires_at = entry
+        if expires_at <= now or self._dead(health, source.giver_id):
+            return None
+        return source
 
     def any_giver_pat(self) -> str | None:
         """Any stored giver PAT, for non-billable bootstrap/validation calls
