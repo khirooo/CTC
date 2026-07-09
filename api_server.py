@@ -300,6 +300,16 @@ def build_from_env(session) -> web.Application:
                 raise PatInvalid(f"/copilot_internal/user -> {r.status}")
             return await r.json()
 
+    async def http_get_user_raw(pat):
+        """Like http_get_user but returns (status, body|None) instead of raising
+        on non-200 — the health checker needs the status code to classify."""
+        headers = {"authorization": f"Bearer {pat}", "editor-version": "copilot/1.0.63",
+                   "copilot-integration-id": "copilot-developer-cli"}
+        async with session.get(f"{api_base}/copilot_internal/user", headers=headers) as r:
+            if r.status != 200:
+                return r.status, None
+            return 200, await r.json()
+
     gitlab_base = os.environ["GITLAB_BASE"].rstrip("/")
     oauth = GitLabOAuth(os.environ["GITLAB_OAUTH_CLIENT_ID"],
                         os.environ["GITLAB_OAUTH_CLIENT_SECRET"],
@@ -309,11 +319,30 @@ def build_from_env(session) -> web.Application:
     from ctc.auth.admin import admins_from_env
     admins = admins_from_env(os.environ)
     ca_cert_path = os.environ.get("CTC_CA_CERT", "/certs/cert.pem")
-    return make_app(store=store, engine=engine, registry=registry, sessions=sessions,
-                    oauth=oauth, http_get_user=http_get_user,
-                    secret=secret, app_origin=app_origin,
-                    admins=admins, ca_cert_path=ca_cert_path,
-                    deployment=deployment)
+    app = make_app(store=store, engine=engine, registry=registry, sessions=sessions,
+                   oauth=oauth, http_get_user=http_get_user,
+                   secret=secret, app_origin=app_origin,
+                   admins=admins, ca_cert_path=ca_cert_path,
+                   deployment=deployment)
+
+    # Periodic giver-PAT health sweep (display-only; see ctc/auth/pat_health.py).
+    # Wired here rather than in make_app so test apps stay free of background tasks.
+    from ctc.auth.pat_health import PatHealthChecker
+    checker = PatHealthChecker(store, registry.pat_for, http_get_user_raw,
+                               now=lambda: int(time.time()),
+                               interval_s=int(os.environ.get("CTC_PAT_HEALTH_INTERVAL_S", "1200")))
+
+    async def _pat_health_ctx(app):
+        task = asyncio.create_task(checker.run_forever())
+        yield
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    app.cleanup_ctx.append(_pat_health_ctx)
+    return app
 
 
 async def _serve() -> None:

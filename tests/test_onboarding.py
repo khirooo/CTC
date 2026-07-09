@@ -117,3 +117,10 @@ async def test_rejects_zero_entitlement():
     with pytest.raises(PatInvalid):
         await validate_and_store_pat(reg, eng, _user_zero_entitlement,
                                      "c1", "u1", "octocat", "github_pat_X", now=2)
+
+
+@pytest.mark.asyncio
+async def test_valid_pat_records_health_valid():
+    store, eng, reg = _setup()
+    await validate_and_store_pat(reg, eng, _user_ok, "c1", "u1", "octocat", "github_pat_X", now=2)
+    assert store.get_pat_health("u1") == {"status": "valid", "checked_at": 2, "error": None}

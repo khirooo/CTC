@@ -6,6 +6,7 @@ from ..accounting.errors import InsufficientCredit, InvalidConsumption, InvalidP
 from ..accounting.leaderboard import LeaderboardUser, build_leaderboard, giver_tier_inputs
 from ..accounting.reports import build_dashboard, build_history
 from ..accounting.tiers import assign_tiers
+from ..auth.pat_health import display_status
 from ..domain.config import NANO_PER_AIU
 from ..domain.types import Role
 from .serializers import (CreateRequestDTO, DonateDTO, ListRequestsDTO, OwnProfileDTO,
@@ -86,9 +87,12 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         quota = gc.quota if gc else 0
         pledge = gc.pledge if gc else 0
         role = user["role"]
+        health = store.get_pat_health(user["id"])
         return SettingsDTO(
             name=user["display_name"], login=user["ghe_login"], role=role,
             has_pat=store.get_giver_pat(user["id"]) is not None,
+            pat_health=display_status(health),
+            pat_health_checked_at=health["checked_at"] if health else None,
             total_credit=quota if quota else None,
             pledged_surplus=pledge,
             allowance=engine.config.free_allowance if role == "consumer" else None,

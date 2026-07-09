@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from aiohttp import web
 
+from ..auth.pat_health import display_status
 from ..domain.settings import effective_view, validate_patch
 
 
@@ -33,6 +34,11 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
                 "onboarded": bool(u["onboarded"]),
                 "has_pat": u["pat_fingerprint"] is not None,
                 "pat_fingerprint": u["pat_fingerprint"],
+                "pat_health": display_status(
+                    {"status": u["pat_health_status"], "error": u["pat_health_error"]}
+                    if u["pat_fingerprint"] is not None else None),
+                "pat_health_checked_at": u["pat_health_checked_at"],
+                "pat_health_error": u["pat_health_error"],
                 "token_count": u["token_count"],
                 "quota": quota, "pledge": pledge, "pledge_remaining": pledge_rem,
             })
@@ -50,10 +56,14 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
         pat_row = store.get_giver_pat(uid)
         pat = ({"fingerprint": pat_row["fingerprint"], "created_at": pat_row["created_at"]}
                if pat_row else None)
+        health = store.get_pat_health(uid)
         quota, pledge, pledge_rem = _balances(uid, u["role"])
         return web.json_response({
             "id": u["id"], "ghe_login": u["ghe_login"], "display_name": u["display_name"],
             "role": u["role"], "onboarded": bool(u["onboarded"]),
+            "pat_health": display_status(health),
+            "pat_health_checked_at": health["checked_at"] if health else None,
+            "pat_health_error": health["error"] if health else None,
             "proxy_tokens": tokens, "pat": pat,
             "quota": quota, "pledge": pledge, "pledge_remaining": pledge_rem,
         })

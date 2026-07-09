@@ -330,7 +330,9 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
 
     async getSettings(): Promise<SettingsData> {
       const u = requireUser();
-      return { name: u.name, login: u.email ? u.email.split('@')[0] : u.id, role: u.role, hasPat: u.hasPat, totalCredit: u.totalCredit, pledgedSurplus: u.pledgedSurplus, allowance: u.allowance };
+      return { name: u.name, login: u.email ? u.email.split('@')[0] : u.id, role: u.role, hasPat: u.hasPat,
+        patHealth: u.hasPat ? 'valid' : null, patHealthCheckedAt: u.hasPat ? 1_700_000_000 : null,
+        totalCredit: u.totalCredit, pledgedSurplus: u.pledgedSurplus, allowance: u.allowance };
     },
     async updateSettings(patch: SettingsPatch): Promise<SettingsData> {
       const u = requireUser();
@@ -365,14 +367,17 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
 
     async listAllUsers(): Promise<AdminUser[]> {
       return users.map(u => ({ id: u.id, gheLogin: loginOf(u), displayName: u.name, role: u.role, onboarded: true, hasPat: u.hasPat,
-        patFingerprint: u.hasPat ? u.id.slice(0, 8) : null, tokenCount: 0,
+        patFingerprint: u.hasPat ? u.id.slice(0, 8) : null,
+        patHealth: u.hasPat ? 'valid' as const : null, patHealthCheckedAt: u.hasPat ? 1_700_000_000 : null, patHealthError: null, tokenCount: 0,
         quota: u.role === 'giver' ? u.totalCredit : null, pledge: u.role === 'giver' ? u.pledgedSurplus : null, pledgeRemaining: u.role === 'giver' ? u.pledgedSurplus : null }));
     },
     async getUserDetail(id: string): Promise<AdminUserDetail> {
       const u = users.find(x => x.id === id);
       if (!u) throw new Error(`User not found: ${id}`);
       return { id: u.id, gheLogin: loginOf(u), displayName: u.name, role: u.role, onboarded: true, hasPat: u.hasPat,
-        patFingerprint: u.hasPat ? u.id.slice(0, 8) : null, tokenCount: 0, quota: u.totalCredit, pledge: u.pledgedSurplus, pledgeRemaining: u.pledgedSurplus,
+        patFingerprint: u.hasPat ? u.id.slice(0, 8) : null,
+        patHealth: u.hasPat ? 'valid' as const : null, patHealthCheckedAt: u.hasPat ? 1_700_000_000 : null, patHealthError: null,
+        tokenCount: 0, quota: u.totalCredit, pledge: u.pledgedSurplus, pledgeRemaining: u.pledgedSurplus,
         proxyTokens: [], pat: u.hasPat ? { fingerprint: u.id.slice(0, 8), createdAt: 0 } : null };
     },
     async revealPat(id: string): Promise<string> { if (!users.find(x => x.id === id)) throw new Error(`User not found: ${id}`); return `github_pat_mock_${id}`; },

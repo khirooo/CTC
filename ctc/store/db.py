@@ -79,7 +79,10 @@ CREATE TABLE IF NOT EXISTS giver_pats (
   created_at INTEGER NOT NULL,
   entitlement INTEGER,
   remaining_at_submit INTEGER,
-  quota_reset_date TEXT
+  quota_reset_date TEXT,
+  health_status TEXT,
+  health_checked_at INTEGER,
+  health_error TEXT
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -131,6 +134,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     pcols = {r["name"] for r in conn.execute("PRAGMA table_info(giver_pats)")}
     for col, decl in (("entitlement", "INTEGER"),
                       ("remaining_at_submit", "INTEGER"),
-                      ("quota_reset_date", "TEXT")):
+                      ("quota_reset_date", "TEXT"),
+                      ("health_status", "TEXT"),
+                      ("health_checked_at", "INTEGER"),
+                      ("health_error", "TEXT")):
         if col not in pcols:
             conn.execute(f"ALTER TABLE giver_pats ADD COLUMN {col} {decl}")

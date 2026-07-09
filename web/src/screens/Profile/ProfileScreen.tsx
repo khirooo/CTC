@@ -10,6 +10,7 @@ import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar
 import { TerminalBlock } from '@/components/TerminalBlock';
 import { InfoTip } from '@/components/InfoTip';
 import { PatHelp } from '@/components/PatHelp';
+import { PatHealthBadge } from '@/components/PatHealthBadge';
 import { TierBadge } from '@/components/TierBadge';
 import { monoLabel, card, inputStyle } from '@/theme/styles';
 
@@ -19,6 +20,24 @@ function resetLine(resetDate: string | null | undefined): string | null {
   const days = Math.max(0, Math.ceil((reset - Date.now()) / 86_400_000));
   const d = new Date(reset).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   return days === 0 ? `Resets ${d} · resets today` : `Resets ${d} · in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+/** One sentence per non-valid license state — what happened and what fixes it. */
+const PAT_HEALTH_HINT: Record<string, string> = {
+  expired:
+    'This license stopped working, so requests using it are failing. Rotate it below with a fresh token to fix it.',
+  forbidden:
+    'This license is missing the permissions Copilot needs. Rotate it below with a token that has Copilot access.',
+  no_entitlement:
+    'This license has no Copilot quota attached. Check the Copilot subscription on your GitHub account.',
+  unreachable:
+    "CTC couldn't reach GitHub to check this license just now. The badge shows the last known state.",
+};
+
+function checkedLine(checkedAt: number | null): string | null {
+  if (!checkedAt) return null;
+  const d = new Date(checkedAt * 1000);
+  return `license checked ${d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
 }
 
 function nudgeLine(tier: string | null, netToNext: number | null): string | null {
@@ -346,7 +365,15 @@ export function ProfileScreen() {
       {/* Copilot license (Host with a license connected) */}
       {isGiver && data.hasPat && (
         <div style={card}>
-          <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 18 }}>Copilot license</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>Copilot license</div>
+            {data.patHealth && <PatHealthBadge health={data.patHealth} />}
+          </div>
+          {data.patHealth && PAT_HEALTH_HINT[data.patHealth] && (
+            <p style={{ color: data.patHealth === 'unreachable' ? 'var(--text-faint)' : 'var(--consume)', fontSize: 13, margin: '0 0 12px', fontFamily: "'JetBrains Mono', monospace" }}>
+              {PAT_HEALTH_HINT[data.patHealth]}
+            </p>
+          )}
           {patSaveError && (
             <p role="alert" style={{ color: 'var(--consume)', fontSize: 13, margin: '0 0 12px', fontFamily: "'JetBrains Mono', monospace" }}>
               {patSaveError}
@@ -403,6 +430,11 @@ export function ProfileScreen() {
               >
                 {revoking ? 'Revoking…' : 'Revoke'}
               </button>
+            </div>
+          )}
+          {checkedLine(data.patHealthCheckedAt) && (
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)', marginTop: 10, opacity: 0.7 }}>
+              {checkedLine(data.patHealthCheckedAt)}
             </div>
           )}
         </div>

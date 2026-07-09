@@ -34,6 +34,9 @@ async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user
     quota_nano = int(ent) * NANO_PER_AIU          # quota = entitlement ceiling
     engine.set_quota(cycle_id, user_id, quota_nano)
     registry.store_pat(user_id, pat, now)
+    # The PAT just answered /copilot_internal/user with an entitlement, so it is
+    # definitively healthy right now; the periodic checker takes over from here.
+    registry.store.set_pat_health_ok(user_id, "valid", now)
     registry.store.set_user_role(user_id, "giver")
     registry.store.set_giver_quota_snapshot(user_id, int(ent), avail, reset_date, now)
     pct = getattr(effective_config, "default_pledge_pct", 0) if effective_config else 0

@@ -186,7 +186,11 @@ function mapAdminUser(u: any): AdminUser {
   return {
     id: u.id, gheLogin: u.ghe_login, displayName: u.display_name, role: u.role,
     onboarded: Boolean(u.onboarded), hasPat: Boolean(u.has_pat),
-    patFingerprint: u.pat_fingerprint ?? null, tokenCount: u.token_count ?? 0,
+    patFingerprint: u.pat_fingerprint ?? null,
+    patHealth: u.pat_health ?? null,
+    patHealthCheckedAt: u.pat_health_checked_at ?? null,
+    patHealthError: u.pat_health_error ?? null,
+    tokenCount: u.token_count ?? 0,
     quota: u.quota ?? null, pledge: u.pledge ?? null, pledgeRemaining: u.pledge_remaining ?? null,
   };
 }

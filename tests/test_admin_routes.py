@@ -92,3 +92,25 @@ async def test_admin_can_toggle_pool():
         await cli.patch("/api/admin/settings", json={"shared_pool_enabled": "on"})
         r = await cli.get("/api/admin/settings")
         assert (await r.json())["shared_pool_enabled"]["value"] is True
+
+
+@pytest.mark.asyncio
+async def test_admin_users_carry_pat_health():
+    app = await _client(admins=frozenset({"octocat"}))
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "github_pat_SECRET"})
+        me = await (await cli.get("/api/me")).json()
+        uid = me["user_id"]
+
+        users = await (await cli.get("/api/admin/users")).json()
+        row = [u for u in users if u["id"] == uid][0]
+        assert row["pat_health"] == "valid"           # upload just validated it
+        assert row["pat_health_error"] is None
+
+        detail = await (await cli.get(f"/api/admin/users/{uid}")).json()
+        assert detail["pat_health"] == "valid"
+
+        # a user with no PAT shows no health at all
+        no_pat = [u for u in users if u["id"] != uid]
+        assert all(u["pat_health"] is None for u in no_pat)

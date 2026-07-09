@@ -56,6 +56,8 @@ class SettingsDTO(CamelModel):
     login: str
     role: str
     has_pat: bool
+    pat_health: str | None = None          # valid|expired|forbidden|no_entitlement|unreachable
+    pat_health_checked_at: int | None = None
     total_credit: int | None     # nano-AIU
     pledged_surplus: int | None  # nano-AIU
     allowance: int | None        # nano-AIU

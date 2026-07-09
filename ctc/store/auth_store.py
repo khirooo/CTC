@@ -105,6 +105,31 @@ class AuthStore:
                 "remaining_at_submit": r["remaining_at_submit"],
                 "quota_reset_date": r["quota_reset_date"]}
 
+    def set_pat_health_ok(self, user_id, status, now):
+        """Record a definitive health verdict (valid/expired/forbidden/no_entitlement)."""
+        self.conn.execute(
+            "UPDATE giver_pats SET health_status=?, health_error=NULL, health_checked_at=? "
+            "WHERE user_id=?",
+            (status, now, user_id),
+        )
+
+    def set_pat_health_error(self, user_id, error, now):
+        """Record an indefinitive check (network/5xx): keep the last verdict."""
+        self.conn.execute(
+            "UPDATE giver_pats SET health_error=?, health_checked_at=? WHERE user_id=?",
+            (error, now, user_id),
+        )
+
+    def get_pat_health(self, user_id):
+        r = self.conn.execute(
+            "SELECT health_status, health_checked_at, health_error FROM giver_pats WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+        if r is None:
+            return None
+        return {"status": r["health_status"], "checked_at": r["health_checked_at"],
+                "error": r["health_error"]}
+
     def list_giver_ids(self):
         return [r["user_id"] for r in self.conn.execute("SELECT user_id FROM giver_pats").fetchall()]
 
@@ -127,6 +152,9 @@ class AuthStore:
         rows = self.conn.execute(
             "SELECT u.id, u.ghe_login, u.display_name, u.role, u.onboarded, "
             "       p.fingerprint AS pat_fingerprint, "
+            "       p.health_status AS pat_health_status, "
+            "       p.health_checked_at AS pat_health_checked_at, "
+            "       p.health_error AS pat_health_error, "
             "       (SELECT COUNT(*) FROM proxy_tokens t WHERE t.user_id = u.id) AS token_count "
             "FROM users u LEFT JOIN giver_pats p ON p.user_id = u.id "
             "ORDER BY u.created_at, u.id"

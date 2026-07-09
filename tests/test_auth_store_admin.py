@@ -31,3 +31,17 @@ def test_add_and_list_admin_audit():
     assert rows[0]["action"] == "reveal_pat"
     assert rows[0]["admin_login"] == "octo"
     assert rows[0]["target_user_id"] == "u1"
+
+
+def test_list_users_admin_includes_pat_health():
+    s = _store()
+    s.upsert_user("u1", "octo", "Octo", "giver", 1)
+    s.upsert_user("u2", "bob", "Bob", "consumer", 2)
+    s.set_giver_pat("u1", b"ct", b"nonce", "abcd1234", 5)
+    s.set_pat_health_ok("u1", "expired", 100)
+    s.set_pat_health_error("u1", "boom", 150)
+    rows = {r["id"]: r for r in s.list_users_admin()}
+    assert rows["u1"]["pat_health_status"] == "expired"
+    assert rows["u1"]["pat_health_checked_at"] == 150
+    assert rows["u1"]["pat_health_error"] == "boom"
+    assert rows["u2"]["pat_health_status"] is None

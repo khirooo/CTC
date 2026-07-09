@@ -78,3 +78,23 @@ def test_set_onboarded_flips_flag():
     s.upsert_user("u1", "octocat", "Octo", "consumer", 1000)
     s.set_onboarded("u1")
     assert s.get_user_by_id("u1")["onboarded"] == 1
+
+
+def test_pat_health_lifecycle():
+    s = _store()
+    s.upsert_user("u1", "octocat", "Octo", "giver", 1)
+    s.set_giver_pat("u1", b"ct", b"nonce", "abcd1234", 5)
+    # fresh PAT row: no verdict yet
+    assert s.get_pat_health("u1") == {"status": None, "checked_at": None, "error": None}
+    assert s.get_pat_health("nobody") is None
+
+    s.set_pat_health_ok("u1", "valid", 100)
+    assert s.get_pat_health("u1") == {"status": "valid", "checked_at": 100, "error": None}
+
+    # indefinitive check: error recorded, verdict kept
+    s.set_pat_health_error("u1", "502", 200)
+    assert s.get_pat_health("u1") == {"status": "valid", "checked_at": 200, "error": "502"}
+
+    # next definitive verdict clears the error
+    s.set_pat_health_ok("u1", "expired", 300)
+    assert s.get_pat_health("u1") == {"status": "expired", "checked_at": 300, "error": None}

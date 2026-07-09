@@ -187,11 +187,20 @@ export interface OwnProfile {
   netToNext: number | null;
 }
 
+/**
+ * Verdict of the periodic giver-PAT health check.
+ * 'unreachable' means the last check could not reach GHE (the previous verdict
+ * is kept server-side); null means no PAT or never checked.
+ */
+export type PatHealth = 'valid' | 'expired' | 'forbidden' | 'no_entitlement' | 'unreachable';
+
 export interface SettingsData {
   name: string;
   login: string;
   role: Role;
   hasPat: boolean;
+  patHealth: PatHealth | null;
+  patHealthCheckedAt: number | null;
   totalCredit: number | null;
   pledgedSurplus: number | null;
   allowance: number | null;
@@ -241,6 +250,9 @@ export interface AdminUser {
   onboarded: boolean;
   hasPat: boolean;
   patFingerprint: string | null;
+  patHealth: PatHealth | null;
+  patHealthCheckedAt: number | null;
+  patHealthError: string | null;
   tokenCount: number;
   quota: number | null;
   pledge: number | null;

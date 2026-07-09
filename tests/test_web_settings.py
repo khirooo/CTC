@@ -49,3 +49,15 @@ async def test_patch_pledge_rejected_when_pool_off():
 async def test_settings_requires_session():
     async with TestClient(TestServer(_make())) as cli:
         assert (await cli.get("/api/settings")).status == 401
+
+
+@pytest.mark.asyncio
+async def test_settings_carries_pat_health():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        s = await (await cli.get("/api/settings")).json()
+        assert s["patHealth"] is None                 # no PAT yet
+        await cli.post("/api/pat", json={"pat": "ghp_x"})
+        s2 = await (await cli.get("/api/settings")).json()
+        assert s2["patHealth"] == "valid"             # upload just validated it
+        assert isinstance(s2["patHealthCheckedAt"], int)

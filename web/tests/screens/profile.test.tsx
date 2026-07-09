@@ -116,3 +116,25 @@ describe('ProfileScreen (merged profile + settings)', () => {
     expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   });
 });
+
+describe('ProfileScreen license health badge', () => {
+  it('Host with a valid license: shows the Valid badge and a checked-time line', async () => {
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'prof.health.ok' });
+    await api.signIn('ada@example.com', 'x'); // seed giver with PAT (fake reports valid)
+    renderProfile(api);
+    await waitFor(() => expect(screen.getByText('Copilot license')).toBeInTheDocument());
+    expect(screen.getByText('Valid')).toBeInTheDocument();
+    expect(screen.getByText(/license checked/i)).toBeInTheDocument();
+  });
+
+  it('Host with an expired license: shows the Expired badge and the rotate hint', async () => {
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'prof.health.exp' });
+    await api.signIn('ada@example.com', 'x');
+    const expiredApi = Object.assign(Object.create(Object.getPrototypeOf(api)), api, {
+      getSettings: async () => ({ ...(await api.getSettings()), patHealth: 'expired' as const }),
+    });
+    renderProfile(expiredApi as ReturnType<typeof makeFakeApi>);
+    await waitFor(() => expect(screen.getByText('Expired')).toBeInTheDocument());
+    expect(screen.getByText(/Rotate it below with a fresh token/i)).toBeInTheDocument();
+  });
+});

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useApp } from '@/store/AppContext';
 import { NANO_PER_AIU } from '@/domain/credit';
 import { NumberInput } from '@/components/NumberInput';
+import { PatHealthBadge } from '@/components/PatHealthBadge';
 import type { AdminUser, AdminSettings, AdminSettingsPatch } from '@/domain/types';
 import { monoLabel, card } from '@/theme/styles';
 
@@ -83,6 +84,13 @@ function UserRow({ user, onReveal }: UserRowProps) {
       </td>
       <td style={{ padding: '10px 12px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-dim)' }}>
         {user.patFingerprint ?? '—'}
+      </td>
+      <td style={{ padding: '10px 12px' }}>
+        {user.patHealth ? (
+          <PatHealthBadge health={user.patHealth} title={user.patHealthError ?? undefined} />
+        ) : (
+          <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>—</span>
+        )}
       </td>
       <td style={{ padding: '10px 12px', fontSize: 13, textAlign: 'right', color: 'var(--text-dim)' }}>
         {user.tokenCount}
@@ -327,6 +335,7 @@ export function AdminScreen() {
                 <th style={thStyle}>Role</th>
                 <th style={thStyle}>Onboarded</th>
                 <th style={thStyle}>License fingerprint</th>
+                <th style={thStyle}>License status</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Tokens</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Quota</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Pledge</th>
