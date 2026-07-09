@@ -26,7 +26,8 @@ function makeDefaultApi(): CtcApi {
 }
 
 interface AppContextValue {
-  session: Session | null;
+  /** undefined = bootstrap fetch still in flight; null = logged out. */
+  session: Session | null | undefined;
   signIn(email: string, password: string): Promise<void>;
   signOut(): Promise<void>;
   api: CtcApi;
@@ -41,18 +42,20 @@ interface AppProviderProps {
   api?: CtcApi;
   /** Seed the session synchronously (dev-preview harness / tests) so guarded
    *  routes render on first paint instead of after the async getSession resolves.
-   *  Production leaves this undefined → session starts null as before. */
+   *  Pass null to seed "logged out". Production leaves this out → session starts
+   *  undefined ("still loading") until getSession resolves, so route guards can
+   *  hold their redirect instead of bouncing a refreshed deep link to /. */
   initialSession?: Session | null;
 }
 
-export function AppProvider({ children, api: apiProp, initialSession = null }: AppProviderProps) {
+export function AppProvider({ children, api: apiProp, initialSession }: AppProviderProps) {
   // Resolve the api once on first render and hand the same real CtcApi instance
   // to consumers — typed, referentially stable, methods callable with correct `this`.
   // The `api` prop does not change after mount in practice.
   const apiRef = useRef<CtcApi>(apiProp ?? makeDefaultApi());
   const api = apiRef.current;
 
-  const [session, setSession] = useState<Session | null>(initialSession);
+  const [session, setSession] = useState<Session | null | undefined>(initialSession);
 
   // Restore session from the api on mount.
   // Cancelled guard prevents setState after unmount.

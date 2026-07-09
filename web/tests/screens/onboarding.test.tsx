@@ -31,13 +31,14 @@ function renderScreen() {
 }
 
 /**
- * Suppresses children until AppProvider has loaded the session (session !== null).
- * Without this, OnboardingScreen's `if (!session) <Navigate to="/signin">` fires on
- * the very first render (before getSession resolves) and we never see the wizard.
+ * Suppresses children until AppProvider has loaded the session (session is
+ * undefined while the bootstrap fetch is in flight). Without this,
+ * OnboardingScreen's `if (!session) <Navigate to="/signin">` fires on the very
+ * first render (before getSession resolves) and we never see the wizard.
  */
 function WaitForSession({ children }: { children: ReactNode }) {
   const { session } = useApp();
-  if (session === null) return null;
+  if (session === undefined) return null;
   return <>{children}</>;
 }
 
