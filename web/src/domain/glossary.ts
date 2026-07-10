@@ -23,7 +23,7 @@ export const glossary: Record<GlossaryTerm, { title: string; body: string }> = {
   },
   pool: {
     title: 'Shared pool',
-    body: 'Credits Hosts pledged for everyone. Anyone can route pool credit to an open request on the Marketplace — even their own.',
+    body: 'Credits Hosts pledged for everyone. Post a request, then top it up from the pool yourself — the amount you drew shows on your request.',
   },
   chipIn: {
     title: 'Chip-in',

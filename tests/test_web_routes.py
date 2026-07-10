@@ -299,6 +299,11 @@ async def test_pool_fund_endpoint_own_request():
         lst = await (await cli.get("/api/requests?filter=all")).json()
         assert lst["poolAvailable"] == 300
 
+        # cannot pool-fund someone else's request → 403
+        foreign = eng.create_request("c1", "other_uid", Role.CONSUMER, 100, "help", None, 1000, 10**12)
+        assert (await cli.post(f"/api/requests/{foreign.id}/pool-fund", json={"amount": 50})).status == 403
+        assert (await (await cli.get("/api/requests?filter=all")).json())["poolAvailable"] == 300  # untouched
+
         # over-draw is capped by remaining need; a dry/over request 422s
         await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 999})
         r = await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 10})

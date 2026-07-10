@@ -278,8 +278,9 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const now = Math.floor(getNow() / 1000);
       const i = requests.findIndex(r => r.id === requestId);
       if (i === -1) throw new CtcApiError('not_found', 'request not found', 404);
-      if (!sharedPoolEnabled) throw new CtcApiError('conflict', 'the shared pool is disabled', 409);
       const r = requests[i];
+      if (r.requesterId !== u.id) throw new CtcApiError('forbidden', 'only the requester can fill their request from the pool', 403);
+      if (!sharedPoolEnabled) throw new CtcApiError('conflict', 'the shared pool is disabled', 409);
       if (r.cancelled || r.amountFunded >= r.amountNeeded) throw new CtcApiError('conflict', 'request is closed', 409);
       const actual = Math.min(amount, r.amountNeeded - r.amountFunded, poolAvailable);
       if (actual <= 0) throw new CtcApiError('unprocessable', 'shared pool has no credit available', 422);

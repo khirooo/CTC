@@ -316,7 +316,7 @@ export function OnboardingScreen() {
                   <div style={{ fontWeight: 600, fontSize: 15 }}>No — join as a Guest</div>
                   <ul style={{ color: 'var(--text-dim)', fontSize: 13, margin: '6px 0 0', paddingLeft: 16, lineHeight: 1.65 }}>
                     <li>Post a request on the Marketplace when you need credits</li>
-                    <li>Hosts chip in, or anyone routes shared-pool credit to you</li>
+                    <li>Hosts chip in, or top it up yourself from the shared pool</li>
                     <li>No token needed</li>
                   </ul>
                 </div>

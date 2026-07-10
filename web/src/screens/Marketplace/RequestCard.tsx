@@ -58,7 +58,8 @@ export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete
   const isExpired = status === 'expired';
   const isLive = status === 'open' || status === 'partially_funded';
   const isOpen = isLive && !isOwn;
-  const canPoolFund = isLive && !!poolEnabled && poolAvailable > 0 && !!onPoolFund;
+  // Pool credit can only be routed onto your OWN request.
+  const canPoolFund = isLive && isOwn && !!poolEnabled && poolAvailable > 0 && !!onPoolFund;
   const avatarTone = requesterRole === 'pro' ? 'reroute' : 'consume';
   const badgeTone = requesterRole === 'pro' ? 'reroute' : 'consume';
   const roleLabel = requesterRole === 'pro' ? 'Host' : 'Guest';

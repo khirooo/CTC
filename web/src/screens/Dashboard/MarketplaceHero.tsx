@@ -329,7 +329,7 @@ export function MarketplaceHero({ data }: Props) {
                 Left in the shared pool
                 <InfoTip
                   title="Shared pool"
-                  body="Credit Hosts pledged that nobody has drawn yet. Anyone can route it to an open request on the board."
+                  body="Credit Hosts pledged that nobody has drawn yet. Post a request and top it up from the pool yourself."
                 />
               </span>
             </div>

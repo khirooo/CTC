@@ -91,8 +91,11 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         user = await _require_user(req)
         body = DonateDTO.model_validate(await req.json())
         rid = req.match_info["id"]
-        if acct.get_request(rid) is None:
+        r = acct.get_request(rid)
+        if r is None:
             raise web.HTTPNotFound(text="request not found")
+        if r.requester_id != user["id"]:
+            raise web.HTTPForbidden(text="only the requester can fill their request from the pool")
         if not getattr(engine.config, "shared_pool_enabled", True):
             raise web.HTTPConflict(text="the shared pool is disabled")
         ts = now()

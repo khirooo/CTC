@@ -264,16 +264,18 @@ class AccountingEngine:
             raise
 
     def fund_request_from_pool(self, request_id: str, actor_id: str, amount: int, now: int) -> list[Grant]:
-        """Fill a request from the shared pool. Anyone may trigger this — even the
-        requester on their own request — because the credit comes from the pledged
-        pool, not the actor. The fill is booked as source='pool' grants attributed
-        to real pledging givers, largest pledge_remaining first, so consumption
-        keeps routing through a concrete giver's PAT."""
+        """Fill your OWN request from the shared pool. Only the requester may draw
+        the pool onto their request; the credit comes from the pledged pool, not
+        the actor. The fill is booked as source='pool' grants attributed to real
+        pledging givers, largest pledge_remaining first, so consumption keeps
+        routing through a concrete giver's PAT."""
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             r = self.store.get_request(request_id)
             if r is None:
                 raise InvalidConsumption("unknown request")
+            if actor_id != r.requester_id:
+                raise InvalidConsumption("only the requester can fill their request from the pool")
             funded = self.store.request_funded(request_id)
             status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
             if status in (RequestStatus.FULFILLED, RequestStatus.EXPIRED, RequestStatus.CANCELLED):

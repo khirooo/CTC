@@ -179,6 +179,15 @@ def test_pool_fund_own_request_allowed_and_charges_pledge():
     assert e.personal_remaining(CYC, "g1") == 700
 
 
+def test_pool_fund_rejects_other_users_request():
+    e, _ = seed()
+    r = e.create_request(CYC, "c1", Role.CONSUMER, 100, "PR", None, 0, 1_000_000)
+    with pytest.raises(InvalidConsumption):
+        e.fund_request_from_pool(r.id, "someone_else", 80, now=5)   # not the requester
+    # nothing was drawn from the pool
+    assert e.pool_available(CYC) == 300
+
+
 def test_pool_fund_splits_across_givers_largest_pledge_first():
     e, _ = seed()
     e.set_quota(CYC, "g2", 500)
