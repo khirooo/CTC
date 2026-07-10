@@ -258,8 +258,9 @@ handing it out. It exercises the whole chain the unit tests can't.
    (the cost is read from Copilot's response, in nano-AIU).
 
 **As a consumer (second account):**
-5. Log in, choose **consumer**, finish onboarding (you get the free allowance).
-   Install + `ctc -p "…"`.
+5. Log in, choose **consumer**, finish onboarding, then install + on the
+   marketplace **post a request and fill it from the shared pool** (or have the
+   giver chip in) so you have credit to spend. Then `ctc -p "…"`.
 6. Confirm the request **routes through a giver's PAT** (charged to the giver, not
    you) and the **leaderboard / dashboard update** to reflect it.
 

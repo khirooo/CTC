@@ -25,22 +25,29 @@ never see nano-AIU; the website always shows friendly "**12.34 AIU**".
 flowchart TB
     subgraph Giver["🎁 A Giver's credit"]
         Quota["Quota<br/>(their total Copilot capacity)"]
-        Quota --> Pledge["Pledge<br/>(slice they share)"]
+        Quota --> Pledge["Pledge<br/>(slice they put in the pool)"]
         Quota --> Retained["Retained<br/>(kept for themselves + to donate)"]
     end
     Pledge --> Pool([💧 Shared Pool = everyone's pledges])
-    Pool -->|"up to an allowance"| Consumer["🙋 Consumers"]
-    Retained -.->|"direct donation to a request"| Consumer
+    Pool -->|"requester fills their own request"| Request["📮 A marketplace request"]
+    Retained -.->|"direct chip-in to a request"| Request
+    Request --> Consumer["🙋 Requester"]
 ```
 
 - A **giver** has a **quota** (read from GitHub when they hand in their token).
 - They choose a **pledge**: how much of that quota to drop into the shared
   **pool**. The rest is **retained** — for their own Copilot use, or to donate
   directly.
-- **Consumers** draw from the pool, but only up to a per-person **allowance**
-  (default **300 AIU** per cycle) so no one can drain it.
-- A giver can also **directly donate** retained credit to a specific teammate's
-  request in the marketplace (a "grant").
+- Credit only ever reaches someone **through the marketplace** — there is no
+  automatic background routing. To get credit you post a **request**, then it's
+  covered one of two ways:
+  - a **giver chips in** from their retained credit (a "grant"), or
+  - **you fill your own request from the pool** — anyone with an open request can
+    top it up from the shared pool, first-come-first-served, no per-person cap.
+    The amount you drew shows on the request.
+- A pool fill is attributed to the real giver(s) with the most spare pledge, so
+  the credit is still served by a concrete giver's token — it just isn't a
+  personal gift from them.
 
 Everything resets each **cycle** (a billing period, e.g. a month).
 
@@ -57,44 +64,56 @@ their own Copilot use *or* donate to a request.
 
 ### What's left in the pool
 
-Each giver's pledge minus what consumers have already drawn from it. Add those up
-across all givers → the **pool available** to consumers right now.
+Each giver's pledge minus what's already been drawn from it (both by legacy
+auto-routing from earlier cycles and by marketplace pool fills). Add those up
+across all givers → the **pool available** for filling requests right now. It's
+shown on the marketplace so people can see how much is there.
 
 ### The order credit is spent in
 
-When someone makes a billable request, CTC picks where to draw from:
+When someone makes a billable request, CTC picks where to draw from. Credit only
+comes from grants now — the pool reaches people by *funding a request* (which
+creates grants), never by auto-routing at spend time:
 
 ```mermaid
 flowchart TB
     Who{"Who is spending?"}
     Who -->|"Giver"| G1["1. Their OWN credit"]
     G1 --> G2["2. Any grant they received"]
-    Who -->|"Consumer"| C1["1. A direct grant (if any)"]
-    C1 --> C2["2. The shared POOL<br/>(charged to the giver with the most spare pledge)"]
+    Who -->|"Consumer"| C1["1. A grant they received<br/>(chip-in or pool fill)"]
     G2 --> None1["else: no credit → request blocked"]
-    C2 --> None2["else: no credit → request blocked"]
+    C1 --> None2["else: no credit → request blocked"]
 ```
 
-- A consumer using the pool is charged against **one specific giver** — whichever
-  has the most spare pledged capacity at that moment.
+- Every grant — whether a personal chip-in or a pool fill — is served by **one
+  specific giver's token**. A pool fill just picks the giver(s) with the most
+  spare pledge automatically.
 - "Blocked" means the Proxy returns `402 Payment Required` *before* contacting
   GitHub (see [01](01-the-proxy.md)).
 
-### The marketplace (requests & donations)
+### The marketplace (requests, chip-ins & pool fills)
 
-Anyone can post a **request** ("I need ~90 AIU to finish a PR"). Givers can
-**fund** it from their retained credit, creating a **grant**. A request's status
-is always one of:
+Anyone can post a **request** ("I need ~90 AIU to finish a PR"). It gets covered
+two ways, both creating **grants**:
+
+- **Chip-in** — another giver funds it from their retained credit.
+- **Pool fill** — the **requester** tops up their *own* request from the shared
+  pool (only the owner can do this; you can't pool-fill someone else's request).
+
+The owner can also **delete** their request; it soft-cancels (kept for history,
+hidden from the board) and any unspent grant credit returns to its donor or the
+pool. A request's status is always one of:
 
 | Status | Meaning |
 |---|---|
 | **open** | Posted, nothing funded yet. |
-| **partially_funded** | Some credit donated, not enough yet. |
+| **partially_funded** | Some credit committed, not enough yet. |
 | **fulfilled** | Fully funded. |
 | **expired** | The 24-hour window passed without being fully funded. |
+| **cancelled** | The owner deleted it. |
 
-(The status is never stored — it's recalculated from the donations and the clock
-whenever it's shown.)
+(The status is never stored — it's recalculated from the funding, the clock, and
+the cancel flag whenever it's shown.)
 
 ### Aristocracy tiers (giver standings)
 
@@ -145,26 +164,27 @@ lets two programs read/write safely). The tables:
 | `cycles` | billing periods (id, label, start, end, status: `active`/`archived`) |
 | `cycle_reports` | frozen snapshot (JSON) of each archived cycle's history report |
 | `giver_cycles` | per giver per cycle: their `quota` and `pledge` |
-| `requests` | marketplace asks (amount needed, reason, target, expiry) |
-| `grants` | donations (donor, recipient, amount) |
+| `requests` | marketplace asks (amount needed, reason, target, expiry, cancelled-at) |
+| `grants` | funding (donor, recipient, amount, source: `personal`/`pool`) |
 | `consumption_events` | every spend: who, from which giver, which bucket (own/pool/grant), how many credits |
 
 ### Enforcement is atomic
 
 When credit is checked-and-charged, CTC uses a database transaction
 (`BEGIN IMMEDIATE`) so two requests can't both spend the last of the same credit.
-Caps (pledge can't exceed quota, a consumer can't exceed their allowance) are
-enforced inside that transaction.
+Caps (pledge can't exceed quota, a pool fill can't exceed the pool's remaining
+balance or the request's remaining need) are enforced inside that transaction.
 
 ### Spending a grant spills across grants
 
-A consumer might hold several grants at once. When the actual cost of a request
-turns out larger than the grant CTC picked, the charge **spills**: it drains the
-selected grant first, then the consumer's other active grants in order, each
-clamped to what's left in it, before any leftover lands (with overshoot allowed,
-since the spend already happened upstream) on the original source. Pool and "own"
-spends don't spill — their overshoot is absorbed by that single bucket. This keeps
-a debit from over-draining one grant while the consumer still has others.
+A consumer might hold several grants at once (chip-ins and pool fills alike).
+When the actual cost of a request turns out larger than the grant CTC picked, the
+charge **spills**: it drains the selected grant first, then the consumer's other
+active grants in order, each clamped to what's left in it, before any leftover
+lands (with overshoot allowed, since the spend already happened upstream) on the
+original source. "Own" spends don't spill — their overshoot is absorbed by that
+single bucket. This keeps a debit from over-draining one grant while the consumer
+still has others.
 (`ctc/routing/attribution.py` `debit()`, `ctc/accounting/engine.py`.)
 
 ### Cycles roll over automatically
@@ -198,14 +218,14 @@ always stable (they derive from frozen events); freezing fixes only the labels.
 - A consumption event's **cost** is the `copilot_usage.total_nano_aiu` the Proxy
   read from GitHub's reply ([01](01-the-proxy.md)), charged on every billable
   endpoint (`/chat/completions`, `/v1/messages`, `/responses`).
-- The default consumer **allowance** is 300 AIU, configurable via
-  `CTC_FREE_ALLOWANCE_AIU`.
+- Whether the shared pool is available at all is the `CTC_SHARED_POOL` toggle
+  (admin-controllable); there is no per-person spending cap on it.
 
 ### Relevant files
-`ctc/accounting/engine.py` (the rules + atomic spend + cycle rollover),
-`ctc/routing/attribution.py` (source selection + grant-spill debit),
-`ctc/domain/rules.py` (status, bucket order), `ctc/domain/config.py` (units,
-allowance), `ctc/auth/onboarding.py` (PAT validation + quota seeding),
+`ctc/accounting/engine.py` (the rules + atomic spend + pool fill + cancel + cycle
+rollover), `ctc/routing/attribution.py` (source selection + grant-spill debit),
+`ctc/domain/rules.py` (status, bucket order), `ctc/domain/config.py` (units),
+`ctc/auth/onboarding.py` (PAT validation + quota seeding),
 `ctc/store/db.py` (schema), `ctc/store/accounting_store.py` (queries),
 `ctc/accounting/tiers.py` (aristocracy tiers), `ctc/accounting/leaderboard.py` +
 `reports.py` (dashboard/leaderboard/history aggregations + report freezing).

@@ -58,11 +58,12 @@ when a word trips you up.)
 - **Quota** — how much total Copilot capacity a giver has this cycle (read from
   GitHub when they hand in their PAT).
 - **Pledge** — the slice of their quota a giver volunteers into the shared pool.
-- **Pool** — the combined pledges of all givers; what consumers draw from.
-- **Allowance** — the per-consumer cap on how much they may take from the pool in
-  a cycle (default 300 AIU).
-- **Grant / donation** — a giver directly funding a specific person's request in
-  the marketplace (separate from the pool).
+- **Pool** — the combined pledges of all givers. Its balance is shown on the
+  marketplace; credit leaves it only when someone fills a request from it.
+- **Grant** — a unit of funding on a request, served by one giver's token. Two
+  kinds: a **chip-in** (a giver funds someone else's request from their retained
+  credit) and a **pool fill** (the requester tops up their *own* request from the
+  pool). Only the request owner can pool-fill their request.
 - **Cycle** — a billing period (one calendar month). Balances reset each cycle.
   CTC **rolls over automatically** at month end: the ended cycle is archived, a new
   one opens, and each giver's pledge carries forward. Archived cycle reports are

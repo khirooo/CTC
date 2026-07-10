@@ -41,16 +41,18 @@ flowchart TB
 ```mermaid
 flowchart LR
     Giver["🎁 Giver<br/>has paid Copilot<br/>shares the surplus"] -->|"pledges credit into"| Pool([💧 Shared Pool])
-    Pool -->|"lent to"| Consumer["🙋 Consumer<br/>no paid Copilot<br/>borrows credit"]
-    Giver -.->|"can also directly fund<br/>a specific request"| Consumer
+    Pool -->|"requester fills own request"| Request(["📮 Marketplace request"])
+    Giver -.->|"can also chip in to<br/>a specific request"| Request
+    Request --> Consumer["🙋 Consumer<br/>no paid Copilot"]
 ```
 
 - A **giver** hands in their real Copilot token once. CTC reads how much capacity
   they have and lets them **pledge** part of it to a shared **pool**.
-- A **consumer** has no token of their own; they draw from the pool, up to a fair
-  **allowance**.
-- Givers can also **directly donate** to a specific teammate's request in the
-  marketplace.
+- A **consumer** has no token of their own. To get credit they post a request in
+  the **marketplace**, then fill it from the shared pool themselves — or wait for
+  a giver to chip in.
+- Givers can also **chip in** to a specific teammate's request. All credit moves
+  through the marketplace; nothing is routed automatically behind the scenes.
 
 ---
 

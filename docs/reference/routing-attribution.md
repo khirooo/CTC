@@ -57,15 +57,26 @@ From the metering contract and the Task 0 probe (`tools/verify_token_rewrite.py`
 
 ## 3. Credit model recap (the rules #3 enforces)
 
+> **Update (2026-07 pool redesign):** the non-PAT `POOL` auto-routing path
+> described below was **removed**. Consumers no longer draw from the pool at spend
+> time; the pool now reaches people only through the marketplace, as `source='pool'`
+> **grants** created when a requester fills their own request (see
+> `docs/guide/04-credits-and-accounting.md`). A pool fill is still attributed to the
+> giver(s) with the most spare pledge, so at spend time everything is a `GRANT`.
+> Net effect on the rules here: a non-PAT consumer's order is now just `GRANT`
+> (no `POOL` bucket at selection time), and the per-consumer allowance is gone.
+> The rest of this section is the original design, kept for history.
+
 Consumption order per live request — **first non-empty bucket wins**:
 
 | Consumer | Order | Never |
 |---|---|---|
 | Giver (PAT user) | `OWN` → `GRANT` | `POOL` |
-| Non-PAT user | `GRANT` → `POOL` | `OWN` |
+| Non-PAT user | `GRANT` (→ `POOL`, removed) | `OWN` |
 
-- **Pool** is non-PAT-only; the POOL giver is the one with the **most remaining
-  pledge capacity** (`engine.givers_with_pool_capacity`).
+- **Pool** *(historical)* was non-PAT-only; the POOL giver was the one with the
+  **most remaining pledge capacity** (`engine.givers_with_pool_capacity`). This
+  auto-routing is gone; pledge capacity is now consumed by pool-fill grants.
 - **Grants** are consumed by live traffic (a consumer can only have a grant once
   their normal channel was exhausted — marketplace is a last resort), and a grant
   forwards the **donor's** PAT.
@@ -101,8 +112,9 @@ Because cost is only known after streaming:
   May overshoot by up to one request; tolerated.
 
 Consequence — a consumer is blocked **only** when no eligible bucket has credit
-(e.g. non-PAT: allowance exhausted *and* no pool giver has capacity), never
-because one arbitrary giver ran dry. Giver re-selection happens **per request**.
+(e.g. non-PAT: no active grant remaining — post-redesign, a consumer with no
+funded/pool-filled request has nothing to draw), never because one arbitrary giver
+ran dry. Giver re-selection happens **per request**.
 
 ---
 
