@@ -94,7 +94,7 @@ export function MarketplaceScreen() {
         <div>
           <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>Open requests</div>
           <div style={{ fontSize: 14, color: 'var(--text-dim)', marginTop: 4 }}>
-            Out of credits? Post a request — surplus from Hosts finds you. Requests auto-close when covered.
+            Out of credits? Post a request, then fill it from the shared pool or wait for a Host to chip in. Requests auto-close when covered.
           </div>
         </div>
         <button
@@ -136,7 +136,7 @@ export function MarketplaceScreen() {
             onClick={() => setFilter('pro')}
             style={{ ...SEG_BASE, ...(filter === 'pro' ? SEG_ACTIVE : SEG_IDLE) }}
           >
-            <span style={{ color: 'var(--reroute)' }}>●</span> Hosts · {counts.pro}
+            <span style={{ color: 'var(--give)' }}>●</span> Hosts · {counts.pro}
           </button>
           <button
             onClick={() => setFilter('noob')}
@@ -151,7 +151,7 @@ export function MarketplaceScreen() {
             style={{
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: 12,
-              color: 'var(--reroute)',
+              color: 'var(--pool)',
               background: 'var(--surface-2)',
               border: '1px solid var(--border)',
               borderRadius: 10,
