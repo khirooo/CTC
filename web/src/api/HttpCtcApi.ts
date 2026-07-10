@@ -29,7 +29,11 @@ export class HttpCtcApi implements CtcApi {
 
   // --- v1 over HTTP ---
   async listRequests(filter: 'all' | 'pro' | 'noob'): Promise<ListRequestsResult> {
-    return apiFetch(this.base, '', `/requests?filter=${filter}`);
+    const r = await apiFetch(this.base, '', `/requests?filter=${filter}`);
+    return {
+      requests: r.requests, counts: r.counts,
+      poolEnabled: Boolean(r.poolEnabled), poolAvailable: r.poolAvailable ?? 0,
+    };
   }
   async createRequest(input: CreateRequestInput): Promise<PublicRequest> {
     return apiFetch(this.base, '', '/requests', {
@@ -40,6 +44,14 @@ export class HttpCtcApi implements CtcApi {
     return apiFetch(this.base, '', `/requests/${requestId}/donate`, {
       method: 'POST', body: JSON.stringify({ amount }),
     });
+  }
+  async poolFund(requestId: string, amount: number): Promise<PublicRequest> {
+    return apiFetch(this.base, '', `/requests/${requestId}/pool-fund`, {
+      method: 'POST', body: JSON.stringify({ amount }),
+    });
+  }
+  async deleteRequest(requestId: string): Promise<void> {
+    await apiFetch(this.base, '', `/requests/${requestId}`, { method: 'DELETE' });
   }
   async getSettings(): Promise<SettingsData> {
     return apiFetch(this.base, '', '/settings');
@@ -168,7 +180,6 @@ export class HttpCtcApi implements CtcApi {
   }
   async updateAdminSettings(patch: AdminSettingsPatch): Promise<AdminSettings> {
     const body: Record<string, number | string | boolean> = {};
-    if (patch.freeAllowanceAiu !== undefined) body.free_allowance_aiu = patch.freeAllowanceAiu;
     if (patch.defaultPledgePct !== undefined) body.default_pledge_pct = patch.defaultPledgePct;
     if (patch.requestExpiryHours !== undefined) body.request_expiry_hours = patch.requestExpiryHours;
     if (patch.requestExpiryMaxHours !== undefined) body.request_expiry_max_hours = patch.requestExpiryMaxHours;
@@ -200,7 +211,6 @@ function mapAdminSettings(s: any): AdminSettings {
     ? { webTransport: s.boot.web_transport }
     : null;
   return {
-    freeAllowanceAiu: field(s.free_allowance_aiu),
     defaultPledgePct: field(s.default_pledge_pct),
     requestExpiryHours: field(s.request_expiry_hours),
     requestExpiryMaxHours: field(s.request_expiry_max_hours),

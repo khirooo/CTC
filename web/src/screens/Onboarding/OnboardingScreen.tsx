@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { CtcApiError } from '@/api/http';
-import { config } from '@/domain/config';
-import { NANO_PER_AIU, aiu, credits } from '@/domain/credit';
+import { NANO_PER_AIU, aiu } from '@/domain/credit';
 import { saveSetupState } from '@/domain/setupState';
 import { CreditBar, CreditLegend } from '@/components/CreditBar';
 import { TerminalBlock } from '@/components/TerminalBlock';
@@ -316,8 +315,8 @@ export function OnboardingScreen() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>No — join as a Guest</div>
                   <ul style={{ color: 'var(--text-dim)', fontSize: 13, margin: '6px 0 0', paddingLeft: 16, lineHeight: 1.65 }}>
-                    <li>You start with {credits(config.freeAllowance)} free each month</li>
-                    <li>When you run out, ask Hosts for more on the Marketplace</li>
+                    <li>Post a request on the Marketplace when you need credits</li>
+                    <li>Hosts chip in, or anyone routes shared-pool credit to you</li>
                     <li>No token needed</li>
                   </ul>
                 </div>
@@ -448,9 +447,7 @@ export function OnboardingScreen() {
               One last step — connect your terminal
             </h2>
             <p style={{ color: 'var(--text-dim)', fontSize: 14, margin: '0 0 20px', lineHeight: 1.6 }}>
-              {role === 'consumer' && session.sharedPoolEnabled !== false
-                ? <>Copilot runs through CTC from your terminal. You start with {credits(config.freeAllowance)} free.</>
-                : <>Copilot runs through CTC from your terminal — this is how your usage gets counted.</>}
+              Copilot runs through CTC from your terminal — this is how your usage gets counted.
             </p>
             {cli && (
               <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 18 }}>

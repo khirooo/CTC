@@ -16,7 +16,6 @@ from ctc.store.db import connect, init_db
 
 class _Cfg:
     shared_pool_enabled = True
-    free_allowance = 300 * 1_000_000_000
     default_pledge_pct = 0
     participants_mode = "givers_and_consumers"
 
@@ -188,20 +187,22 @@ def test_existing_positional_call_still_works(svc_kef_personal):
     assert src.bucket == Bucket.OWN
 
 
-def test_pool_exclude_skips_giver(svc_kef_with_grant):
-    """Excluding a POOL giver_id in the pool path skips that giver."""
-    # Set up a non-giver consumer drawing from pool
+def test_pool_fill_grant_excluded_by_grant_id(svc_kef_with_grant):
+    """A pool-fill grant behaves like any other grant: excluding its grant_id
+    (the failover loop's key for GRANT sources) skips it."""
     svc, ids = svc_kef_with_grant
-    # Give kef a pledge to contribute to the pool
+    # Give kef a pledge so the pool has capacity, then pool-fill carol's request.
     svc.engine.set_quota("c1", "kef", 200)
     svc.engine.set_pledge("c1", "kef", 100)
+    req = svc.engine.create_request("c1", "carol", Role.CONSUMER, 80, "need", None, 1, 10_000_000)
+    grants = svc.engine.fund_request_from_pool(req.id, "carol", 80, 2)
+    assert len(grants) == 1
 
     carol = ConsumerIdentity("carol", is_giver=False)
-    # Without exclude, carol should get a POOL source from kef
     src_normal = svc.select_source(ids["cycle"], carol)
-    assert src_normal is not None and src_normal.bucket == Bucket.POOL
+    assert src_normal is not None and src_normal.bucket == Bucket.GRANT
+    assert src_normal.grant_id == grants[0].id
 
-    # With kef excluded, carol gets None (no other poolers)
     src_excluded = svc.select_source(ids["cycle"], carol,
-                                     exclude=frozenset({ids["kef"]}))
+                                     exclude=frozenset({grants[0].id}))
     assert src_excluded is None

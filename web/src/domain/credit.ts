@@ -31,7 +31,9 @@ export function deriveStatus(
   amountNeeded: number,
   expiresAt: number,
   now: number,
+  cancelled = false,
 ): RequestStatus {
+  if (cancelled) return 'cancelled';
   if (amountFunded >= amountNeeded) return 'fulfilled';
   if (now >= expiresAt) return 'expired';
   if (amountFunded > 0) return 'partially_funded';

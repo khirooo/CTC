@@ -28,22 +28,28 @@ class AccountingEngine:
                 - self.store.bypass_consumed(cycle_id, giver_id)
                 - self.store.granted_out(cycle_id, giver_id))
 
+    def pledge_used(self, cycle_id: str, giver_id: str) -> int:
+        # Pledge is consumed two ways: legacy auto-routed POOL events, and pool
+        # fills booked as source='pool' grants (net of cancelled-request refunds).
+        return (self.store.pool_consumed_from(cycle_id, giver_id)
+                + self.store.pool_granted_out(cycle_id, giver_id))
+
     def pledge_remaining(self, cycle_id: str, giver_id: str) -> int:
         gc = self.store.get_giver_cycle(cycle_id, giver_id)
         if gc is None:
             return 0
-        return max(0, gc.pledge - self.store.pool_consumed_from(cycle_id, giver_id))
+        return max(0, gc.pledge - self.pledge_used(cycle_id, giver_id))
 
     def pool_available(self, cycle_id: str) -> int:
         return sum(self.pledge_remaining(cycle_id, gc.giver_id)
                    for gc in self.store.all_giver_cycles(cycle_id))
 
-    def allowance_remaining(self, cycle_id: str, consumer_id: str) -> int:
-        return max(0, self.config.free_allowance - self.store.pool_consumed_by(cycle_id, consumer_id))
-
     def grant_remaining(self, cycle_id: str, grant_id: str) -> int:
         g = self.store.get_grant(grant_id)
         if g is None:
+            return 0
+        r = self.store.get_request(g.request_id)
+        if r is not None and r.cancelled_at is not None:
             return 0
         return g.amount - self.store.grant_consumed(cycle_id, grant_id)
 
@@ -76,7 +82,7 @@ class AccountingEngine:
         if r is None:
             raise InvalidConsumption("unknown request")
         funded = self.store.request_funded(request_id)
-        return derive_status(funded, r.amount_needed, r.expires_at, now)
+        return derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
 
     # --- cycle ---
     def start_cycle(self, cycle_id: str, label: str, starts_at: int, ends_at: int) -> Cycle:
@@ -177,7 +183,7 @@ class AccountingEngine:
             raise InvalidPledge("quota must be non-negative")
         self.conn.execute("BEGIN IMMEDIATE")
         try:
-            consumed = self.store.pool_consumed_from(cycle_id, giver_id)
+            consumed = self.pledge_used(cycle_id, giver_id)
             if quota < consumed:
                 raise InvalidPledge(f"quota cannot be below already-consumed pledge ({consumed})")
             gc = self.store.get_giver_cycle(cycle_id, giver_id)
@@ -193,7 +199,7 @@ class AccountingEngine:
         try:
             gc = self.store.get_giver_cycle(cycle_id, giver_id)
             quota = gc.quota if gc else 0
-            consumed = self.store.pool_consumed_from(cycle_id, giver_id)
+            consumed = self.pledge_used(cycle_id, giver_id)
             if pledge < consumed or pledge > quota:
                 raise InvalidPledge(f"pledge must be between {consumed} and {quota}")
             self.store.upsert_giver_cycle(GiverCycle(cycle_id, giver_id, quota, pledge))
@@ -210,6 +216,30 @@ class AccountingEngine:
         self.store.add_request(r)
         return r
 
+    def cancel_request(self, request_id: str, user_id: str, now: int) -> None:
+        """Owner retracts their request. Soft delete: the row keeps its history,
+        the marketplace list hides it, and the unconsumed part of every grant on
+        it returns to the donors (personal or pool) via the derived balances."""
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            r = self.store.get_request(request_id)
+            if r is None:
+                raise InvalidConsumption("unknown request")
+            if user_id != r.requester_id:
+                raise InvalidConsumption("only the requester can cancel their request")
+            if r.cancelled_at is not None:
+                self.conn.execute("COMMIT")  # idempotent
+                return
+            funded = self.store.request_funded(request_id)
+            status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
+            if status == RequestStatus.FULFILLED:
+                raise RequestClosed("request is fulfilled")
+            self.store.cancel_request(request_id, now)
+            self.conn.execute("COMMIT")
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
     def fund_request(self, request_id: str, donor_id: str, amount: int, now: int) -> Grant:
         self.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -219,8 +249,8 @@ class AccountingEngine:
             if donor_id == r.requester_id:
                 raise InvalidConsumption("cannot fund your own request")
             funded = self.store.request_funded(request_id)
-            status = derive_status(funded, r.amount_needed, r.expires_at, now)
-            if status in (RequestStatus.FULFILLED, RequestStatus.EXPIRED):
+            status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
+            if status in (RequestStatus.FULFILLED, RequestStatus.EXPIRED, RequestStatus.CANCELLED):
                 raise RequestClosed(f"request is {status.value}")
             cap = min(amount, r.amount_needed - funded, self.personal_remaining(r.cycle_id, donor_id))
             if cap <= 0:
@@ -229,6 +259,45 @@ class AccountingEngine:
             self.store.add_grant(g)
             self.conn.execute("COMMIT")
             return g
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    def fund_request_from_pool(self, request_id: str, actor_id: str, amount: int, now: int) -> list[Grant]:
+        """Fill a request from the shared pool. Anyone may trigger this — even the
+        requester on their own request — because the credit comes from the pledged
+        pool, not the actor. The fill is booked as source='pool' grants attributed
+        to real pledging givers, largest pledge_remaining first, so consumption
+        keeps routing through a concrete giver's PAT."""
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            r = self.store.get_request(request_id)
+            if r is None:
+                raise InvalidConsumption("unknown request")
+            funded = self.store.request_funded(request_id)
+            status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
+            if status in (RequestStatus.FULFILLED, RequestStatus.EXPIRED, RequestStatus.CANCELLED):
+                raise RequestClosed(f"request is {status.value}")
+            cap = min(amount, r.amount_needed - funded, self.pool_available(r.cycle_id))
+            if cap <= 0:
+                raise InsufficientCredit("shared pool has no credit available")
+            givers = sorted(self.givers_with_pool_capacity(r.cycle_id),
+                            key=lambda t: t[1], reverse=True)
+            grants: list[Grant] = []
+            left = cap
+            for giver_id, rem in givers:
+                take = min(left, rem)
+                if take <= 0:
+                    continue
+                g = Grant(uuid.uuid4().hex, r.cycle_id, request_id, giver_id,
+                          r.requester_id, take, now, source="pool")
+                self.store.add_grant(g)
+                grants.append(g)
+                left -= take
+                if left <= 0:
+                    break
+            self.conn.execute("COMMIT")
+            return grants
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
@@ -293,10 +362,9 @@ class AccountingEngine:
                 if consumer_id != source_giver_id:
                     raise InvalidConsumption("bypass consumption must be self-sourced")
             elif bucket == Bucket.POOL:
+                # Legacy auto-routed pool draws; new pool fills flow as GRANTs.
                 if not allow_overshoot and credits > self.pledge_remaining(cycle_id, source_giver_id):
                     raise InsufficientCredit("exceeds giver pledge")
-                if not allow_overshoot and credits > self.allowance_remaining(cycle_id, consumer_id):
-                    raise InsufficientCredit("exceeds consumer allowance")
             elif bucket == Bucket.GRANT:
                 g = self.store.get_grant(grant_id) if grant_id else None
                 if g is None:

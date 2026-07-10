@@ -2,7 +2,6 @@ from ctc.store.db import connect, init_db
 from ctc.store.accounting_store import AccountingStore
 from ctc.accounting.engine import AccountingEngine
 from ctc.domain.types import Cycle, GiverCycle, Request, Grant, Event, Role, Bucket, RequestStatus
-from ctc.domain.config import config
 
 CYC = "2026-06"
 
@@ -31,12 +30,6 @@ def test_pledge_and_pool_available():
     e = seed()
     assert e.pledge_remaining(CYC, "g1") == 300 - 120  # 180
     assert e.pool_available(CYC) == 180
-
-
-def test_allowance_remaining_only_counts_pool():
-    e = seed()
-    # c1 consumed 120 pool (+50 grant, which does NOT touch allowance)
-    assert e.allowance_remaining(CYC, "c1") == config.free_allowance - 120
 
 
 def test_grant_remaining():

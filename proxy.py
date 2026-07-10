@@ -523,21 +523,14 @@ async def _bootstrap_session_token(source, hdrs, auth) -> Optional[dict]:
 
 def candidate_givers(engine, cycle_id, consumer) -> set:
     """The set of giver_ids whose live quota is worth pre-checking for this
-    consumer: the consumer itself if it's a giver, every donor backing an active
-    grant to it, and — for a shared-pool-eligible consumer — every giver with pool
-    capacity. Pre-checking the pool givers is what lets select_source skip a dead
-    one and lets the caller's failover loop retry across them (otherwise a pool
-    consumer got max_attempts=1 and a dead top giver's 402 was relayed as-is)."""
+    consumer: the consumer itself if it's a giver, plus every donor backing an
+    active grant to it (pool fills arrive as grants too, so their givers are
+    covered here)."""
     ids = set()
     if getattr(consumer, "is_giver", False):
         ids.add(consumer.user_id)
     for g in engine.active_grants(cycle_id, consumer.user_id):
         ids.add(g.donor_id)
-    if not getattr(consumer, "is_giver", False) \
-            and getattr(engine.config, "shared_pool_enabled", True) \
-            and engine.allowance_remaining(cycle_id, consumer.user_id) > 0:
-        for giver_id, _rem in engine.givers_with_pool_capacity(cycle_id):
-            ids.add(giver_id)
     return ids
 
 

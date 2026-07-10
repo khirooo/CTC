@@ -20,22 +20,23 @@ const N = NANO_PER_AIU;
 interface FakeUser {
   id: string; name: string; email?: string; initials: string; role: Role;
   hasPat: boolean; totalCredit: number | null; pledgedSurplus: number | null;
-  donatedSoFar: number; allowance: number | null; consumed: number;
+  donatedSoFar: number; consumed: number;
   donationsReceived: number; isAdmin?: boolean;
   consumedThisMonth?: number; poolConsumedFrom?: number; grantsConsumed?: number;
   receivedConsumed?: number;  // nano-AIU of received grants already burned
+  receivedFromPool?: number;  // nano-AIU of donationsReceived that came from the pool
 }
 interface FakeRequest {
   id: string; requesterId?: string; requesterName: string; initials: string;
   requesterRole: 'pro' | 'noob'; amountNeeded: number; amountFunded: number;
-  fundedConsumed?: number;
-  reason: string; target: string | null; createdAt: number; expiresAt: number;
+  fundedConsumed?: number; poolFunded?: number; cancelled?: boolean;
+  reason: string; target: string | null;
+  createdAt: number; expiresAt: number;  // SECONDS — matches the wire contract
   donorCount: number;
 }
 
 const DEFAULT_BOOT_CONFIG: AdminBootConfig = { webTransport: 'http' };
 const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
-  freeAllowanceAiu:      { value: 300,    isOverride: false },
   defaultPledgePct:      { value: 0,      isOverride: false },
   requestExpiryHours:    { value: 24,     isOverride: false },
   requestExpiryMaxHours: { value: 168,    isOverride: false },
@@ -81,33 +82,36 @@ function seedMonths(): CycleReport[] {
   ];
 }
 
-function seedRequests(now: number): FakeRequest[] {
+function seedRequests(nowMs: number): FakeRequest[] {
+  const now = Math.floor(nowMs / 1000);  // wire timestamps are seconds
   return [
     { id: 'req_1', requesterId: 'u_lh', requesterName: 'Lena Hoffmann', initials: 'LH', requesterRole: 'noob',
-      amountNeeded: 60 * N, amountFunded: 35 * N, reason: 'Finishing the migration PR', target: null, createdAt: now, expiresAt: now + 4 * 3_600_000, donorCount: 2 },
+      amountNeeded: 60 * N, amountFunded: 35 * N, reason: 'Finishing the migration PR', target: null, createdAt: now, expiresAt: now + 4 * 3600, donorCount: 2 },
     { id: 'req_2', requesterId: 'u_dr', requesterName: 'Diego Ramirez', initials: 'DR', requesterRole: 'noob',
-      amountNeeded: 40 * N, amountFunded: 10 * N, reason: 'Code-review marathon today', target: null, createdAt: now, expiresAt: now + 18 * 3_600_000, donorCount: 1 },
+      amountNeeded: 40 * N, amountFunded: 10 * N, reason: 'Code-review marathon today', target: null, createdAt: now, expiresAt: now + 18 * 3600, donorCount: 1 },
     { id: 'req_3', requesterId: 'u_pn', requesterName: 'Priya Nair', initials: 'PN', requesterRole: 'noob',
-      amountNeeded: 90 * N, amountFunded: 0, reason: 'Debugging a prod incident', target: 'Ada Lovelace', createdAt: now, expiresAt: now + 26 * 3_600_000, donorCount: 0 },
+      amountNeeded: 90 * N, amountFunded: 0, reason: 'Debugging a prod incident', target: 'Ada Lovelace', createdAt: now, expiresAt: now + 26 * 3600, donorCount: 0 },
     { id: 'req_4', requesterId: 'u_at', requesterName: 'Amine Tazi', initials: 'AT', requesterRole: 'pro',
       amountNeeded: 120 * N, amountFunded: 120 * N, fundedConsumed: 72 * N, reason: 'Ran dry mid-refactor', target: null, createdAt: now, expiresAt: now, donorCount: 3 },
     { id: 'req_5', requesterName: 'Tom Becker', initials: 'TB', requesterRole: 'noob',
       amountNeeded: 30 * N, amountFunded: 30 * N, fundedConsumed: 30 * N, reason: 'Writing test coverage', target: null, createdAt: now, expiresAt: now, donorCount: 1 },
+    { id: 'req_6', requesterId: 'u_pn', requesterName: 'Priya Nair', initials: 'PN', requesterRole: 'noob',
+      amountNeeded: 50 * N, amountFunded: 5 * N, reason: 'Old ask that ran out of time', target: null, createdAt: now - 90000, expiresAt: now - 3600, donorCount: 1 },
   ];
 }
 
 function seedUsers(): FakeUser[] {
   return [
     { id: 'u_ada', name: 'Ada Lovelace', initials: 'AL', role: 'giver', hasPat: true, totalCredit: 5000 * N, pledgedSurplus: 2000 * N,
-      donatedSoFar: 1860 * N, allowance: null, consumed: 920 * N, donationsReceived: 0, isAdmin: true,
+      donatedSoFar: 1860 * N, consumed: 920 * N, donationsReceived: 0, isAdmin: true,
       consumedThisMonth: 200 * N, poolConsumedFrom: 100 * N, grantsConsumed: 50 * N },
-    { id: 'u_kef', name: 'Yuki Tanaka', initials: 'KF', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1860 * N, allowance: null, consumed: 1240 * N, donationsReceived: 0 },
-    { id: 'u_sl', name: 'Sofia Lindqvist', initials: 'SL', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1400 * N, allowance: null, consumed: 780 * N, donationsReceived: 0 },
-    { id: 'u_mb', name: 'Marco Bianchi', initials: 'MB', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1540 * N, allowance: null, consumed: 540 * N, donationsReceived: 0 },
-    { id: 'u_at', name: 'Amine Tazi', initials: 'AT', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 610 * N, allowance: null, consumed: 310 * N, donationsReceived: 0 },
-    { id: 'u_lh', name: 'Lena Hoffmann', initials: 'LH', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, allowance: 60 * N, consumed: 412 * N, donationsReceived: 120 * N, receivedConsumed: 85 * N },
-    { id: 'u_dr', name: 'Diego Ramirez', initials: 'DR', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, allowance: 40 * N, consumed: 388 * N, donationsReceived: 0 },
-    { id: 'u_pn', name: 'Priya Nair', initials: 'PN', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, allowance: 90 * N, consumed: 276 * N, donationsReceived: 0 },
+    { id: 'u_kef', name: 'Yuki Tanaka', initials: 'KF', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1860 * N, consumed: 1240 * N, donationsReceived: 0 },
+    { id: 'u_sl', name: 'Sofia Lindqvist', initials: 'SL', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1400 * N, consumed: 780 * N, donationsReceived: 0 },
+    { id: 'u_mb', name: 'Marco Bianchi', initials: 'MB', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1540 * N, consumed: 540 * N, donationsReceived: 0 },
+    { id: 'u_at', name: 'Amine Tazi', initials: 'AT', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 610 * N, consumed: 310 * N, donationsReceived: 0 },
+    { id: 'u_lh', name: 'Lena Hoffmann', initials: 'LH', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, consumed: 412 * N, donationsReceived: 120 * N, receivedConsumed: 85 * N, receivedFromPool: 40 * N },
+    { id: 'u_dr', name: 'Diego Ramirez', initials: 'DR', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, consumed: 388 * N, donationsReceived: 0 },
+    { id: 'u_pn', name: 'Priya Nair', initials: 'PN', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, consumed: 276 * N, donationsReceived: 0 },
   ];
 }
 
@@ -143,6 +147,8 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
 
   let users = seedUsers();
   let requests = seedRequests(getNow());
+  // Shared-pool balance (nano-AIU) available for marketplace pool fills.
+  let poolAvailable = sharedPoolEnabled ? 500 * N : 0;
   const months = seedMonths();
   let adminSettings: AdminSettings = { ...DEFAULT_ADMIN_SETTINGS };
   let session: Session | null = null;
@@ -171,9 +177,9 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
     return {
       id: r.id, requesterId: r.requesterId ?? '', requesterName: r.requesterName, initials: r.initials,
       requesterRole: r.requesterRole, amountNeeded: r.amountNeeded, amountFunded: r.amountFunded,
-      fundedConsumed: r.fundedConsumed ?? 0,
+      fundedConsumed: r.fundedConsumed ?? 0, poolFunded: r.poolFunded ?? 0,
       reason: r.reason, target: r.target, createdAt: r.createdAt, expiresAt: r.expiresAt,
-      status: deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now),
+      status: deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now, r.cancelled),
       donorCount: r.donorCount, isOwn: !!viewerId && r.requesterId === viewerId,
     };
   }
@@ -221,31 +227,43 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
     async markOnboarded() { requireUser(); if (session) session = { ...session, onboarded: true }; },
 
     async listRequests(filter: 'all' | 'pro' | 'noob'): Promise<ListRequestsResult> {
-      const now = getNow();
-      const all = requests;
+      const now = Math.floor(getNow() / 1000);
+      const all = requests.filter(r => !r.cancelled);  // cancelled requests are hidden
       const filtered = filter === 'all' ? all : all.filter(r => r.requesterRole === filter);
       return {
         requests: filtered.map(r => toPublic(r, now, session?.userId)),
         counts: { all: all.length, pro: all.filter(r => r.requesterRole === 'pro').length, noob: all.filter(r => r.requesterRole === 'noob').length },
+        poolEnabled: sharedPoolEnabled, poolAvailable,
       };
     },
     async createRequest(input: CreateRequestInput): Promise<PublicRequest> {
       const u = requireUser();
-      const now = getNow();
+      const nowMs = getNow();
+      const now = Math.floor(nowMs / 1000);
       const r: FakeRequest = {
-        id: `req_${now}_${++_idCounter}`, requesterId: u.id, requesterName: u.name, initials: u.initials,
+        id: `req_${nowMs}_${++_idCounter}`, requesterId: u.id, requesterName: u.name, initials: u.initials,
         requesterRole: u.role === 'giver' ? 'pro' : 'noob', amountNeeded: input.amountNeeded, amountFunded: 0,
-        reason: input.reason, target: input.target, createdAt: now, expiresAt: now + input.expiryHours * 3_600_000, donorCount: 0,
+        reason: input.reason, target: input.target, createdAt: now, expiresAt: now + input.expiryHours * 3600, donorCount: 0,
       };
       requests = [r, ...requests];
       return toPublic(r, now, u.id);
     },
+    async deleteRequest(requestId: string): Promise<void> {
+      const u = requireUser();
+      const i = requests.findIndex(r => r.id === requestId);
+      if (i === -1) throw new CtcApiError('not_found', 'request not found', 404);
+      const r = requests[i];
+      if (r.requesterId !== u.id) throw new CtcApiError('forbidden', 'only the requester can delete their request', 403);
+      if (r.amountFunded >= r.amountNeeded) throw new CtcApiError('conflict', 'request is fulfilled', 409);
+      requests = requests.map((x, idx) => (idx === i ? { ...x, cancelled: true } : x));
+    },
     async donate(requestId: string, amount: number): Promise<PublicRequest> {
       const giver = requireUser();
-      const now = getNow();
+      const now = Math.floor(getNow() / 1000);
       const i = requests.findIndex(r => r.id === requestId);
       if (i === -1) throw new Error('Request not found');
       const r = requests[i];
+      if (r.cancelled) throw new Error('request is cancelled');
       if (r.requesterId === giver.id) throw new Error('cannot fund your own request');
       const actual = Math.min(amount, r.amountNeeded - r.amountFunded);
       if (actual <= 0) throw new Error('Nothing to donate');
@@ -255,11 +273,26 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       users[gi] = { ...users[gi], donatedSoFar: users[gi].donatedSoFar + actual };
       return toPublic(updated, now, giver.id);
     },
+    async poolFund(requestId: string, amount: number): Promise<PublicRequest> {
+      const u = requireUser();
+      const now = Math.floor(getNow() / 1000);
+      const i = requests.findIndex(r => r.id === requestId);
+      if (i === -1) throw new CtcApiError('not_found', 'request not found', 404);
+      if (!sharedPoolEnabled) throw new CtcApiError('conflict', 'the shared pool is disabled', 409);
+      const r = requests[i];
+      if (r.cancelled || r.amountFunded >= r.amountNeeded) throw new CtcApiError('conflict', 'request is closed', 409);
+      const actual = Math.min(amount, r.amountNeeded - r.amountFunded, poolAvailable);
+      if (actual <= 0) throw new CtcApiError('unprocessable', 'shared pool has no credit available', 422);
+      poolAvailable -= actual;
+      const updated: FakeRequest = { ...r, amountFunded: r.amountFunded + actual, poolFunded: (r.poolFunded ?? 0) + actual };
+      requests = requests.map((x, idx) => (idx === i ? updated : x));
+      return toPublic(updated, now, u.id);
+    },
 
     async getDashboard(): Promise<DashboardData> {
-      const now = getNow();
-      const openCount = requests.filter(r => { const s = deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now); return s === 'open' || s === 'partially_funded'; }).length;
-      const closedCount = requests.filter(r => { const s = deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now); return s === 'fulfilled' || s === 'expired'; }).length;
+      const now = Math.floor(getNow() / 1000);
+      const openCount = requests.filter(r => { const s = deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now, r.cancelled); return s === 'open' || s === 'partially_funded'; }).length;
+      const closedCount = requests.filter(r => { const s = deriveStatus(r.amountFunded, r.amountNeeded, r.expiresAt, now, r.cancelled); return s === 'fulfilled' || s === 'expired' || s === 'cancelled'; }).length;
       const activity: ActivityEntry[] = [
         { time: '12:48', kind: 'grant', detail: 'Ada Lovelace', amount: '25.00 AIU', actorId: 'u_ada' },
         { time: '12:45', kind: 'pool', detail: 'Yuki Tanaka', amount: '30.00 AIU', actorId: 'u_kef' },
@@ -273,7 +306,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const topConsumers: LeaderboardEntry[] = [...map.entries()].map(([name, v]) => ({ name, value: v.value, userId: v.userId })).sort((a, b) => b.value - a.value).slice(0, 5);
       return {
         pledged: 3600 * N, retained: 5680 * N, rotated: 1240 * N, donatedToNonPat: 2880 * N, donatedThisWeek: 4120 * N,
-        fulfillmentRate: 86, activeGivers: 5, activeConsumers: 12, poolGuests: 7, openCount, closedCount, activity,
+        fulfillmentRate: 86, activeGivers: 5, activeConsumers: 12, poolAvailable, openCount, closedCount, activity,
         leaderboardSnapshot: { generous: lb.generous, topConsumers },
         cycleLabel: 'July 2026', cycleNumber: 7, resetDate: '2026-08-01', daysLeft: 12,
       };
@@ -296,7 +329,6 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       let entitlement: number | null = null, remaining: number | null = null, used: number | null = null;
       let pledged: number | null = null, donated: number | null = null, left: number | null = null;
       let pledgedConsumed: number | null = null, donatedConsumed: number | null = null;
-      let allowanceMax: number | null = null, allowanceUsed: number | null = null, allowanceLeft: number | null = null;
       if (u.role === 'giver' && u.totalCredit !== null) {
         entitlement = u.totalCredit + (u.consumedThisMonth ?? 0);
         used = u.consumedThisMonth ?? 0;
@@ -306,8 +338,6 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
         pledgedConsumed = Math.min(pledged, u.poolConsumedFrom ?? 0);
         donatedConsumed = Math.min(donated, u.grantsConsumed ?? 0);
         remaining = left;
-      } else if (u.role === 'consumer' && u.allowance !== null) {
-        allowanceMax = u.allowance; allowanceUsed = u.consumed; allowanceLeft = Math.max(0, u.allowance - u.consumed);
       }
       let tier: string | null = null, net: number | null = null, netToNext: number | null = null;
       if (u.role === 'giver') {
@@ -318,13 +348,14 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       return {
         user: { id: u.id, name: u.name, initials: u.initials, role: u.role },
         totalCredit: u.totalCredit, pledgedSurplus: u.pledgedSurplus, retained, donatedSoFar: u.donatedSoFar,
-        allowance: u.allowance, consumed: u.consumed, donationsReceived: u.donationsReceived,
+        consumed: u.consumed, donationsReceived: u.donationsReceived,
         donationsReceivedConsumed: Math.min(u.donationsReceived, u.receivedConsumed ?? 0),
         donationsReceivedRemaining: Math.max(0, u.donationsReceived - (u.receivedConsumed ?? 0)),
+        donationsReceivedFromPool: u.receivedFromPool ?? 0,
         entitlement, remaining, used, pledged, donated, left, pledgedConsumed, donatedConsumed,
         donatedRemaining: donated !== null && donatedConsumed !== null ? Math.max(0, donated - donatedConsumed) : null,
         pledgedRemaining: pledged !== null && pledgedConsumed !== null ? Math.max(0, pledged - pledgedConsumed) : null,
-        allowanceMax, allowanceUsed, allowanceLeft, resetDate, unlimited: false, quotaStale: false, tier, net, netToNext,
+        resetDate, unlimited: false, quotaStale: false, tier, net, netToNext,
       };
     },
 
@@ -332,7 +363,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const u = requireUser();
       return { name: u.name, login: u.email ? u.email.split('@')[0] : u.id, role: u.role, hasPat: u.hasPat,
         patHealth: u.hasPat ? 'valid' : null, patHealthCheckedAt: u.hasPat ? 1_700_000_000 : null,
-        totalCredit: u.totalCredit, pledgedSurplus: u.pledgedSurplus, allowance: u.allowance };
+        totalCredit: u.totalCredit, pledgedSurplus: u.pledgedSurplus };
     },
     async updateSettings(patch: SettingsPatch): Promise<SettingsData> {
       const u = requireUser();
@@ -387,7 +418,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const set = <K extends keyof AdminSettingsPatch>(k: K, field: keyof AdminSettings) => {
         if (patch[k] !== undefined) (next as any)[field] = { value: patch[k], isOverride: true };
       };
-      set('freeAllowanceAiu', 'freeAllowanceAiu'); set('defaultPledgePct', 'defaultPledgePct');
+      set('defaultPledgePct', 'defaultPledgePct');
       set('requestExpiryHours', 'requestExpiryHours'); set('requestExpiryMaxHours', 'requestExpiryMaxHours');
       set('creditToEuroRate', 'creditToEuroRate'); set('defaultChipInAiu', 'defaultChipInAiu');
       set('participantsMode', 'participantsMode'); set('sharedPoolEnabled', 'sharedPoolEnabled');

@@ -69,7 +69,7 @@ class AttributionService:
                     A bucket is skipped iff health[giver_id] is not None and <= 0.
                     Pass None or omit to treat all givers as healthy.
             exclude: set of keys to skip entirely. GRANT sources are keyed by
-                     grant_id; OWN/POOL sources are keyed by giver_id.
+                     grant_id; OWN sources are keyed by giver_id.
         """
         if getattr(self.engine.config, "participants_mode", "givers_and_consumers") \
                 == "givers_only" and not consumer.is_giver:
@@ -83,20 +83,9 @@ class AttributionService:
                 if pat is not None:
                     return Source(Bucket.OWN, uid, pat)
             return self._grant_source(cycle_id, uid, health=health, exclude=exclude)
-        # non-PAT consumer: GRANT -> POOL (POOL only when the shared pool is enabled)
-        grant = self._grant_source(cycle_id, uid, health=health, exclude=exclude)
-        if grant is not None:
-            return grant
-        if getattr(self.engine.config, "shared_pool_enabled", True) \
-                and self.engine.allowance_remaining(cycle_id, uid) > 0:
-            givers = self.engine.givers_with_pool_capacity(cycle_id)  # [(giver_id, remaining)]
-            for giver_id, _rem in sorted(givers, key=lambda t: t[1], reverse=True):
-                if giver_id in exclude or self._dead(health, giver_id):
-                    continue
-                pat = self.pats.pat_for(giver_id)
-                if pat is not None:
-                    return Source(Bucket.POOL, giver_id, pat)
-        return None
+        # non-PAT consumer: GRANT only. Shared-pool credit reaches consumers as
+        # source='pool' grants created in the marketplace, not by auto-routing.
+        return self._grant_source(cycle_id, uid, health=health, exclude=exclude)
 
     def _sweep_expired_pins(self, now: float) -> None:
         """Drop stale pins opportunistically. Called on every insert/lookup so

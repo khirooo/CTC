@@ -21,6 +21,10 @@ import type {
 export interface ListRequestsResult {
   requests: PublicRequest[];
   counts: RoleCounts;
+  /** Whether the shared pool feature is on for this deployment. */
+  poolEnabled: boolean;
+  /** nano-AIU still pledged and undrawn across all givers. */
+  poolAvailable: number;
 }
 
 export interface CtcApi {
@@ -43,9 +47,13 @@ export interface CtcApi {
   // Requests
   listRequests(filter: 'all' | 'pro' | 'noob'): Promise<ListRequestsResult>;
   createRequest(input: CreateRequestInput): Promise<PublicRequest>;
+  /** Owner cancels (soft-deletes) their own request. */
+  deleteRequest(requestId: string): Promise<void>;
 
   // Donations
   donate(requestId: string, amount: number): Promise<PublicRequest>;
+  /** Fill any open request (own included) from the shared pool. */
+  poolFund(requestId: string, amount: number): Promise<PublicRequest>;
 
   // Dashboard & leaderboard
   getDashboard(): Promise<DashboardData>;

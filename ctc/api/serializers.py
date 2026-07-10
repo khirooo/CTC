@@ -26,7 +26,8 @@ class PublicRequestDTO(CamelModel):
     expires_at: int
     status: str
     donor_count: int
-    is_own: bool = False         # belongs to the viewing user (can't self-fund)
+    is_own: bool = False         # belongs to the viewing user (can't self-fund personally)
+    pool_funded: int = 0         # nano-AIU of amount_funded drawn from the shared pool
 
 
 class RoleCountsDTO(CamelModel):
@@ -38,6 +39,8 @@ class RoleCountsDTO(CamelModel):
 class ListRequestsDTO(CamelModel):
     requests: list[PublicRequestDTO]
     counts: RoleCountsDTO
+    pool_enabled: bool = False
+    pool_available: int = 0      # nano-AIU still pledged and undrawn across all givers
 
 
 class CreateRequestDTO(CamelModel):
@@ -60,7 +63,6 @@ class SettingsDTO(CamelModel):
     pat_health_checked_at: int | None = None
     total_credit: int | None     # nano-AIU
     pledged_surplus: int | None  # nano-AIU
-    allowance: int | None        # nano-AIU
 
 
 class SettingsPatchDTO(CamelModel):
@@ -105,11 +107,11 @@ class OwnProfileDTO(CamelModel):
     pledged_surplus: int | None  # nano-AIU; None for consumers
     retained: int | None         # nano-AIU; None for consumers
     donated_so_far: int          # nano-AIU
-    allowance: int | None        # nano-AIU remaining free allowance; None for givers
     consumed: int                # nano-AIU
     donations_received: int      # nano-AIU (total grants received this cycle)
     donations_received_consumed: int = 0   # nano-AIU of received grants already burned
     donations_received_remaining: int = 0  # nano-AIU of received grants still available
+    donations_received_from_pool: int = 0  # nano-AIU of the received total that came from the shared pool
     entitlement: int | None = None       # nano-AIU; -1*NANO sentinel never used — see unlimited
     remaining: int | None = None
     used: int | None = None
@@ -120,9 +122,6 @@ class OwnProfileDTO(CamelModel):
     donated_consumed: int | None = None
     donated_remaining: int | None = None   # nano-AIU; max(0, donated - donatedConsumed)
     pledged_remaining: int | None = None    # nano-AIU; pledge not yet drawn from pool
-    allowance_max: int | None = None
-    allowance_used: int | None = None
-    allowance_left: int | None = None
     reset_date: str | None = None
     unlimited: bool = False
     quota_stale: bool = False
@@ -145,7 +144,7 @@ def build_public_request(store, get_user, r: Request, now: int, viewer_id: str |
     funded = store.request_funded(r.id)
     user = get_user(r.requester_id)
     name = user["display_name"] if user else r.requester_id
-    status = derive_status(funded, r.amount_needed, r.expires_at, now)
+    status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
     return PublicRequestDTO(
         id=r.id, requester_id=r.requester_id, requester_name=name, initials=initials(name),
         requester_role=ROLE_TO_REQUESTER[r.requester_role],
@@ -155,4 +154,5 @@ def build_public_request(store, get_user, r: Request, now: int, viewer_id: str |
         expires_at=r.expires_at, status=status.value,
         donor_count=store.request_donor_count(r.id),
         is_own=(viewer_id is not None and viewer_id == r.requester_id),
+        pool_funded=store.request_pool_funded(r.id),
     )

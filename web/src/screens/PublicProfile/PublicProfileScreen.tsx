@@ -171,7 +171,7 @@ export function PublicProfileScreen() {
           <div>
             <div style={{ fontWeight: 600, fontSize: 14 }}>Guest of the marketplace</div>
             <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 3, lineHeight: 1.5 }}>
-              Runs Copilot on the free allowance and surplus chipped in by Hosts.
+              Runs Copilot on credits chipped in by Hosts or routed from the shared pool.
               Personal balances stay private.
             </div>
           </div>

@@ -217,3 +217,108 @@ async def test_request_rejects_out_of_range_expiry():
         assert rbig.status == 422
         body = await rbig.json()
         assert "error" in body and "message" in body
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/requests/{id} + POST /api/requests/{id}/pool-fund
+# ---------------------------------------------------------------------------
+
+def _make_seeded(shared_pool=False):
+    """_make + direct handles on (app, store, eng) for seeding."""
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    config = None
+    if shared_pool:
+        from ctc.store.settings_store import SettingsStore
+        from ctc.domain.settings import EffectiveConfig
+        s = SettingsStore(conn)
+        s.set_many({"shared_pool_enabled": "on"}, "admin", 1000)
+        config = EffectiveConfig(s)
+    eng = AccountingEngine(AccountingStore(conn), config=config)
+    eng.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)
+    app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   deployment=_DEFAULT_DEPLOYMENT)
+    return app, store, eng
+
+
+@pytest.mark.asyncio
+async def test_delete_request_owner_lifecycle():
+    app, store, eng = _make_seeded()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        rid = (await (await cli.post("/api/requests",
+               json={"amountNeeded": 100, "reason": "x", "target": None})).json())["id"]
+        # someone else's request → 403
+        foreign = eng.create_request("c1", "other_uid", Role.CONSUMER, 100, "help", None, 1000, 10**12)
+        assert (await cli.delete(f"/api/requests/{foreign.id}")).status == 403
+        # unknown → 404
+        assert (await cli.delete("/api/requests/nope")).status == 404
+        # own → 204, then hidden from the list
+        assert (await cli.delete(f"/api/requests/{rid}")).status == 204
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert [x["id"] for x in lst["requests"]] == [foreign.id]
+
+
+@pytest.mark.asyncio
+async def test_delete_fulfilled_request_conflicts():
+    app, store, eng = _make_seeded()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        rid = (await (await cli.post("/api/requests",
+               json={"amountNeeded": 100, "reason": "x", "target": None})).json())["id"]
+        store.upsert_user("g", "giverlogin", "Giver One", "giver", 1000)
+        eng.set_quota("c1", "g", 5000)
+        eng.fund_request(rid, "g", 100, 5)          # fully funds → fulfilled
+        assert (await cli.delete(f"/api/requests/{rid}")).status == 409
+
+
+@pytest.mark.asyncio
+async def test_pool_fund_endpoint_own_request():
+    app, store, eng = _make_seeded(shared_pool=True)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        # a pledging giver seeds the pool
+        store.upsert_user("g", "giverlogin", "Giver One", "giver", 1000)
+        eng.set_quota("c1", "g", 5000)
+        eng.set_pledge("c1", "g", 500)
+
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert lst["poolEnabled"] is True and lst["poolAvailable"] == 500
+
+        rid = (await (await cli.post("/api/requests",
+               json={"amountNeeded": 300, "reason": "x", "target": None})).json())["id"]
+        # requester fills their OWN request from the pool
+        body = await (await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 200})).json()
+        assert body["amountFunded"] == 200 and body["poolFunded"] == 200
+        assert body["status"] == "partially_funded" and body["donorCount"] == 0
+
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert lst["poolAvailable"] == 300
+
+        # over-draw is capped by remaining need; a dry/over request 422s
+        await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 999})
+        r = await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 10})
+        assert r.status == 409   # fulfilled now → closed
+
+
+@pytest.mark.asyncio
+async def test_pool_fund_rejected_when_pool_off_or_dry():
+    app, store, eng = _make_seeded()   # pool off (default)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        rid = (await (await cli.post("/api/requests",
+               json={"amountNeeded": 100, "reason": "x", "target": None})).json())["id"]
+        assert (await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 10})).status == 409
+        lst = await (await cli.get("/api/requests?filter=all")).json()
+        assert lst["poolEnabled"] is False and lst["poolAvailable"] == 0
+
+    app2, store2, eng2 = _make_seeded(shared_pool=True)   # pool on but empty
+    async with TestClient(TestServer(app2)) as cli:
+        await _login(cli)
+        rid = (await (await cli.post("/api/requests",
+               json={"amountNeeded": 100, "reason": "x", "target": None})).json())["id"]
+        assert (await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 10})).status == 422

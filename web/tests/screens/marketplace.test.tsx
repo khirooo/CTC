@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -54,7 +54,54 @@ describe('marketplace', () => {
     await setup();
     await userEvent.click(screen.getByRole('button', { name: /post a request/i }));
     await userEvent.click(screen.getByRole('button', { name: /^post request$/i }));
+    await waitFor(() => expect(screen.getByText(/All · 7/)).toBeInTheDocument());
+  });
+
+  it('fades an expired request and shows the expired pill', async () => {
+    await setup();
+    // req_6 is expired (5/50 funded, past its deadline).
+    await waitFor(() => expect(screen.getByText('Old ask that ran out of time')).toBeInTheDocument());
+    const card = screen.getByText('Old ask that ran out of time').closest('[data-request-card]') as HTMLElement;
+    expect(card.style.opacity).toBe('0.45');
+    expect(within(card).getByText(/✕ expired · never covered/)).toBeInTheDocument();
+    // no actions on a dead card
+    expect(within(card).queryByRole('button', { name: /chip in/i })).toBeNull();
+    expect(within(card).queryByRole('button', { name: /from pool/i })).toBeNull();
+    // a live card is not faded
+    const live = screen.getByText('Lena Hoffmann').closest('[data-request-card]') as HTMLElement;
+    expect(live.style.opacity).toBe('1');
+  });
+
+  it('shows the shared pool balance strip', async () => {
+    await setup();
+    await waitFor(() => expect(screen.getByText(/Shared pool · 500\.00 AIU available/)).toBeInTheDocument());
+  });
+
+  it('owner deletes their request and it disappears', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await setup();
+    await userEvent.click(screen.getByRole('button', { name: /post a request/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^post request$/i }));
+    await waitFor(() => expect(screen.getByText(/All · 7/)).toBeInTheDocument());
+    const own = screen.getByText('your request').closest('[data-request-card]') as HTMLElement;
+    await userEvent.click(within(own).getByRole('button', { name: /delete/i }));
     await waitFor(() => expect(screen.getByText(/All · 6/)).toBeInTheDocument());
+    expect(screen.queryByText('your request')).toBeNull();
+  });
+
+  it('fills own request from the shared pool', async () => {
+    vi.spyOn(window, 'prompt').mockReturnValue('20');
+    await setup();
+    await userEvent.click(screen.getByRole('button', { name: /post a request/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^post request$/i }));
+    await waitFor(() => expect(screen.getByText('your request')).toBeInTheDocument());
+    const own = screen.getByText('your request').closest('[data-request-card]') as HTMLElement;
+    // own card has no personal chip-in, but pool funding is allowed
+    expect(within(own).queryByRole('button', { name: /chip in/i })).toBeNull();
+    await userEvent.click(within(own).getByRole('button', { name: /from pool/i }));
+    await waitFor(() => expect(screen.getByText(/Shared pool · 480\.00 AIU available/)).toBeInTheDocument());
+    const updated = screen.getByText('your request').closest('[data-request-card]') as HTMLElement;
+    expect(within(updated).getByText(/20\.00 AIU from the shared pool/)).toBeInTheDocument();
   });
 
   it('shows inline error and does not crash when donate rejects with CtcApiError', async () => {

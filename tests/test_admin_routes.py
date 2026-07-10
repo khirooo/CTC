@@ -58,14 +58,17 @@ async def test_admin_settings_get_and_patch():
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)
         got = await (await cli.get("/api/admin/settings")).json()
-        assert got["free_allowance_aiu"]["is_override"] is False
+        assert "free_allowance_aiu" not in got   # allowance concept removed
+        assert got["default_chip_in_aiu"]["is_override"] is False
 
-        # pool on so the effective allowance reflects the override (it's 0 when off)
-        await cli.patch("/api/admin/settings", json={"shared_pool_enabled": "on"})
-        r = await cli.patch("/api/admin/settings", json={"free_allowance_aiu": 50})
+        r = await cli.patch("/api/admin/settings", json={"default_chip_in_aiu": 50})
         assert r.status == 200
         body = await r.json()
-        assert body["free_allowance_aiu"] == {"value": 50, "is_override": True}
+        assert body["default_chip_in_aiu"] == {"value": 50, "is_override": True}
+
+        # unknown (removed) key rejected
+        gone = await cli.patch("/api/admin/settings", json={"free_allowance_aiu": 50})
+        assert gone.status == 400
 
         bad = await cli.patch("/api/admin/settings", json={"default_pledge_pct": 200})
         assert bad.status == 400

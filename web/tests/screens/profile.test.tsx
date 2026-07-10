@@ -32,16 +32,18 @@ describe('ProfileScreen (merged profile + settings)', () => {
     expect(screen.getByText(/Resets .*(today|day)/)).toBeInTheDocument();
   });
 
-  it('Guest: shows a "Received from supporters" bar split into used/left', async () => {
+  it('Guest: shows a "Routed to you" bar split into used/left with a pool line', async () => {
     const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'prof.recv' });
     await api.signIn('lena@example.com', 'x'); // seed consumer with received grants
     renderProfile(api);
-    await waitFor(() => expect(screen.getByText(/Received from supporters/i)).toBeInTheDocument());
-    // 120 received = 85 used + 35 left
+    await waitFor(() => expect(screen.getByText(/Routed to you/i)).toBeInTheDocument());
+    // 120 received = 85 used + 35 left, 40 of it from the shared pool
     expect(screen.getByText('+120.00 AIU')).toBeInTheDocument();
     expect(screen.getByText('85.00 AIU')).toBeInTheDocument();
     expect(screen.getByText('35.00 AIU')).toBeInTheDocument();
-    expect(screen.getByText(/chip-ins from Hosts — on top of your free allowance above\./)).toBeInTheDocument();
+    expect(screen.getByText(/40\.00 AIU of this came from the shared pool/)).toBeInTheDocument();
+    // the free-allowance concept is gone
+    expect(screen.queryByText(/free allowance/i)).toBeNull();
   });
 
   it('shows the GHE login as the immutable identity headline (no email field)', async () => {

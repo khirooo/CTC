@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
 import { CtcApiError } from '@/api/http';
+import { aiu } from '@/domain/credit';
 import { RequestCard } from './RequestCard';
 import { ComposeForm } from './ComposeForm';
 import type { CreateRequestInput } from '@/domain/types';
@@ -40,12 +41,35 @@ export function MarketplaceScreen() {
 
   const requests = data?.requests ?? [];
   const counts = data?.counts ?? { all: 0, pro: 0, noob: 0 };
+  const poolEnabled = data?.poolEnabled ?? false;
+  const poolAvailable = data?.poolAvailable ?? 0;
 
   async function handleDonate(id: string, amountAiu?: number) {
     setActionError(null);
     const amount = amountAiu ?? chipInAiu;
     try {
       await api.donate(id, amount * 1_000_000_000);  // AIU → nano-AIU
+      reload();
+    } catch (e) {
+      setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
+    }
+  }
+
+  async function handlePoolFund(id: string, amountAiu?: number) {
+    setActionError(null);
+    const amount = amountAiu ?? chipInAiu;
+    try {
+      await api.poolFund(id, amount * 1_000_000_000);  // AIU → nano-AIU
+      reload();
+    } catch (e) {
+      setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setActionError(null);
+    try {
+      await api.deleteRequest(id);
       reload();
     } catch (e) {
       setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
@@ -121,6 +145,22 @@ export function MarketplaceScreen() {
             <span style={{ color: 'var(--consume)' }}>●</span> Guests · {counts.noob}
           </button>
         </div>
+        {poolEnabled && (
+          <div
+            data-pool-strip
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 12,
+              color: 'var(--reroute)',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              padding: '8px 14px',
+            }}
+          >
+            Shared pool · {aiu(poolAvailable)} available
+          </div>
+        )}
       </div>
 
       {/* Load error */}
@@ -170,6 +210,10 @@ export function MarketplaceScreen() {
               request={r}
               chipInAiu={chipInAiu}
               onDonate={handleDonate}
+              onPoolFund={handlePoolFund}
+              onDelete={handleDelete}
+              poolEnabled={poolEnabled}
+              poolAvailable={poolAvailable}
             />
           ))}
         </div>

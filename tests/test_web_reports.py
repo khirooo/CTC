@@ -89,7 +89,7 @@ async def test_dashboard_shape_and_units():
         # exact key set matches DashboardData in web/src/domain/types.ts
         assert set(d) == {
             "pledged", "retained", "rotated", "donatedToNonPat", "donatedThisWeek",
-            "fulfillmentRate", "activeGivers", "activeConsumers", "poolGuests",
+            "fulfillmentRate", "activeGivers", "activeConsumers", "poolAvailable",
             "openCount", "closedCount", "activity", "leaderboardSnapshot",
             "cycleLabel", "cycleNumber", "resetDate", "daysLeft",
         }
@@ -126,12 +126,12 @@ async def test_profile_giver_in_nano():
         assert p["pledgedSurplus"] == 1000 * NANO_PER_AIU
         # retained = personal_remaining = quota - pledge - own_consumed - granted_out
         assert p["retained"] == (4000 - 1000 - 2) * NANO_PER_AIU
-        assert p["allowance"] is None
+        assert "allowance" not in p
         assert p["consumed"] == 2 * NANO_PER_AIU
 
 
 @pytest.mark.asyncio
-async def test_profile_consumer_shows_allowance_and_donations():
+async def test_profile_consumer_shows_donations():
     app, store, engine = _build()
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)                       # octocat stays a consumer (no PAT)
@@ -148,8 +148,9 @@ async def test_profile_consumer_shows_allowance_and_donations():
         assert p["totalCredit"] is None
         assert p["pledgedSurplus"] is None
         assert p["retained"] is None
-        assert p["allowance"] == 300 * NANO_PER_AIU      # full free allowance, unconsumed
+        assert "allowance" not in p                      # allowance concept removed
         assert p["donationsReceived"] == 40 * NANO_PER_AIU
+        assert p["donationsReceivedFromPool"] == 0       # personal chip-in, not a pool fill
 
 
 @pytest.mark.asyncio

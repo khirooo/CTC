@@ -12,16 +12,24 @@ interface RequestCardProps {
   /** Amount (AIU) the "Chip in" action contributes; shown on the button. */
   chipInAiu: number;
   onDonate: (id: string, amountAiu?: number) => void;
+  /** Fill this request from the shared pool (any request, own included). */
+  onPoolFund?: (id: string, amountAiu?: number) => void;
+  /** Owner cancels their own request. */
+  onDelete?: (id: string) => void;
+  /** Whether the shared pool is on and has credit to draw. */
+  poolEnabled?: boolean;
+  poolAvailable?: number;  // nano-AIU
 }
 
-function timeLabel(expiresAt: number, now: number, status: PublicRequest['status']): string {
+function timeLabel(expiresAt: number, nowMs: number, status: PublicRequest['status']): string {
   if (status === 'fulfilled' || status === 'expired') return 'auto-closed';
-  const hoursLeft = Math.max(0, Math.round((expiresAt - now) / 3_600_000));
+  // expiresAt is epoch SECONDS on the wire; nowMs is Date.now() milliseconds.
+  const hoursLeft = Math.max(0, Math.round((expiresAt * 1000 - nowMs) / 3_600_000));
   if (hoursLeft >= 24) return `${Math.round(hoursLeft / 24)}d left`;
   return `${hoursLeft}h left`;
 }
 
-export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) {
+export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete, poolEnabled, poolAvailable = 0 }: RequestCardProps) {
   // Evaluate display-time freshly on each render so "Xh/Xd left" never goes
   // stale across reloads or long sessions. Tests freeze the api's clock, not
   // this one, but expired/fulfilled cards (which the tests cover) don't depend
@@ -37,6 +45,7 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
     amountNeeded,
     amountFunded,
     fundedConsumed,
+    poolFunded,
     reason,
     target,
     expiresAt,
@@ -46,14 +55,17 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
   } = request;
 
   const isFulfilled = status === 'fulfilled';
-  const isOpen = (status === 'open' || status === 'partially_funded') && !isOwn;
+  const isExpired = status === 'expired';
+  const isLive = status === 'open' || status === 'partially_funded';
+  const isOpen = isLive && !isOwn;
+  const canPoolFund = isLive && !!poolEnabled && poolAvailable > 0 && !!onPoolFund;
   const avatarTone = requesterRole === 'pro' ? 'reroute' : 'consume';
   const badgeTone = requesterRole === 'pro' ? 'reroute' : 'consume';
   const roleLabel = requesterRole === 'pro' ? 'Host' : 'Guest';
   const tLabel = timeLabel(expiresAt, now, status);
   const targetLabel = target ? `→ ${target}` : 'open to all';
   const donorLabel = `${donorCount} supporter${donorCount !== 1 ? 's' : ''}`;
-  const statusLabel = isFulfilled ? 'covered' : isOpen ? 'open' : 'expired';
+  const statusLabel = isFulfilled ? 'covered' : isLive ? 'open' : status;
   const progress = pct(amountFunded, amountNeeded);
   // Receiver-progress: how much of the raised credit the requester has actually
   // burned. Shown once anything is funded — the key story on a closed card.
@@ -69,7 +81,8 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
     display: 'flex',
     flexDirection: 'column',
     gap: 14,
-    opacity: isFulfilled ? 0.6 : 1,
+    // Dead cards (covered or expired) fade back so live requests stand out.
+    opacity: isFulfilled ? 0.6 : isExpired ? 0.45 : 1,
   };
 
   return (
@@ -107,6 +120,11 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
           </span>
         </div>
         <ProgressBar pct={progress} color={isFulfilled ? 'var(--give)' : 'var(--accent)'} />
+        {poolFunded > 0 && (
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--reroute)', marginTop: 6 }}>
+            {aiu(poolFunded)} from the shared pool
+          </div>
+        )}
       </div>
 
       {/* Receiver-progress: how much of the raised credit has been used vs. left. */}
@@ -125,40 +143,86 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
       )}
 
       {/* Action row */}
-      {isOpen && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Button
-            style={{
-              background: 'var(--accent-soft)',
-              color: 'var(--accent)',
-              border: '1px solid var(--accent)',
-              borderRadius: 9,
-              height: 36,
-              padding: '0 16px',
-              fontSize: 13,
-            }}
-            onClick={() => onDonate(id)}
-          >
-            Chip in {chipInAiu} →
-          </Button>
-          <Button
-            variant="ghost"
-            style={{
-              borderRadius: 9,
-              height: 36,
-              padding: '0 12px',
-              fontSize: 13,
-            }}
-            onClick={() => {
-              const raw = window.prompt(`Chip in how many credits?`, String(chipInAiu));
-              if (raw == null) return;
-              const n = Number(raw);
-              if (!Number.isFinite(n) || n <= 0) return;
-              onDonate(id, n);
-            }}
-          >
-            Custom…
-          </Button>
+      {(isOpen || (isLive && canPoolFund) || (isOwn && isLive && onDelete)) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {isOpen && (
+            <>
+              <Button
+                style={{
+                  background: 'var(--accent-soft)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent)',
+                  borderRadius: 9,
+                  height: 36,
+                  padding: '0 16px',
+                  fontSize: 13,
+                }}
+                onClick={() => onDonate(id)}
+              >
+                Chip in {chipInAiu} →
+              </Button>
+              <Button
+                variant="ghost"
+                style={{
+                  borderRadius: 9,
+                  height: 36,
+                  padding: '0 12px',
+                  fontSize: 13,
+                }}
+                onClick={() => {
+                  const raw = window.prompt(`Chip in how many credits?`, String(chipInAiu));
+                  if (raw == null) return;
+                  const n = Number(raw);
+                  if (!Number.isFinite(n) || n <= 0) return;
+                  onDonate(id, n);
+                }}
+              >
+                Custom…
+              </Button>
+            </>
+          )}
+          {canPoolFund && (
+            <Button
+              variant="ghost"
+              style={{
+                color: 'var(--reroute)',
+                border: '1px solid var(--reroute)',
+                borderRadius: 9,
+                height: 36,
+                padding: '0 16px',
+                fontSize: 13,
+              }}
+              onClick={() => {
+                const raw = window.prompt(`Fill from the shared pool — how many credits?`, String(chipInAiu));
+                if (raw == null) return;
+                const n = Number(raw);
+                if (!Number.isFinite(n) || n <= 0) return;
+                onPoolFund!(id, n);
+              }}
+            >
+              From pool →
+            </Button>
+          )}
+          {isOwn && isLive && onDelete && (
+            <Button
+              variant="ghost"
+              style={{
+                color: 'var(--consume)',
+                borderRadius: 9,
+                height: 36,
+                padding: '0 12px',
+                fontSize: 13,
+                marginLeft: 'auto',
+              }}
+              onClick={() => {
+                if (window.confirm('Delete this request? Any unused chip-ins go back to their supporters.')) {
+                  onDelete(id);
+                }
+              }}
+            >
+              Delete
+            </Button>
+          )}
         </div>
       )}
       {isFulfilled && (
@@ -176,7 +240,24 @@ export function RequestCard({ request, chipInAiu, onDonate }: RequestCardProps) 
           ✓ covered · auto-closed
         </span>
       )}
-      {isOwn && !isFulfilled && (
+      {isExpired && (
+        <span
+          data-expired-pill
+          style={{
+            alignSelf: 'flex-start',
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 12,
+            color: 'var(--text-faint)',
+            background: 'var(--surface-2)',
+            border: '1px dashed var(--border-strong)',
+            borderRadius: 9,
+            padding: '8px 14px',
+          }}
+        >
+          ✕ expired · never covered
+        </span>
+      )}
+      {isOwn && isLive && (
         <span
           style={{
             alignSelf: 'flex-start',

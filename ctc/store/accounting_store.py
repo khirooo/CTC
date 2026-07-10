@@ -61,43 +61,53 @@ class AccountingStore:
         return [GiverCycle(r["cycle_id"], r["giver_id"], r["quota"], r["pledge"]) for r in rows]
 
     # --- requests ---
+    @staticmethod
+    def _request_row(r) -> Request:
+        return Request(r["id"], r["cycle_id"], r["requester_id"], Role(r["requester_role"]),
+                       r["amount_needed"], r["reason"], r["target"], r["created_at"],
+                       r["expires_at"], r["cancelled_at"])
+
     def add_request(self, r: Request) -> None:
         self.conn.execute(
-            "INSERT INTO requests (id,cycle_id,requester_id,requester_role,amount_needed,reason,target,created_at,expires_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO requests (id,cycle_id,requester_id,requester_role,amount_needed,reason,target,created_at,expires_at,cancelled_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (r.id, r.cycle_id, r.requester_id, r.requester_role.value, r.amount_needed,
-             r.reason, r.target, r.created_at, r.expires_at),
+             r.reason, r.target, r.created_at, r.expires_at, r.cancelled_at),
         )
 
     def get_request(self, request_id: str) -> Request | None:
         r = self.conn.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
-        if not r:
-            return None
-        return Request(r["id"], r["cycle_id"], r["requester_id"], Role(r["requester_role"]),
-                       r["amount_needed"], r["reason"], r["target"], r["created_at"], r["expires_at"])
+        return self._request_row(r) if r else None
+
+    def cancel_request(self, request_id: str, now: int) -> None:
+        self.conn.execute(
+            "UPDATE requests SET cancelled_at=? WHERE id=? AND cancelled_at IS NULL",
+            (now, request_id),
+        )
 
     # --- grants ---
+    @staticmethod
+    def _grant_row(r) -> Grant:
+        return Grant(r["id"], r["cycle_id"], r["request_id"], r["donor_id"],
+                     r["recipient_id"], r["amount"], r["created_at"], r["source"])
+
     def add_grant(self, g: Grant) -> None:
         self.conn.execute(
-            "INSERT INTO grants (id,cycle_id,request_id,donor_id,recipient_id,amount,created_at) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (g.id, g.cycle_id, g.request_id, g.donor_id, g.recipient_id, g.amount, g.created_at),
+            "INSERT INTO grants (id,cycle_id,request_id,donor_id,recipient_id,amount,created_at,source) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (g.id, g.cycle_id, g.request_id, g.donor_id, g.recipient_id, g.amount, g.created_at, g.source),
         )
 
     def get_grant(self, grant_id: str) -> Grant | None:
         r = self.conn.execute("SELECT * FROM grants WHERE id=?", (grant_id,)).fetchone()
-        if not r:
-            return None
-        return Grant(r["id"], r["cycle_id"], r["request_id"], r["donor_id"],
-                     r["recipient_id"], r["amount"], r["created_at"])
+        return self._grant_row(r) if r else None
 
     def grants_for_recipient(self, cycle_id: str, recipient_id: str) -> list[Grant]:
         rows = self.conn.execute(
             "SELECT * FROM grants WHERE cycle_id=? AND recipient_id=? ORDER BY created_at",
             (cycle_id, recipient_id),
         ).fetchall()
-        return [Grant(r["id"], r["cycle_id"], r["request_id"], r["donor_id"],
-                      r["recipient_id"], r["amount"], r["created_at"]) for r in rows]
+        return [self._grant_row(r) for r in rows]
 
     # --- events ---
     def add_event(self, e: Event) -> None:
@@ -142,11 +152,28 @@ class AccountingStore:
             (cycle_id, grant_id),
         )
 
-    def granted_out(self, cycle_id: str, donor_id: str) -> int:
+    def _granted_out_by_source(self, cycle_id: str, donor_id: str, source: str) -> int:
+        # A grant charges its donor in full while its request is live, but once
+        # the request is cancelled only the portion the recipient already burned
+        # stays charged — the unconsumed remainder returns to the donor.
         return self._sum(
-            "SELECT SUM(amount) FROM grants WHERE cycle_id=? AND donor_id=?",
-            (cycle_id, donor_id),
+            "SELECT SUM(CASE WHEN r.cancelled_at IS NULL THEN g.amount "
+            "            ELSE MIN(g.amount, COALESCE(u.used, 0)) END) "
+            "FROM grants g "
+            "JOIN requests r ON r.id = g.request_id "
+            "LEFT JOIN (SELECT grant_id, SUM(credits) AS used FROM consumption_events "
+            "           WHERE bucket='grant' GROUP BY grant_id) u ON u.grant_id = g.id "
+            "WHERE g.cycle_id=? AND g.donor_id=? AND g.source=?",
+            (cycle_id, donor_id, source),
         )
+
+    def granted_out(self, cycle_id: str, donor_id: str) -> int:
+        # Personal chip-ins charged against the donor's personal credit.
+        return self._granted_out_by_source(cycle_id, donor_id, "personal")
+
+    def pool_granted_out(self, cycle_id: str, giver_id: str) -> int:
+        # Pool fills attributed to this giver, charged against their pledge.
+        return self._granted_out_by_source(cycle_id, giver_id, "pool")
 
     def grants_count_by(self, cycle_id: str, donor_id: str) -> int:
         return self._sum(
@@ -155,10 +182,32 @@ class AccountingStore:
         )
 
     def grants_consumed_from(self, cycle_id: str, giver_id: str) -> int:
-        # Credit actually drawn by recipients from THIS giver's grants (solid green).
+        # Credit actually drawn by recipients from THIS giver's grants — ALL
+        # sources. Feeds reconcile_giver's drift watermark, which must include
+        # pool-funded grants (they burn the giver's real upstream quota too).
         return self._sum(
             "SELECT SUM(credits) FROM consumption_events "
             "WHERE cycle_id=? AND bucket='grant' AND source_giver_id=?",
+            (cycle_id, giver_id),
+        )
+
+    def personal_grants_consumed_from(self, cycle_id: str, giver_id: str) -> int:
+        # Same, restricted to personal chip-ins — profile "donated consumed".
+        return self._sum(
+            "SELECT SUM(ce.credits) FROM consumption_events ce "
+            "JOIN grants g ON g.id = ce.grant_id "
+            "WHERE ce.cycle_id=? AND ce.bucket='grant' AND ce.source_giver_id=? "
+            "AND g.source='personal'",
+            (cycle_id, giver_id),
+        )
+
+    def pool_grants_consumed_from(self, cycle_id: str, giver_id: str) -> int:
+        # Pool-fill consumption attributed to this giver's pledge.
+        return self._sum(
+            "SELECT SUM(ce.credits) FROM consumption_events ce "
+            "JOIN grants g ON g.id = ce.grant_id "
+            "WHERE ce.cycle_id=? AND ce.bucket='grant' AND ce.source_giver_id=? "
+            "AND g.source='pool'",
             (cycle_id, giver_id),
         )
 
@@ -201,15 +250,22 @@ class AccountingStore:
 
     def list_requests(self, cycle_id: str) -> list[Request]:
         rows = self.conn.execute(
-            "SELECT * FROM requests WHERE cycle_id=? ORDER BY created_at DESC, id DESC",
+            "SELECT * FROM requests WHERE cycle_id=? AND cancelled_at IS NULL "
+            "ORDER BY created_at DESC, id DESC",
             (cycle_id,),
         ).fetchall()
-        return [Request(r["id"], r["cycle_id"], r["requester_id"], Role(r["requester_role"]),
-                        r["amount_needed"], r["reason"], r["target"], r["created_at"], r["expires_at"])
-                for r in rows]
+        return [self._request_row(r) for r in rows]
 
     def request_donor_count(self, request_id: str) -> int:
+        # Personal chip-ins only — a pool fill is not an individual donor.
         r = self.conn.execute(
-            "SELECT COUNT(DISTINCT donor_id) FROM grants WHERE request_id=?", (request_id,)
+            "SELECT COUNT(DISTINCT donor_id) FROM grants WHERE request_id=? AND source='personal'",
+            (request_id,),
         ).fetchone()
         return int(r[0] or 0)
+
+    def request_pool_funded(self, request_id: str) -> int:
+        return self._sum(
+            "SELECT SUM(amount) FROM grants WHERE request_id=? AND source='pool'",
+            (request_id,),
+        )

@@ -35,7 +35,9 @@ describe('AdminScreen', () => {
 
   it('shows the settings form', async () => {
     renderAdmin();
-    await waitFor(() => expect(screen.getByLabelText(/free allowance/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/default pledge/i)).toBeInTheDocument());
+    // the free-allowance setting is gone with the allowance concept
+    expect(screen.queryByLabelText(/free allowance/i)).toBeNull();
   });
 
   it('renders the participants mode select and shared pool toggle', async () => {

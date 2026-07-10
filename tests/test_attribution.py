@@ -9,7 +9,6 @@ from ctc.store.db import connect, init_db
 class _PoolEnabledConfig:
     """Config with shared pool enabled for testing."""
     shared_pool_enabled = True
-    free_allowance = 300 * 1_000_000_000
     default_pledge_pct = 0
     participants_mode = "givers_and_consumers"
 
@@ -41,17 +40,23 @@ def test_giver_uses_own_first():
     assert src == Source(bucket=Bucket.OWN, giver_id="alice", pat="ghp_alice", grant_id=None)
 
 
-def test_non_pat_uses_pool_with_max_capacity_giver():
+def test_non_pat_without_grants_gets_nothing():
+    # The shared pool no longer auto-routes: a consumer with no grants has no
+    # credit source even when pool capacity exists.
     svc, _ = _service()
-    src = svc.select_source("c1", ConsumerIdentity("carol", is_giver=False))
-    assert src.bucket == Bucket.POOL
-    assert src.giver_id == "alice"
-    assert src.pat == "ghp_alice"
-
-
-def test_non_pat_blocked_when_no_pool_capacity():
-    svc, _ = _service(pledge_alice=0)  # nothing pledged -> no pool giver
     assert svc.select_source("c1", ConsumerIdentity("carol", is_giver=False)) is None
+
+
+def test_non_pat_routes_through_pool_fill_grant():
+    # Pool credit reaches a consumer as a source='pool' grant created in the
+    # marketplace; routing then treats it like any other grant.
+    svc, eng = _service()
+    req = eng.create_request("c1", "carol", Role.CONSUMER, 80, "need", None, 1, 10_000_000)
+    grants = eng.fund_request_from_pool(req.id, "carol", 80, 2)
+    assert [g.donor_id for g in grants] == ["alice"]
+    src = svc.select_source("c1", ConsumerIdentity("carol", is_giver=False))
+    assert src == Source(bucket=Bucket.GRANT, giver_id="alice", pat="ghp_alice",
+                         grant_id=grants[0].id)
 
 
 def test_giver_falls_to_grant_when_own_exhausted():
@@ -64,9 +69,15 @@ def test_giver_falls_to_grant_when_own_exhausted():
     assert src == Source(bucket=Bucket.GRANT, giver_id="bob", pat="ghp_bob", grant_id=grant.id)
 
 
+def _carol_with_pool_grant(svc, eng):
+    req = eng.create_request("c1", "carol", Role.CONSUMER, 80, "need", None, 1, 10_000_000)
+    eng.fund_request_from_pool(req.id, "carol", 80, 2)
+    return ConsumerIdentity("carol", is_giver=False)
+
+
 def test_debit_records_actual_cost_against_source():
     svc, eng = _service()
-    consumer = ConsumerIdentity("carol", is_giver=False)
+    consumer = _carol_with_pool_grant(svc, eng)
     src = svc.select_source("c1", consumer)
     svc.debit("c1", consumer, src, cost_nano_aiu=37, ts=5)
     assert eng.consumed_total("c1", "carol") == 37
@@ -74,7 +85,7 @@ def test_debit_records_actual_cost_against_source():
 
 def test_debit_zero_is_noop():
     svc, eng = _service()
-    consumer = ConsumerIdentity("carol", is_giver=False)
+    consumer = _carol_with_pool_grant(svc, eng)
     src = svc.select_source("c1", consumer)
     svc.debit("c1", consumer, src, cost_nano_aiu=0, ts=5)
     assert eng.consumed_total("c1", "carol") == 0

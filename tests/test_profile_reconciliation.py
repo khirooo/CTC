@@ -52,14 +52,15 @@ async def test_giver_profile_segments_reconcile_behind_proxy():
 
 
 @pytest.mark.asyncio
-async def test_consumer_profile_has_allowance_segments():
+async def test_consumer_profile_has_no_allowance_fields():
     app = await _client()   # default identity, no PAT → consumer
     async with TestClient(TestServer(app)) as cli:
         await _login(cli)
         p = await (await cli.get("/api/profile")).json()
-        assert p["allowanceMax"] is not None
-        assert p["allowanceUsed"] == 0
-        assert p["allowanceLeft"] == p["allowanceMax"]
+        # the free-allowance concept is gone from the wire contract
+        assert "allowanceMax" not in p and "allowanceUsed" not in p and "allowance" not in p
+        assert p["donationsReceived"] == 0
+        assert p["donationsReceivedFromPool"] == 0
         assert p["resetDate"] is not None       # from cycle end
 
 

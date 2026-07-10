@@ -7,7 +7,7 @@ import type { AdminUser, AdminSettings, AdminSettingsPatch } from '@/domain/type
 import { monoLabel, card } from '@/theme/styles';
 
 // Numeric-only keys of AdminSettingsPatch (for the existing SettingRow number inputs)
-type NumericSettingKey = 'freeAllowanceAiu' | 'defaultPledgePct' | 'requestExpiryHours' | 'requestExpiryMaxHours' | 'creditToEuroRate' | 'defaultChipInAiu';
+type NumericSettingKey = 'defaultPledgePct' | 'requestExpiryHours' | 'requestExpiryMaxHours' | 'creditToEuroRate' | 'defaultChipInAiu';
 
 // ─── Local style constants (shared ones live in @/theme/styles) ────────────────
 
@@ -241,7 +241,7 @@ export function AdminScreen() {
     try {
       // Only send fields that actually changed
       const patch: AdminSettingsPatch = {};
-      const numericKeys: NumericSettingKey[] = ['freeAllowanceAiu', 'defaultPledgePct', 'requestExpiryHours', 'requestExpiryMaxHours', 'creditToEuroRate', 'defaultChipInAiu'];
+      const numericKeys: NumericSettingKey[] = ['defaultPledgePct', 'requestExpiryHours', 'requestExpiryMaxHours', 'creditToEuroRate', 'defaultChipInAiu'];
       for (const key of numericKeys) {
         const localVal = localSettings[key];
         if (localVal !== undefined && localVal !== (settings[key].value as number)) {
@@ -356,14 +356,6 @@ export function AdminScreen() {
         <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 20 }}>System settings</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <SettingRow
-            id="setting-freeAllowanceAiu"
-            label="Free allowance (AIU)"
-            value={effective('freeAllowanceAiu')}
-            isOverride={settings.freeAllowanceAiu.isOverride}
-            min={1}
-            onChange={(v) => handleFieldChange('freeAllowanceAiu', v)}
-          />
-          <SettingRow
             id="setting-defaultPledgePct"
             label="Default pledge %"
             value={effective('defaultPledgePct')}
@@ -439,7 +431,7 @@ export function AdminScreen() {
                   </span>
                 )}
               </div>
-              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Enable the shared credit pool and pledge/surplus widgets</span>
+              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>Hosts pledge credit into a pool anyone can route to open requests on the board</span>
             </div>
             <button
               id="setting-sharedPoolEnabled"

@@ -10,7 +10,7 @@ async def test_settings_consumer_then_giver_after_pat():
         await _login(cli)
         s = await (await cli.get("/api/settings")).json()
         assert s["role"] == "consumer"
-        assert s["allowance"] == 300 * NANO_PER_AIU      # raw nano-AIU on the wire
+        assert "allowance" not in s      # allowance concept removed
         assert s["hasPat"] is False
         # add PAT -> becomes giver with real quota (4000 AIU == 4000 * NANO nano)
         await cli.post("/api/pat", json={"pat": "ghp_x"})

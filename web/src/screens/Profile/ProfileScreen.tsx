@@ -206,7 +206,7 @@ export function ProfileScreen() {
       </div>
 
       {/* Credit cycle — giver: entitlement/used/available, plus the interactive
-          pledge bar when the shared pool is on. Consumer: allowance bar below. */}
+          pledge bar when the shared pool is on. Consumer: usage total below. */}
       {isGiver && p && (
         <div style={{ ...card, padding: '22px 24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
@@ -301,7 +301,7 @@ export function ProfileScreen() {
               <InfoTip term="credits" />
             </span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text-dim)' }}>
-              {(p.allowance ?? 0) > 0 ? `${aiu(p.allowance ?? 0)} free + chip-ins` : 'chip-ins'}
+              from chip-ins and the shared pool
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
@@ -312,53 +312,45 @@ export function ProfileScreen() {
               used
             </span>
           </div>
-
-          {p.allowanceMax != null && p.allowanceMax > 0 && (
-            <div style={{ marginTop: 18 }}>
-              <CreditBar
-                max={p.allowanceMax}
-                segments={[
-                  { key: 'used', label: 'used', value: p.allowanceUsed ?? 0, color: 'var(--accent)', pattern: 'striped' as const },
-                  { key: 'left', label: 'left', value: p.allowanceLeft ?? 0, color: 'var(--reroute)' },
-                ].filter((s) => s.value > 0)}
-              />
-              <CreditLegend items={[
-                { label: 'used', value: aiu(p.allowanceUsed ?? 0), color: 'var(--accent)', pattern: 'striped' },
-                { label: 'left', value: aiu(p.allowanceLeft ?? 0), color: 'var(--reroute)' },
-              ]} />
-              {reset && (
-                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-faint)', marginTop: 6 }}>
-                  {reset}
-                </div>
-              )}
+          {reset && (
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-faint)', marginTop: 14 }}>
+              {reset}
             </div>
           )}
+        </div>
+      )}
 
-          {p.donationsReceived > 0 && (
-            <div style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-                <span style={monoLabel}>Received from supporters</span>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--received)' }}>
-                  +{aiu(p.donationsReceived)}
-                </span>
-              </div>
-              <CreditBar
-                max={p.donationsReceived}
-                segments={[
-                  { key: 'recvUsed', label: 'used', value: p.donationsReceivedConsumed, color: 'var(--received)', pattern: 'striped' as const },
-                  { key: 'recvLeft', label: 'left', value: p.donationsReceivedRemaining, color: 'var(--received)' },
-                ].filter((s) => s.value > 0)}
-              />
-              <CreditLegend items={[
-                { label: 'used', value: aiu(p.donationsReceivedConsumed), color: 'var(--received)', pattern: 'striped' },
-                { label: 'left', value: aiu(p.donationsReceivedRemaining), color: 'var(--received)' },
-              ]} />
-              <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '10px 0 0', fontFamily: "'JetBrains Mono', monospace", display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>chip-ins from Hosts — on top of your free allowance above.</span>
-                <InfoTip term="chipIn" />
-              </p>
+      {/* Routed to you — credit others (or the pool) have put behind this account. */}
+      {p && p.donationsReceived > 0 && (
+        <div style={card} data-routed-panel>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={monoLabel}>Routed to you</span>
+              <InfoTip term="chipIn" />
+            </span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--received)' }}>
+              +{aiu(p.donationsReceived)}
+            </span>
+          </div>
+          <CreditBar
+            max={p.donationsReceived}
+            segments={[
+              { key: 'recvUsed', label: 'used', value: p.donationsReceivedConsumed, color: 'var(--received)', pattern: 'striped' as const },
+              { key: 'recvLeft', label: 'left', value: p.donationsReceivedRemaining, color: 'var(--received)' },
+            ].filter((s) => s.value > 0)}
+          />
+          <CreditLegend items={[
+            { label: 'used', value: aiu(p.donationsReceivedConsumed), color: 'var(--received)', pattern: 'striped' },
+            { label: 'left', value: aiu(p.donationsReceivedRemaining), color: 'var(--received)' },
+          ]} />
+          {p.donationsReceivedFromPool > 0 && (
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--reroute)', marginTop: 8 }}>
+              {aiu(p.donationsReceivedFromPool)} of this came from the shared pool
             </div>
           )}
+          <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '10px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
+            credit pledged to your requests — spend it by just using the CLI.
+          </p>
         </div>
       )}
 

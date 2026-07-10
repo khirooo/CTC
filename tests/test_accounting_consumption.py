@@ -38,16 +38,13 @@ def test_own_consumption_requires_self_source():
         e.record_consumption(CYC, "c1", "g1", Bucket.OWN, 10, ts=1)
 
 
-def test_pool_capped_by_pledge_and_allowance():
+def test_pool_capped_by_pledge():
     e, _ = seed()
     # pledge is 300; a single 301 pool draw exceeds pledge
     with pytest.raises(InsufficientCredit):
         e.record_consumption(CYC, "c1", "g1", Bucket.POOL, 301, ts=1)
-    # over the consumer's free allowance -> raises on allowance. Set the giver's
-    # pledge well above the allowance so the allowance is the binding cap.
-    e.store.upsert_giver_cycle(GiverCycle(CYC, "g1", 2 * config.free_allowance, 2 * config.free_allowance))
-    with pytest.raises(InsufficientCredit):
-        e.record_consumption(CYC, "c1", "g1", Bucket.POOL, config.free_allowance + 1, ts=1)
+    # within the pledge there is no other cap (the free allowance is gone)
+    e.record_consumption(CYC, "c1", "g1", Bucket.POOL, 300, ts=1)
 
 
 def test_grant_consumption_capped_and_donor_checked():

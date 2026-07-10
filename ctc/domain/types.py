@@ -21,6 +21,7 @@ class RequestStatus(str, Enum):
     PARTIALLY_FUNDED = "partially_funded"
     FULFILLED = "fulfilled"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class Request:
     target: str | None
     created_at: int
     expires_at: int
+    cancelled_at: int | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,7 @@ class Grant:
     recipient_id: str
     amount: int
     created_at: int
+    source: str = "personal"  # 'personal' | 'pool'
 
 
 @dataclass(frozen=True)

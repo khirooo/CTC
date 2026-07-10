@@ -48,7 +48,12 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         f = req.query.get("filter", "all")
         if f in ("pro", "noob"):
             dtos = [d for d in dtos if d.requester_role == f]
-        return web.json_response(ListRequestsDTO(requests=dtos, counts=counts).model_dump(by_alias=True))
+        pool_enabled = bool(getattr(engine.config, "shared_pool_enabled", True))
+        pool_available = engine.pool_available(cycle.id) if pool_enabled else 0
+        return web.json_response(ListRequestsDTO(
+            requests=dtos, counts=counts,
+            pool_enabled=pool_enabled, pool_available=pool_available,
+        ).model_dump(by_alias=True))
 
     async def create_request(req):
         user = await _require_user(req)
@@ -82,6 +87,38 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             raise web.HTTPUnprocessableEntity(text=str(e))
         return web.json_response(build_public_request(acct, get_user, acct.get_request(rid), ts).model_dump(by_alias=True))
 
+    async def pool_fund(req):
+        user = await _require_user(req)
+        body = DonateDTO.model_validate(await req.json())
+        rid = req.match_info["id"]
+        if acct.get_request(rid) is None:
+            raise web.HTTPNotFound(text="request not found")
+        if not getattr(engine.config, "shared_pool_enabled", True):
+            raise web.HTTPConflict(text="the shared pool is disabled")
+        ts = now()
+        try:
+            engine.fund_request_from_pool(rid, user["id"], body.amount, ts)
+        except RequestClosed as e:
+            raise web.HTTPConflict(text=str(e))
+        except (InsufficientCredit, InvalidConsumption) as e:
+            raise web.HTTPUnprocessableEntity(text=str(e))
+        return web.json_response(build_public_request(
+            acct, get_user, acct.get_request(rid), ts, viewer_id=user["id"]).model_dump(by_alias=True))
+
+    async def delete_request(req):
+        user = await _require_user(req)
+        rid = req.match_info["id"]
+        r = acct.get_request(rid)
+        if r is None:
+            raise web.HTTPNotFound(text="request not found")
+        if r.requester_id != user["id"]:
+            raise web.HTTPForbidden(text="only the requester can delete their request")
+        try:
+            engine.cancel_request(rid, user["id"], now())
+        except RequestClosed as e:
+            raise web.HTTPConflict(text=str(e))
+        return web.Response(status=204)
+
     def _settings_for(user, cycle_id):
         gc = engine.store.get_giver_cycle(cycle_id, user["id"])
         quota = gc.quota if gc else 0
@@ -95,7 +132,6 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             pat_health_checked_at=health["checked_at"] if health else None,
             total_credit=quota if quota else None,
             pledged_surplus=pledge,
-            allowance=engine.config.free_allowance if role == "consumer" else None,
         )
 
     async def get_settings(req):
@@ -160,10 +196,21 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         gc = acct.get_giver_cycle(cycle.id, uid)
         is_giver = user["role"] == "giver" and gc is not None
         recv_grants = acct.grants_for_recipient(cycle.id, uid)
-        donations_received = sum(g.amount for g in recv_grants)
-        # How much of that received credit the recipient has actually burned vs.
-        # still has to draw (the profile "received" bar splits on this).
-        donations_received_remaining = sum(engine.grant_remaining(cycle.id, g.id) for g in recv_grants)
+        # How much of the received credit the recipient has actually burned vs.
+        # still has to draw (the profile "routed to you" bar splits on this).
+        # A grant on a cancelled request only counts for the part already burned —
+        # the unconsumed remainder went back to its donor.
+        donations_received = 0
+        donations_received_remaining = 0
+        donations_received_from_pool = 0
+        for g in recv_grants:
+            rq = acct.get_request(g.request_id)
+            cancelled = rq is not None and rq.cancelled_at is not None
+            amt = acct.grant_consumed(cycle.id, g.id) if cancelled else g.amount
+            donations_received += amt
+            donations_received_remaining += engine.grant_remaining(cycle.id, g.id)
+            if g.source == "pool":
+                donations_received_from_pool += amt
         donations_received_consumed = max(0, donations_received - donations_received_remaining)
 
         common = dict(
@@ -173,6 +220,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             donations_received=donations_received,
             donations_received_consumed=donations_received_consumed,
             donations_received_remaining=donations_received_remaining,
+            donations_received_from_pool=donations_received_from_pool,
         )
 
         # Aristocracy tier (givers-only) — computed over all givers this cycle so
@@ -191,12 +239,9 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         common["net_to_next"] = net_to_next
 
         if not is_giver:
-            allowance = engine.allowance_remaining(cycle.id, uid)
-            mx = engine.config.free_allowance
             dto = OwnProfileDTO(
-                total_credit=None, pledged_surplus=None, retained=None, allowance=allowance,
-                allowance_max=mx, allowance_used=acct.pool_consumed_by(cycle.id, uid),
-                allowance_left=allowance, reset_date=_iso_date(cycle.ends_at), **common)
+                total_credit=None, pledged_surplus=None, retained=None,
+                reset_date=_iso_date(cycle.ends_at), **common)
             return web.json_response(dto.model_dump(by_alias=True))
 
         # giver: live reconcile (fallback to submit-time snapshot)
@@ -220,14 +265,16 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         unlimited = ent_aiu == -1
         pledged = gc.pledge
         donated = acct.granted_out(cycle.id, uid)
-        pledged_consumed = acct.pool_consumed_from(cycle.id, uid)
-        donated_consumed = acct.grants_consumed_from(cycle.id, uid)
+        # Pledge usage counts legacy pool events plus marketplace pool fills;
+        # personal chip-in usage counts personal grants only.
+        pledged_consumed = engine.pledge_used(cycle.id, uid)
+        donated_consumed = acct.personal_grants_consumed_from(cycle.id, uid)
         donated_remaining = max(0, donated - donated_consumed)
         pledged_remaining = engine.pledge_remaining(cycle.id, uid)
         if unlimited:
             dto = OwnProfileDTO(
                 total_credit=gc.quota, pledged_surplus=pledged,
-                retained=engine.personal_remaining(cycle.id, uid), allowance=None,
+                retained=engine.personal_remaining(cycle.id, uid),
                 entitlement=-1, remaining=None, unlimited=True, quota_stale=stale,
                 pledged=pledged, donated=donated, used=None, left=None,
                 pledged_consumed=pledged_consumed, donated_consumed=donated_consumed,
@@ -241,7 +288,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         left = max(0, E - used - pledged - donated)
         dto = OwnProfileDTO(
             total_credit=gc.quota, pledged_surplus=pledged,
-            retained=engine.personal_remaining(cycle.id, uid), allowance=None,
+            retained=engine.personal_remaining(cycle.id, uid),
             entitlement=E, remaining=R, used=used, pledged=pledged, donated=donated, left=left,
             pledged_consumed=pledged_consumed, donated_consumed=donated_consumed,
             donated_remaining=donated_remaining, pledged_remaining=pledged_remaining,
@@ -294,6 +341,8 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         web.get("/api/requests", list_requests),
         web.post("/api/requests", create_request),
         web.post("/api/requests/{id}/donate", donate),
+        web.post("/api/requests/{id}/pool-fund", pool_fund),
+        web.delete("/api/requests/{id}", delete_request),
         web.get("/api/settings", get_settings),
         web.patch("/api/settings", patch_settings),
         web.get("/api/leaderboard", get_leaderboard),

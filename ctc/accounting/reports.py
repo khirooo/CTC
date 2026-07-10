@@ -18,7 +18,7 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
 
     Returns a dict with exactly these keys:
         pledged, retained, rotated, donatedToNonPat, donatedThisWeek,
-        fulfillmentRate, activeGivers, activeConsumers, poolGuests,
+        fulfillmentRate, activeGivers, activeConsumers, poolAvailable,
         openCount, closedCount, activity, leaderboardSnapshot,
         cycleLabel, cycleNumber, resetDate, daysLeft
     """
@@ -90,7 +90,7 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         if status == RequestStatus.FULFILLED:
             fulfilled_count += 1
             closed_count += 1
-        elif status == RequestStatus.EXPIRED:
+        elif status in (RequestStatus.EXPIRED, RequestStatus.CANCELLED):
             closed_count += 1
         else:
             open_count += 1
@@ -130,17 +130,9 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
     # --- activeConsumers: distinct consumer_ids in events that are NOT givers ---
     active_consumers = sum(1 for cid in all_consumers if cid not in giver_ids)
 
-    # --- poolGuests: distinct consumer_ids with a POOL-bucket event this cycle
-    # that are NOT givers. Narrower than activeConsumers (which counts ANY
-    # bucket, including directed 'grant' chip-ins): this is specifically guests
-    # currently drawing from the SHARED POOL. ---
-    pool_consumer_rows = conn.execute(
-        "SELECT DISTINCT consumer_id FROM consumption_events "
-        "WHERE cycle_id=? AND bucket='pool'",
-        (cycle_id,),
-    ).fetchall()
-    pool_consumers = {r["consumer_id"] for r in pool_consumer_rows}
-    pool_guests = sum(1 for cid in pool_consumers if cid not in giver_ids)
+    # --- poolAvailable: pledged credit not yet drawn across all givers — the
+    # balance shown next to the marketplace's "fill from pool" action. ---
+    pool_available = engine.pool_available(cycle_id)
 
     # --- activity: consumption events from the last 24h (capped), newest-first.
     # Both the shared pool ('pool' bucket) and directed marketplace chip-ins
@@ -201,7 +193,7 @@ def build_dashboard(engine, users: list[LeaderboardUser], cycle_id: str, now: in
         "fulfillmentRate": fulfillment_rate,
         "activeGivers": active_givers,
         "activeConsumers": active_consumers,
-        "poolGuests": pool_guests,
+        "poolAvailable": pool_available,
         "openCount": open_count,
         "closedCount": closed_count,
         "activity": activity,

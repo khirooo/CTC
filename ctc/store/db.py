@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS requests (
   reason TEXT NOT NULL,
   target TEXT,
   created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
+  expires_at INTEGER NOT NULL,
+  cancelled_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS grants (
   id TEXT PRIMARY KEY,
@@ -35,7 +36,8 @@ CREATE TABLE IF NOT EXISTS grants (
   donor_id TEXT NOT NULL,
   recipient_id TEXT NOT NULL,
   amount INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  source TEXT NOT NULL DEFAULT 'personal'
 );
 CREATE TABLE IF NOT EXISTS consumption_events (
   id TEXT PRIMARY KEY,
@@ -140,3 +142,9 @@ def init_db(conn: sqlite3.Connection) -> None:
                       ("health_error", "TEXT")):
         if col not in pcols:
             conn.execute(f"ALTER TABLE giver_pats ADD COLUMN {col} {decl}")
+    rcols = {r["name"] for r in conn.execute("PRAGMA table_info(requests)")}
+    if "cancelled_at" not in rcols:
+        conn.execute("ALTER TABLE requests ADD COLUMN cancelled_at INTEGER")
+    gcols = {r["name"] for r in conn.execute("PRAGMA table_info(grants)")}
+    if "source" not in gcols:
+        conn.execute("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'personal'")

@@ -35,7 +35,7 @@ export function MarketplaceHero({ data }: Props) {
   const { session } = useApp();
   const eur = (nano: number) => euros(nano, session?.creditToEuroRate);
   const _closedCount = data.closedCount ?? 0;
-  const _poolGuestCount = data.poolGuests;
+  const _poolAvailable = data.poolAvailable ?? 0;
 
   return (
     <div
@@ -308,21 +308,12 @@ export function MarketplaceHero({ data }: Props) {
                   style={{
                     fontFamily: "'JetBrains Mono', monospace",
                     fontWeight: 600,
-                    fontSize: 34,
-                    color: 'var(--consume)',
-                    lineHeight: 1,
+                    fontSize: 26,
+                    color: 'var(--reroute)',
+                    lineHeight: 1.2,
                   }}
                 >
-                  {_poolGuestCount}
-                </span>
-                <span
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 11,
-                    color: 'var(--consume)',
-                  }}
-                >
-                  ● active
+                  {aiu(_poolAvailable)}
                 </span>
               </div>
               <span
@@ -335,10 +326,10 @@ export function MarketplaceHero({ data }: Props) {
                   gap: 5,
                 }}
               >
-                Guests drawing from the pool
+                Left in the shared pool
                 <InfoTip
-                  title="Drawing from the pool"
-                  body="Guests currently covered by the shared pool — they used pool credits this cycle."
+                  title="Shared pool"
+                  body="Credit Hosts pledged that nobody has drawn yet. Anyone can route it to an open request on the board."
                 />
               </span>
             </div>

@@ -23,7 +23,7 @@ export const glossary: Record<GlossaryTerm, { title: string; body: string }> = {
   },
   pool: {
     title: 'Shared pool',
-    body: 'Credits Hosts set aside for everyone. Guests draw from it automatically when they use Copilot through CTC.',
+    body: 'Credits Hosts pledged for everyone. Anyone can route pool credit to an open request on the Marketplace — even their own.',
   },
   chipIn: {
     title: 'Chip-in',
@@ -51,7 +51,7 @@ export const glossary: Record<GlossaryTerm, { title: string; body: string }> = {
   },
   pledge: {
     title: 'Shared with the pool',
-    body: 'The slice of your own monthly quota you make available to teammates. Private — only you see this number. Not a cap on chipping in.',
+    body: 'The slice of your own monthly quota you put in the shared pool. It leaves your hands when someone routes it to a request. Private — only you see this number.',
   },
   kept: {
     title: 'Kept for themselves',

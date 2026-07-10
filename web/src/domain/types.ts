@@ -3,7 +3,7 @@ export type Role = 'giver' | 'consumer';
 export type RequesterRole = 'pro' | 'noob';
 
 // Request status
-export type RequestStatus = 'open' | 'partially_funded' | 'fulfilled' | 'expired';
+export type RequestStatus = 'open' | 'partially_funded' | 'fulfilled' | 'expired' | 'cancelled';
 
 // Public-facing interfaces (privacy invariant: no totalCredit, no pledgedSurplus)
 export interface PublicUser {
@@ -51,7 +51,9 @@ export interface PublicRequest {
   expiresAt: number;
   status: RequestStatus;
   donorCount: number;
-  isOwn: boolean;   // belongs to the viewing user — can't fund your own request
+  isOwn: boolean;   // belongs to the viewing user — can't chip in personally, CAN pool-fund
+  /** nano-AIU of amountFunded drawn from the shared pool. */
+  poolFunded: number;
 }
 
 export interface CreateRequestInput {
@@ -106,8 +108,8 @@ export interface DashboardData {
   fulfillmentRate: number;
   activeGivers: number;
   activeConsumers: number;
-  /** Distinct non-giver consumers currently drawing from the shared pool this cycle. */
-  poolGuests: number;
+  /** nano-AIU still pledged and undrawn across all givers — the shared pool balance. */
+  poolAvailable: number;
   openCount: number;
   closedCount: number;
   activity: ActivityEntry[];
@@ -160,12 +162,12 @@ export interface OwnProfile {
   pledgedSurplus: number | null;
   retained: number | null;
   donatedSoFar: number;
-  allowance: number | null;
   consumed: number;
   donationsReceived: number;
   donationsReceivedConsumed: number;   // nano-AIU of received grants already burned
   donationsReceivedRemaining: number;  // nano-AIU of received grants still available
-  // Credit-segment fields (giver: from quota; consumer: from allowance)
+  donationsReceivedFromPool: number;   // nano-AIU of the received total that came from the shared pool
+  // Credit-segment fields (giver: from quota)
   entitlement: number | null;
   remaining: number | null;
   used: number | null;
@@ -176,9 +178,6 @@ export interface OwnProfile {
   donatedConsumed: number | null;
   donatedRemaining: number | null;  // max(0, donated - donatedConsumed) — computed server-side
   pledgedRemaining: number | null;  // pledge not yet drawn from pool — computed server-side
-  allowanceMax: number | null;
-  allowanceUsed: number | null;
-  allowanceLeft: number | null;
   resetDate: string | null;
   unlimited: boolean;
   quotaStale: boolean;
@@ -203,7 +202,6 @@ export interface SettingsData {
   patHealthCheckedAt: number | null;
   totalCredit: number | null;
   pledgedSurplus: number | null;
-  allowance: number | null;
 }
 
 export interface SettingsPatch {
@@ -271,7 +269,6 @@ export interface AdminBootConfig {
 }
 
 export interface AdminSettings {
-  freeAllowanceAiu: AdminSettingField<number>;
   defaultPledgePct: AdminSettingField<number>;
   requestExpiryHours: AdminSettingField<number>;
   requestExpiryMaxHours: AdminSettingField<number>;
@@ -283,7 +280,6 @@ export interface AdminSettings {
 }
 
 export type AdminSettingsPatch = Partial<{
-  freeAllowanceAiu: number;
   defaultPledgePct: number;
   requestExpiryHours: number;
   requestExpiryMaxHours: number;

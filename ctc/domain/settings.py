@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from .config import NANO_PER_AIU, config as _env_config
+from .config import config as _env_config
 
 EFFECTIVE_KEYS = [
-    "free_allowance_aiu", "default_pledge_pct",
+    "default_pledge_pct",
     "request_expiry_hours", "request_expiry_max_hours", "credit_to_euro_rate",
     "default_chip_in_aiu",
     "participants_mode", "shared_pool_enabled",
@@ -19,17 +19,6 @@ class EffectiveConfig:
 
     def _raw(self, key):
         return self.store.get_all().get(key)
-
-    @property
-    def free_allowance(self) -> int:            # nano-AIU
-        # No shared pool → no free allowance to spend (the allowance only ever
-        # grants credit through the pool path in attribution). Mirror
-        # default_pledge_pct so display, routing, and the admin view stay
-        # consistent when the pool is off.
-        if not self.shared_pool_enabled:
-            return 0
-        v = self._raw("free_allowance_aiu")
-        return int(v) * NANO_PER_AIU if v is not None else self.base.free_allowance
 
     @property
     def shared_pool_enabled(self) -> bool:
@@ -72,11 +61,9 @@ class EffectiveConfig:
 
 
 def effective_view(ec: EffectiveConfig, store) -> dict:
-    """Per-key {value, is_override}; free_allowance reported in AIU."""
+    """Per-key {value, is_override}."""
     raw = store.get_all()
     return {
-        "free_allowance_aiu": {"value": ec.free_allowance // NANO_PER_AIU,
-                               "is_override": "free_allowance_aiu" in raw},
         "default_pledge_pct": {"value": ec.default_pledge_pct,
                                "is_override": "default_pledge_pct" in raw},
         "request_expiry_hours": {"value": ec.request_expiry_hours,
@@ -128,8 +115,6 @@ def validate_patch(patch: dict, current: dict | None = None) -> dict[str, str]:
         else:
             n = int(v)
             coerced[k] = n
-            if k == "free_allowance_aiu" and n <= 0:
-                raise ValueError("free_allowance_aiu must be > 0")
             if k == "default_chip_in_aiu" and n <= 0:
                 raise ValueError("default_chip_in_aiu must be > 0")
             if k == "default_pledge_pct" and not (0 <= n <= 100):

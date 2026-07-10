@@ -54,20 +54,18 @@ class TestCrossCycleIsolation:
         assert self.e.pledge_remaining(CYC_ACTIVE, GIVER) == 200
         assert self.e.pledge_remaining(CYC_ARCHIVED, GIVER) == 200
 
-    def test_allowance_remaining_isolated(self):
-        # Each cycle: free_allowance - 100 pool = (allowance - 100)
-        # They should be equal and independent; crucially active cycle value must
-        # NOT include the archived cycle's consumption.
-        active_val = self.e.allowance_remaining(CYC_ACTIVE, CONSUMER)
-        archived_val = self.e.allowance_remaining(CYC_ARCHIVED, CONSUMER)
+    def test_pool_consumed_by_isolated(self):
+        # Legacy pool draws stay isolated per cycle: adding a pool draw in the
+        # active cycle must not leak into the archived cycle's tallies.
+        active_val = self.e.pool_consumed_by(CYC_ACTIVE, CONSUMER)
+        archived_val = self.e.pool_consumed_by(CYC_ARCHIVED, CONSUMER)
         assert active_val == archived_val  # symmetric seed
 
-        # Sanity: if we add another pool draw in active cycle only, they diverge
         self.e.store.add_event(
             Event("ev-extra", CYC_ACTIVE, 5, CONSUMER, GIVER, Bucket.POOL, None, 50)
         )
-        assert self.e.allowance_remaining(CYC_ACTIVE, CONSUMER) == active_val - 50
-        assert self.e.allowance_remaining(CYC_ARCHIVED, CONSUMER) == archived_val
+        assert self.e.pool_consumed_by(CYC_ACTIVE, CONSUMER) == active_val + 50
+        assert self.e.pool_consumed_by(CYC_ARCHIVED, CONSUMER) == archived_val
 
     def test_donated_live_isolated(self):
         # Each cycle: pool 100 + grant 60 = 160 donated by giver to others
