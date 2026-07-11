@@ -63,6 +63,29 @@ async def mock_upstream(test_cert):
                 await asyncio.sleep(0.1)
             await resp.write_eof()
             return resp
+        if request.path == "/billable-sse":
+            # Long SSE stream carrying a copilot_usage charge in an early event,
+            # so a client that disconnects mid-stream still has the charge in the
+            # bytes the proxy buffered (last-event-wins keeps that value).
+            resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
+            await resp.prepare(request)
+            await resp.write(
+                b'data: {"copilot_usage":{"total_nano_aiu":8262952500},'
+                b'"type":"message_delta"}\n\n')
+            for i in range(200):
+                await resp.write(f"data: filler{i}\n\n".encode())
+                await asyncio.sleep(0.02)
+            await resp.write_eof()
+            return resp
+        if request.path == "/upstream-dies":
+            # Emits a chunked head + one body chunk, then abruptly aborts the
+            # TCP connection so the proxy sees a mid-stream upstream death.
+            resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
+            await resp.prepare(request)
+            await resp.write(b"data: partial\n\n")
+            await asyncio.sleep(0.05)
+            request.transport.abort()
+            return resp
         if request.path == "/empty":
             return web.Response(status=204)
         return web.json_response({"login": "ok", "path": request.path})

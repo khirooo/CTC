@@ -399,11 +399,38 @@ async def assemble_request_body(reader, hdrs, leftover: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 # Response relay — buffered for small known-length bodies, chunked otherwise
 # ---------------------------------------------------------------------------
+class RelayState:
+    """Progress holder threaded through _relay_response so the caller can tell,
+    after a relay that raised (client disconnect / upstream death mid-stream),
+    how far it got:
+
+    - head_sent: the response status line + headers were already written to the
+      client. If True we must NOT inject a fresh HTTP status line (a 502/504) —
+      it would land inside the open chunked body and corrupt the stream — so we
+      abort the socket instead (_fail_client).
+    - status / content_type: the upstream response's, for the partial-relay
+      debit decision + cost extraction.
+    - body: the streamed/buffered response bytes captured so far (a bytearray
+      when capture was requested), so a dropped billable stream can still be
+      best-effort debited from whatever we have.
+    """
+    __slots__ = ("head_sent", "status", "content_type", "body")
+
+    def __init__(self):
+        self.head_sent = False
+        self.status = 0
+        self.content_type = ""
+        self.body = None
+
+
 async def _relay_response(writer, resp, upstream_host, path, method="", request_headers=None,
-                          capture_full=False) -> Optional[bytes]:
+                          capture_full=False, state: Optional["RelayState"] = None) -> Optional[bytes]:
     log.info("[← RESPONSE] status=%-3s host=%-25s path=%s", resp.status, upstream_host, path)
     ct = resp.headers.get("Content-Type", "")
     cl = resp.headers.get("Content-Length")
+    if state is not None:
+        state.status = resp.status
+        state.content_type = ct
     skip = {"transfer-encoding", "content-encoding", "content-length", "connection"}
     rh = {k: v for k, v in resp.headers.items() if k.lower() not in skip}
 
@@ -413,12 +440,16 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
         rh["Connection"] = "keep-alive"
         hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
         writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode())
+        if state is not None:
+            state.head_sent = True
         await writer.drain()
         return None
 
     buffered = cl is not None and cl.isdigit() and int(cl) <= LOG_BODY_CAP
     if buffered:
         rb = await resp.read()
+        if state is not None:
+            state.body = bytearray(rb)
         if CAPTURE_DIR:
             record_exchange(CAPTURE_DIR, method=method, path=path, upstream_host=upstream_host,
                             status=resp.status, request_headers=request_headers or {},
@@ -429,6 +460,8 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
         rh["Connection"] = "keep-alive"
         hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
         writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode() + rb)
+        if state is not None:
+            state.head_sent = True
         await writer.drain()
         return rb if capture_full else None
 
@@ -436,16 +469,26 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
     rh["Connection"] = "keep-alive"
     hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
     writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode())
+    if state is not None:
+        state.head_sent = True
     await writer.drain()
     tee = bytearray()
-    full = bytearray() if (CAPTURE_DIR or capture_full) else None
+    # When capturing, the streamed buffer IS state.body, so a relay that raises
+    # mid-stream leaves the caller with the bytes we managed to read (for a
+    # best-effort partial-relay debit).
+    if CAPTURE_DIR or capture_full:
+        full = bytearray()
+        if state is not None:
+            state.body = full
+    else:
+        full = None
     async for chunk in resp.content.iter_chunked(65536):
+        if full is not None:
+            full.extend(chunk)
         writer.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
         await writer.drain()
         if len(tee) < LOG_BODY_CAP:
             tee.extend(chunk[:LOG_BODY_CAP - len(tee)])
-        if full is not None:
-            full.extend(chunk)
     writer.write(b"0\r\n\r\n")
     await writer.drain()
     if CAPTURE_DIR:
@@ -460,7 +503,7 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
     return None
 
 
-def _write_buffered(writer, resp, body: bytes) -> None:
+def _write_buffered(writer, resp, body: bytes, state: Optional["RelayState"] = None) -> None:
     """Relay an already-read upstream response (status line + headers + body) to
     the client. Used by the failover path when we've had to .read() a 402 to peek
     its error code and so can no longer stream it via _relay_response. Mirrors the
@@ -473,6 +516,49 @@ def _write_buffered(writer, resp, body: bytes) -> None:
     rh["Connection"] = "keep-alive"
     hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
     writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode() + body)
+    if state is not None:
+        state.status = resp.status
+        state.head_sent = True
+
+
+def _fail_client(writer, state: Optional["RelayState"], status_bytes: bytes) -> None:
+    """Terminate the client side of a relay that raised. If the response head was
+    already sent (mid-chunked-body or after a buffered write), we CANNOT write a
+    fresh HTTP status line — it would corrupt the client's in-flight stream — so
+    abort the transport. Otherwise best-effort deliver the error status. All
+    writes are exception-safe; the client may already be gone."""
+    if state is not None and state.head_sent:
+        try:
+            writer.transport.abort()
+        except Exception:
+            pass
+        return
+    try:
+        writer.write(status_bytes)
+    except Exception:
+        pass
+
+
+def _reconcile_partial_relay(billable, debited, state: Optional["RelayState"],
+                             cycle, consumer, source, path) -> None:
+    """P1-1: a relay that raised (client Ctrl-C mid-SSE, upstream death) skips
+    the normal post-relay debit even though upstream may have fully burned the
+    giver's quota — leaving the cost to be mis-booked later as a BYPASS on the
+    giver (giver charged, consumer free). Best-effort extract the cost from the
+    bytes we buffered and debit exactly once here, with a distinctive marker.
+    Never raises."""
+    if not (billable and not debited and state is not None and state.status == 200):
+        return
+    if ATTRIBUTION is None or cycle is None or consumer is None or source is None:
+        return
+    body = bytes(state.body) if state.body is not None else b""
+    try:
+        cost = extract_total_nano_aiu(body, state.content_type)
+        ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now())
+        log.warning("[reconcile] partial-relay debit: cost=%s path=%s "
+                    "(client/upstream dropped mid-stream)", cost, path)
+    except Exception as exc:
+        log.error("[!] partial-relay debit failed (logged, not surfaced): %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -640,6 +726,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
 
         source = None
         consumer = None
+        cycle = None  # set below for billable/session paths; kept defined so the
+                      # relay except handlers can reference it unconditionally.
         pat_to_use = REAL_PAT
         billable = ATTRIBUTION is not None and is_billable(upstream_host, method, path)
         # /models/session resolves auto_mode -> a copilot-session-token bound to
@@ -755,6 +843,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         exclude: set = set()
         attempts = 0
         max_attempts = len(health) + 1 if billable else 1
+        relay_state = RelayState()
+        debited = False
         try:
             while True:
                 attempts += 1
@@ -790,7 +880,7 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                                 continue
                         # Not a retriable quota 402, or no next bucket: relay this
                         # 402 (already read) to the client and stop.
-                        _write_buffered(writer, resp, peek)
+                        _write_buffered(writer, resp, peek, state=relay_state)
                         await writer.drain()
                         _status = resp.status
                         _ct = resp.headers.get("Content-Type", "")
@@ -840,13 +930,14 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                                             log.warning("[!] failed to pin healed giver from /models/session response: %s", exc)
                                     source = nxt
                                     continue
-                        _write_buffered(writer, resp, peek)
+                        _write_buffered(writer, resp, peek, state=relay_state)
                         await writer.drain()
                         _status = resp.status
                         _ct = resp.headers.get("Content-Type", "")
                         break
                     full_body = await _relay_response(writer, resp, upstream_host, path, method,
-                                                      hdrs, capture_full=(billable or session_bootstrap))
+                                                      hdrs, capture_full=(billable or session_bootstrap),
+                                                      state=relay_state)
                     _status = resp.status
                     _ct = resp.headers.get("Content-Type", "")
                 if billable and _status == 200:
@@ -856,6 +947,7 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                     cost = extract_total_nano_aiu(full_body or b"", _ct)
                     try:
                         ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now())
+                        debited = True
                     except Exception as exc:  # debit must never break the sent response
                         log.error("[!] debit failed (logged, not surfaced): %s", exc)
                 if session_bootstrap and _status == 200 and source is not None and pin_key is not None:
@@ -874,13 +966,21 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 break
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
             log.error("[!] Upstream timeout: %s %s", method, path)
-            writer.write(b"HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\n\r\n")
-            await writer.drain()
+            _reconcile_partial_relay(billable, debited, relay_state, cycle, consumer, source, path)
+            _fail_client(writer, relay_state,
+                         b"HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\n\r\n")
             break
         except Exception as exc:
+            # Client disconnect (writer.drain raising) or upstream death mid-relay
+            # both land here. If the head is already sent we must NOT inject a
+            # status line into the open (chunked) body — abort the socket instead
+            # (_fail_client). And a billable stream that dropped mid-flight still
+            # burned the giver's quota upstream, so best-effort debit it now
+            # (_reconcile_partial_relay) rather than leaking it into a later BYPASS.
             log.error("[!] Forward error: %s", exc)
-            writer.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
-            await writer.drain()
+            _reconcile_partial_relay(billable, debited, relay_state, cycle, consumer, source, path)
+            _fail_client(writer, relay_state,
+                         b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
             break
 
 # Hosts we actively MITM (decrypt + log + mock/swap). Everything else
