@@ -107,6 +107,8 @@ export class HttpCtcApi implements CtcApi {
       sharedPoolEnabled: me.shared_pool_enabled !== undefined ? Boolean(me.shared_pool_enabled) : undefined,
       creditToEuroRate: me.credit_to_euro_rate !== undefined ? Number(me.credit_to_euro_rate) : undefined,
       defaultChipInAiu: me.default_chip_in_aiu !== undefined ? Number(me.default_chip_in_aiu) : undefined,
+      requestExpiryHours: me.request_expiry_hours !== undefined ? Number(me.request_expiry_hours) : undefined,
+      requestExpiryMaxHours: me.request_expiry_max_hours !== undefined ? Number(me.request_expiry_max_hours) : undefined,
       webTransport: me.web_transport,
     };
   }

@@ -171,12 +171,20 @@ def build_public_request(store, get_user, r: Request, now: int, viewer_id: str |
     user = get_user(r.requester_id)
     name = user["display_name"] if user else r.requester_id
     status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
+    # Directed requests store the target as a user id (the client sends userId);
+    # resolve it to a display name for rendering. Legacy rows that stored a raw
+    # name (no matching user) render verbatim.
+    target = r.target
+    if target:
+        target_user = get_user(target)
+        if target_user:
+            target = target_user["display_name"]
     return PublicRequestDTO(
         id=r.id, requester_id=r.requester_id, requester_name=name, initials=initials(name),
         requester_role=ROLE_TO_REQUESTER[r.requester_role],
         amount_needed=r.amount_needed, amount_funded=funded,
         funded_consumed=store.request_consumed(r.id),
-        reason=r.reason, target=r.target, created_at=r.created_at,
+        reason=r.reason, target=target, created_at=r.created_at,
         expires_at=r.expires_at, status=status.value,
         donor_count=store.request_donor_count(r.id),
         is_own=(viewer_id is not None and viewer_id == r.requester_id),

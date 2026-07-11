@@ -13,21 +13,48 @@ interface ComposeFormProps {
   onCancel: () => void;
 }
 
+const EXPIRY_OPTIONS: { h: number; label: string }[] = [
+  { h: 1, label: '1 hour' },
+  { h: 6, label: '6 hours' },
+  { h: 12, label: '12 hours' },
+  { h: 24, label: '24 hours' },
+  { h: 48, label: '2 days' },
+  { h: 72, label: '3 days' },
+  { h: 168, label: '1 week' },
+];
+
 export function ComposeForm({ onSubmit, onCancel }: ComposeFormProps) {
   const { api, session } = useApp();
   const [amount, setAmount] = useState(200);
   const [target, setTarget] = useState('open');
   const [reason, setReason] = useState('Finishing up a PR');
-  const [expiryHours, setExpiryHours] = useState<number>(config.requestExpiryHours);
+  // Clamp the expiry presets to the admin-set ceiling so we never offer (or
+  // default to) a value the server will 422. Default = server default snapped
+  // down to an available preset ≤ min(default, max).
+  const maxHours = session?.requestExpiryMaxHours ?? EXPIRY_OPTIONS[EXPIRY_OPTIONS.length - 1].h;
+  const expiryOptions = EXPIRY_OPTIONS.filter(o => o.h <= maxHours);
+  const clampedDefault = Math.min(session?.requestExpiryHours ?? config.requestExpiryHours, maxHours);
+  const defaultExpiry =
+    [...expiryOptions].reverse().find(o => o.h <= clampedDefault)?.h ?? expiryOptions[0]?.h ?? 1;
+  const [expiryHours, setExpiryHours] = useState<number>(defaultExpiry);
   const [submitting, setSubmitting] = useState(false);
   const [givers, setGivers] = useState<StandingEntry[]>([]);
+
+  // The session (hence maxHours) arrives after first paint. If the seeded expiry
+  // now exceeds the admin ceiling, snap it back down to a valid preset.
+  useEffect(() => {
+    setExpiryHours(prev => (prev <= maxHours ? prev : defaultExpiry));
+    // defaultExpiry/maxHours derive from the same session field; key off maxHours.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxHours]);
 
   useEffect(() => {
     let cancelled = false;
     api.getLeaderboard().then(lb => {
       if (cancelled) return;
-      // standings = all givers (active + newcomers); exclude self.
-      const list = lb.standings.filter(s => !session?.userId || s.userId !== session.userId);
+      // standings = all givers (active + newcomers); exclude self and any row
+      // without a resolvable id (directed target is sent as a userId).
+      const list = lb.standings.filter(s => s.userId && s.userId !== session?.userId);
       setGivers(list);
     }).catch(() => { /* keep dropdown with just "open to all" */ });
     return () => { cancelled = true; };
@@ -74,6 +101,7 @@ export function ComposeForm({ onSubmit, onCancel }: ComposeFormProps) {
         </Field>
         <Field label="Ask">
           <select
+            aria-label="Ask"
             value={target}
             onChange={e => setTarget(e.target.value)}
             style={{
@@ -92,7 +120,7 @@ export function ComposeForm({ onSubmit, onCancel }: ComposeFormProps) {
           >
             <option value="open">Open to all Hosts</option>
             {givers.map(g => (
-              <option key={g.userId || g.name} value={g.name}>{g.name}</option>
+              <option key={g.userId || g.name} value={g.userId}>{g.name}</option>
             ))}
           </select>
         </Field>
@@ -123,13 +151,9 @@ export function ComposeForm({ onSubmit, onCancel }: ComposeFormProps) {
               cursor: 'pointer',
             }}
           >
-            <option value={1}>1 hour</option>
-            <option value={6}>6 hours</option>
-            <option value={12}>12 hours</option>
-            <option value={24}>24 hours</option>
-            <option value={48}>2 days</option>
-            <option value={72}>3 days</option>
-            <option value={168}>1 week</option>
+            {expiryOptions.map(o => (
+              <option key={o.h} value={o.h}>{o.label}</option>
+            ))}
           </select>
         </Field>
       </div>

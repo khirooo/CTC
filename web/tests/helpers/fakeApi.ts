@@ -184,6 +184,8 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       participantsMode, sharedPoolEnabled,
       creditToEuroRate: adminSettings.creditToEuroRate.value,
       defaultChipInAiu: adminSettings.defaultChipInAiu.value,
+      requestExpiryHours: adminSettings.requestExpiryHours.value,
+      requestExpiryMaxHours: adminSettings.requestExpiryMaxHours.value,
       webTransport: 'http',
     };
   }

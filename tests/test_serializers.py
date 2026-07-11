@@ -28,3 +28,23 @@ def test_camel_alias_and_nano_output():
     assert j["amountFunded"] == 40 * NANO_PER_AIU
     assert j["status"] == "partially_funded"
     assert j["donorCount"] == 1
+
+
+def test_directed_target_userid_resolves_to_display_name():
+    conn = connect(":memory:"); init_db(conn); store = AccountingStore(conn)
+    # target stored as a user id — the client now sends userId for directed asks.
+    store.add_request(Request("r1", "c1", "u_ada", Role.CONSUMER,
+                              100 * NANO_PER_AIU, "need", "u_mb", 1, 9999))
+    users = {"u_ada": {"display_name": "Ada Lovelace"}, "u_mb": {"display_name": "Marco Bianchi"}}
+    dto = build_public_request(store, lambda uid: users.get(uid), store.get_request("r1"), now=10)
+    assert dto.model_dump(by_alias=True)["target"] == "Marco Bianchi"
+
+
+def test_legacy_name_valued_target_renders_verbatim():
+    conn = connect(":memory:"); init_db(conn); store = AccountingStore(conn)
+    # Legacy rows stored a raw display name; no matching user → render as-is.
+    store.add_request(Request("r1", "c1", "u_ada", Role.CONSUMER,
+                              100 * NANO_PER_AIU, "need", "Ada Lovelace", 1, 9999))
+    users = {"u_ada": {"display_name": "Ada Lovelace"}}
+    dto = build_public_request(store, lambda uid: users.get(uid), store.get_request("r1"), now=10)
+    assert dto.model_dump(by_alias=True)["target"] == "Ada Lovelace"

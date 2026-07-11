@@ -178,6 +178,10 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
             "shared_pool_enabled": _effective_config.shared_pool_enabled,
             "credit_to_euro_rate": _effective_config.credit_to_euro_rate,
             "default_chip_in_aiu": _effective_config.default_chip_in_aiu,
+            # Compose-form expiry defaults/ceiling so the client can clamp its
+            # options to the admin-set max (otherwise a stale preset 422s).
+            "request_expiry_hours": _effective_config.request_expiry_hours,
+            "request_expiry_max_hours": _effective_config.request_expiry_max_hours,
         })
 
     async def api_pat(req):

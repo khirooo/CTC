@@ -240,6 +240,10 @@ export interface Session {
   creditToEuroRate?: number;
   /** Effective default chip-in amount in AIU, live from /api/me (admin-editable). */
   defaultChipInAiu?: number;
+  /** Default request-expiry (hours) the compose form pre-selects, from /api/me. */
+  requestExpiryHours?: number;
+  /** Admin-set ceiling (hours) the compose form clamps its expiry options to. */
+  requestExpiryMaxHours?: number;
   webTransport?: 'http' | 'https';
   hasPat?: boolean;
 }

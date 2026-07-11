@@ -129,6 +129,20 @@ async def test_pat_identity_mismatch_is_accepted():
 
 
 @pytest.mark.asyncio
+async def test_me_exposes_request_expiry_config():
+    app = await _client()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        me = await (await cli.get("/api/me")).json()
+        # Compose form needs both to clamp its expiry presets to the admin max.
+        assert "request_expiry_hours" in me
+        assert "request_expiry_max_hours" in me
+        assert isinstance(me["request_expiry_hours"], int)
+        assert isinstance(me["request_expiry_max_hours"], int)
+        assert me["request_expiry_hours"] <= me["request_expiry_max_hours"]
+
+
+@pytest.mark.asyncio
 async def test_me_reports_onboarded_false_then_true():
     app = await _client()
     async with TestClient(TestServer(app)) as cli:
