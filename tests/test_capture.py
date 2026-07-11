@@ -1,7 +1,8 @@
 import base64
 import json
 import os
-from ctc.metering.capture import redact_text, redact_headers, record_exchange
+from ctc.metering.capture import (
+    redact_text, redact_headers, record_exchange, close_captures, _CAPTURE_HANDLES)
 
 
 def test_redact_text_masks_github_tokens():
@@ -70,6 +71,23 @@ def test_record_exchange_appends_multiple_lines(tmp_path):
                         status=200, request_headers={}, response_headers={}, response_body=b"{}")
     lines = (tmp_path / "exchanges.ndjson").read_text().splitlines()
     assert len(lines) == 3
+
+
+def test_record_exchange_reuses_persistent_handle(tmp_path):
+    close_captures()
+    record_exchange(str(tmp_path), method="GET", path="/x", upstream_host="h",
+                    status=200, request_headers={}, response_headers={}, response_body=b"{}")
+    key = os.path.join(str(tmp_path), "exchanges.ndjson")
+    first = _CAPTURE_HANDLES.get(key)
+    assert first is not None and not first.closed
+    record_exchange(str(tmp_path), method="GET", path="/y", upstream_host="h",
+                    status=200, request_headers={}, response_headers={}, response_body=b"{}")
+    # Same file path -> same handle reused, not reopened.
+    assert _CAPTURE_HANDLES.get(key) is first
+    close_captures()
+    assert _CAPTURE_HANDLES == {}
+    # Both appends made it to disk despite the shared handle.
+    assert len((tmp_path / "exchanges.ndjson").read_text().splitlines()) == 2
 
 
 def test_record_exchange_base64_for_binary_body(tmp_path):

@@ -20,7 +20,7 @@ Run:
 import asyncio, ssl, os, json, logging, time
 from typing import Optional, Dict
 import aiohttp
-from ctc.metering.capture import record_exchange, redact_text, redact_headers
+from ctc.metering.capture import record_exchange, redact_text, redact_headers, close_captures
 from ctc.metering.extract import extract_total_nano_aiu
 from ctc import contract
 from ctc import sentinel
@@ -149,6 +149,10 @@ UPSTREAM_CA_BUNDLE = os.environ.get("UPSTREAM_CA_BUNDLE") or None
 UPSTREAM_INSECURE  = _parse_insecure(os.environ)
 LOG_BODY_CAP      = int(os.environ.get("LOG_BODY_CAP", "8192"))
 CAPTURE_DIR = os.environ.get("CTC_CAPTURE_DIR")  # metering spike: dump redacted exchanges
+# Upper bound on the in-memory buffer we keep for a streamed response (billing +
+# capture). The per-request charge lives in the FINAL SSE event, so we keep the
+# trailing window, not the head, bounding memory on very long streams.
+CAPTURE_TAIL_CAP = 256 * 1024
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("proxy")
@@ -565,9 +569,20 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
             state.body = full
     else:
         full = None
+    trimmed_billable = False
     async for chunk in resp.content.iter_chunked(65536):
         if full is not None:
             full.extend(chunk)
+            if len(full) > CAPTURE_TAIL_CAP:
+                # Keep only the trailing window — the charge is in the final SSE
+                # event. (A very large non-SSE JSON body would lose its head and
+                # so its top-level charge; WARN so that's visible.)
+                del full[:len(full) - CAPTURE_TAIL_CAP]
+                if capture_full and not trimmed_billable:
+                    log.warning("[capture] billable response exceeded %d bytes; "
+                                "keeping trailing window for billing path=%s",
+                                CAPTURE_TAIL_CAP, path)
+                    trimmed_billable = True
         writer.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
         await writer.drain()
         if len(tee) < LOG_BODY_CAP:
@@ -1265,5 +1280,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log.info("Proxy stopped.")
     finally:
+        close_captures()
         if _http and not _http.closed:
             asyncio.run(_http.close())

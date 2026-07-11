@@ -10,9 +10,34 @@ import base64
 import json
 import os
 import re
-from typing import Mapping
+from typing import Mapping, TextIO
 
 _REDACTED = "***REDACTED***"
+
+# One persistent append handle per capture file, so we don't re-open (+ re-seek
+# to EOF) the NDJSON on every exchange. Keyed by absolute file path.
+_CAPTURE_HANDLES: dict[str, TextIO] = {}
+
+
+def _capture_handle(capture_dir: str) -> TextIO:
+    path = os.path.join(capture_dir, "exchanges.ndjson")
+    f = _CAPTURE_HANDLES.get(path)
+    if f is None or f.closed:
+        os.makedirs(capture_dir, exist_ok=True)
+        f = open(path, "a", encoding="utf-8")
+        _CAPTURE_HANDLES[path] = f
+    return f
+
+
+def close_captures() -> None:
+    """Close all persistent capture handles (flushing them). Safe to call on
+    shutdown or from tests."""
+    for f in _CAPTURE_HANDLES.values():
+        try:
+            f.close()
+        except Exception:
+            pass
+    _CAPTURE_HANDLES.clear()
 
 # GitHub PAT / OAuth token formats, plus the short-lived copilot token carried
 # as a JSON "token" field in the /copilot_internal/v2/token response.
@@ -72,7 +97,7 @@ def record_exchange(
         "body_kind": body_kind,
         "body": body,
     }
-    os.makedirs(capture_dir, exist_ok=True)
-    with open(os.path.join(capture_dir, "exchanges.ndjson"), "a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    f = _capture_handle(capture_dir)
+    f.write(json.dumps(record) + "\n")
+    f.flush()
     return record
