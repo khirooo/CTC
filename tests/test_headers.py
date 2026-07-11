@@ -33,3 +33,18 @@ def test_hop_by_hop_stripped_and_length_set():
     for k in ("connection", "transfer-encoding", "proxy-connection"):
         assert k not in out
     assert out["content-length"] == "5"
+
+
+def test_accept_encoding_includes_gzip_deflate():
+    assert "gzip" in proxy._ACCEPT_ENCODING
+    assert "deflate" in proxy._ACCEPT_ENCODING
+
+
+def test_accept_encoding_pinned_over_client_value():
+    # A client advertising a codec we can't decode (e.g. br when brotli is
+    # absent) must be overridden with our decodable set.
+    out = proxy.build_upstream_headers(
+        {"authorization": "token x", "accept-encoding": "br, gzip, weird"},
+        "api.example.ghe.com", "token x", 0, "PAT")
+    assert out["accept-encoding"] == proxy._ACCEPT_ENCODING
+    assert "weird" not in out["accept-encoding"]

@@ -255,6 +255,31 @@ _HOP_BY_HOP = {"host", "authorization", "content-length",
                "transfer-encoding", "connection", "proxy-connection"}
 
 
+def _compute_accept_encoding() -> str:
+    """Encodings we can actually decode for relay + billing. Node/Copilot
+    advertises `br`, but if the `brotli` package isn't installed a br response
+    can't be decompressed and the relay 502s (br/zstd are load-bearing for
+    RELAYING, not just log decoding). So we pin the forwarded accept-encoding to
+    the codecs this process can decode — gzip/deflate always, br/zstd only when
+    their library is importable. aiohttp transparently decompresses these on the
+    upstream response, so extract/relay see plaintext."""
+    codecs = ["gzip", "deflate"]
+    try:
+        import brotli  # noqa: F401
+        codecs.append("br")
+    except ImportError:
+        pass
+    try:
+        import zstandard  # noqa: F401
+        codecs.append("zstd")
+    except ImportError:
+        pass
+    return ", ".join(codecs)
+
+
+_ACCEPT_ENCODING = _compute_accept_encoding()
+
+
 def should_swap(upstream_host: str) -> bool:
     return upstream_host in SWAP_HOSTS
 
@@ -316,6 +341,10 @@ def build_upstream_headers(hdrs, upstream_host, original_auth, body_len, real_pa
     elif original_auth:
         fwd["authorization"] = original_auth
     fwd["host"] = upstream_host
+    # Force accept-encoding to codecs we can decode: a client-advertised `br`
+    # with brotli uninstalled would otherwise come back br-compressed and 502
+    # the relay (and zero out billing).
+    fwd["accept-encoding"] = _ACCEPT_ENCODING
     if body_len:
         fwd["content-length"] = str(body_len)
     return fwd
