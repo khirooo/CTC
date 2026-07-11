@@ -138,6 +138,23 @@ describe('marketplace', () => {
     expect(screen.getByText('Open requests')).toBeInTheDocument();
   });
 
+  it('guards against a double chip-in — donate fires once for a double-click', async () => {
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.double' });
+    await api.signIn('ada@example.com', 'x'); // giver with personal credit only (no picker)
+    let resolveDonate!: () => void;
+    const donateSpy = vi.spyOn(api, 'donate').mockImplementation(
+      () => new Promise((res) => { resolveDonate = () => res({} as any); }),
+    );
+    await setupWithApi(api);
+    await waitFor(() => expect(screen.getByText('Lena Hoffmann')).toBeInTheDocument());
+    const card = screen.getByText('Lena Hoffmann').closest('[data-request-card]') as HTMLElement;
+    const btn = within(card).getByRole('button', { name: /chip in/i });
+    await userEvent.click(btn);          // starts the (pending) donate
+    await userEvent.click(btn);          // second click while in flight — ignored
+    expect(donateSpy).toHaveBeenCalledTimes(1);
+    resolveDonate();
+  });
+
   it('shows the source picker for a Host who also has received credit', async () => {
     // Marco is the Host-with-received-credit fixture (250 received, 90 burned).
     const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.picker.test' });

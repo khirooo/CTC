@@ -24,6 +24,9 @@ interface RequestCardProps {
    *  opens a source picker; a single source donates directly from it. */
   viewerPersonalRemaining?: number;
   viewerReceivedRemaining?: number;
+  /** When true, an action is already in flight — disable the action buttons to
+   *  prevent a double chip-in/pool-fill. */
+  disabled?: boolean;
 }
 
 function timeLabel(expiresAt: number, nowMs: number, status: PublicRequest['status']): string {
@@ -36,7 +39,7 @@ function timeLabel(expiresAt: number, nowMs: number, status: PublicRequest['stat
 
 export function RequestCard({
   request, chipInAiu, onDonate, onPoolFund, onDelete, poolEnabled, poolAvailable = 0,
-  viewerPersonalRemaining = 0, viewerReceivedRemaining = 0,
+  viewerPersonalRemaining = 0, viewerReceivedRemaining = 0, disabled = false,
 }: RequestCardProps) {
   // Evaluate display-time freshly on each render so "Xh/Xd left" never goes
   // stale across reloads or long sessions. Tests freeze the api's clock, not
@@ -182,6 +185,7 @@ export function RequestCard({
                   padding: '0 16px',
                   fontSize: 13,
                 }}
+                disabled={disabled}
                 onClick={() => startChipIn(chipInAiu)}
               >
                 Chip in {chipInAiu} →
@@ -194,6 +198,7 @@ export function RequestCard({
                   padding: '0 12px',
                   fontSize: 13,
                 }}
+                disabled={disabled}
                 onClick={() => {
                   const raw = window.prompt(`Chip in how many credits?`, String(chipInAiu));
                   if (raw == null) return;
@@ -214,6 +219,7 @@ export function RequestCard({
               <Button
                 variant="ghost"
                 style={{ color: 'var(--own)', border: '1px solid var(--own)', borderRadius: 9, height: 36, padding: '0 12px', fontSize: 13 }}
+                disabled={disabled}
                 onClick={() => pickSource('personal')}
               >
                 My credits · {aiu(viewerPersonalRemaining)} left
@@ -221,6 +227,7 @@ export function RequestCard({
               <Button
                 variant="ghost"
                 style={{ color: 'var(--give)', border: '1px solid var(--give)', borderRadius: 9, height: 36, padding: '0 12px', fontSize: 13 }}
+                disabled={disabled}
                 onClick={() => pickSource('received')}
               >
                 Routed to me · {aiu(viewerReceivedRemaining)} left
@@ -245,6 +252,7 @@ export function RequestCard({
                 padding: '0 16px',
                 fontSize: 13,
               }}
+              disabled={disabled}
               onClick={() => {
                 const raw = window.prompt(`Fill from the shared pool — how many credits?`, String(chipInAiu));
                 if (raw == null) return;
@@ -267,6 +275,7 @@ export function RequestCard({
                 fontSize: 13,
                 marginLeft: 'auto',
               }}
+              disabled={disabled}
               onClick={() => {
                 if (window.confirm('Delete this request? Any unused chip-ins go back to their supporters.')) {
                   onDelete(id);

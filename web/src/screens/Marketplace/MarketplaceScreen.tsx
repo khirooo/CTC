@@ -38,6 +38,9 @@ export function MarketplaceScreen() {
   const [filter, setFilter] = useState<Filter>('all');
   const [compose, setCompose] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // In-flight guard: a chip-in/pool-fund/delete spends real credit, so ignore
+  // repeat clicks (double-click, impatient retap) until the request settles.
+  const [acting, setActing] = useState(false);
 
   const { data, error: loadError, reload } = useAsync(() => api.listRequests(filter), [filter]);
 
@@ -47,34 +50,46 @@ export function MarketplaceScreen() {
   const poolAvailable = data?.poolAvailable ?? 0;
 
   async function handleDonate(id: string, amountAiu?: number, source?: DonationSource) {
+    if (acting) return;
     setActionError(null);
+    setActing(true);
     const amount = amountAiu ?? chipInAiu;
     try {
       await api.donate(id, amount * 1_000_000_000, source);  // AIU → nano-AIU
       reload();
     } catch (e) {
       setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
+    } finally {
+      setActing(false);
     }
   }
 
   async function handlePoolFund(id: string, amountAiu?: number) {
+    if (acting) return;
     setActionError(null);
+    setActing(true);
     const amount = amountAiu ?? chipInAiu;
     try {
       await api.poolFund(id, amount * 1_000_000_000);  // AIU → nano-AIU
       reload();
     } catch (e) {
       setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
+    } finally {
+      setActing(false);
     }
   }
 
   async function handleDelete(id: string) {
+    if (acting) return;
     setActionError(null);
+    setActing(true);
     try {
       await api.deleteRequest(id);
       reload();
     } catch (e) {
       setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
+    } finally {
+      setActing(false);
     }
   }
 
@@ -220,6 +235,7 @@ export function MarketplaceScreen() {
               poolAvailable={poolAvailable}
               viewerPersonalRemaining={data?.viewerPersonalRemaining ?? 0}
               viewerReceivedRemaining={data?.viewerReceivedRemaining ?? 0}
+              disabled={acting}
             />
           ))}
         </div>

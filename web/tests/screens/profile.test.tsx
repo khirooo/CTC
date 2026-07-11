@@ -117,6 +117,26 @@ describe('ProfileScreen (merged profile + settings)', () => {
     );
   });
 
+  it('giver: pledge slider commits on keyboard (keyUp), not only mouse', async () => {
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 's.slider.kbd' });
+    await api.signIn('ada@example.com', 'x'); // seed giver
+    const profile = await api.getOwnProfile();
+    const expectedMax = Math.max(
+      profile.pledgedConsumed ?? 0,
+      (profile.entitlement ?? 0) - (profile.used ?? 0) - (profile.donated ?? 0),
+    );
+    const spy = vi.spyOn(api, 'updateSettings');
+    renderProfile(api);
+    const slider = await screen.findByRole('slider');
+    await waitFor(() => expect(Number(slider.getAttribute('max'))).toBe(expectedMax));
+    const newVal = Math.floor(expectedMax / 3);
+    fireEvent.change(slider, { target: { value: String(newVal) } });
+    fireEvent.keyUp(slider);  // arrow-key edits fire keyUp, never mouseUp
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ pledgedSurplus: newVal })),
+    );
+  });
+
   it('shows inline error and does not crash when a pledge save rejects', async () => {
     const api = makeFakeApi({ latencyMs: 0, storageKey: 'set.err.test' });
     await api.signIn('ada@example.com', 'x'); // seed giver already has a pledge

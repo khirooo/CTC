@@ -62,6 +62,10 @@ export function CreditBar({ segments, max, slider }: CreditBarProps) {
           onChange={(e) => slider.onChange(Number(e.target.value))}
           onMouseUp={(e) => slider.onCommit(Number((e.target as HTMLInputElement).value))}
           onTouchEnd={(e) => slider.onCommit(Number((e.target as HTMLInputElement).value))}
+          // Keyboard changes (arrow keys) fire onChange but never mouse/touch —
+          // commit on key-up and on blur so keyboard edits actually persist (a11y).
+          onKeyUp={(e) => slider.onCommit(Number((e.target as HTMLInputElement).value))}
+          onBlur={(e) => slider.onCommit(Number((e.target as HTMLInputElement).value))}
           aria-label="Pledge amount"
           style={{ position: 'absolute', top: 0, bottom: 0,
                    left: `${ts * 100}%`, width: `${(1 - ts) * 100}%`, margin: 0,
