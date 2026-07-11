@@ -42,6 +42,10 @@ class AuthRegistry:
     def list_givers(self) -> list[str]:
         return self.store.list_giver_ids()
 
+    def pat_health_status(self, giver_id: str) -> str | None:
+        row = self.store.get_pat_health(giver_id)
+        return row["status"] if row else None
+
     # --- issuance / onboarding ---
     def issue_proxy_token(self, user_id: str, now: int) -> tuple[str, str, str]:
         token = mint_proxy_token()

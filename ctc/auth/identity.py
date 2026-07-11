@@ -17,6 +17,10 @@ class IdentityProvider(Protocol):
 class PatRegistry(Protocol):
     def pat_for(self, giver_id: str) -> str | None: ...
     def list_givers(self) -> list[str]: ...
+    # Last recorded health verdict for a giver's PAT ('valid'/'expired'/... or
+    # None when unknown/never checked). Used to prefer a healthy PAT for
+    # non-billable borrow calls.
+    def pat_health_status(self, giver_id: str) -> str | None: ...
 
 
 class InMemoryIdentityProvider:
@@ -40,3 +44,6 @@ class InMemoryPatRegistry:
 
     def list_givers(self) -> list[str]:
         return list(self._pats.keys())
+
+    def pat_health_status(self, giver_id: str) -> str | None:
+        return None  # stub: health unknown

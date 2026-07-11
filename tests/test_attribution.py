@@ -108,6 +108,65 @@ def test_any_giver_pat_none_when_no_pats():
     assert svc.any_giver_pat() is None
 
 
+class _HealthReg:
+    """PatRegistry stub with an explicit per-giver health verdict."""
+    def __init__(self, pats, health):
+        self._pats = pats
+        self._health = health
+    def pat_for(self, gid): return self._pats.get(gid)
+    def list_givers(self): return list(self._pats)
+    def pat_health_status(self, gid): return self._health.get(gid)
+
+
+def _empty_engine():
+    conn = connect(":memory:"); init_db(conn)
+    eng = AccountingEngine(AccountingStore(conn), config=_PoolEnabledConfig())
+    eng.start_cycle("c1", "June", 0, 10_000_000)
+    return eng
+
+
+def test_any_giver_pat_prefers_valid_health():
+    # A dead PAT must not be borrowed for a non-billable call when a valid one
+    # exists (same shape as the /responses incident).
+    reg = _HealthReg({"dead": "ghp_dead", "ok": "ghp_ok"},
+                     {"dead": "expired", "ok": "valid"})
+    svc = AttributionService(_empty_engine(), InMemoryIdentityProvider({}), reg)
+    assert svc.any_giver_pat() == "ghp_ok"
+
+
+def test_any_giver_pat_falls_back_when_none_valid():
+    # Unknown/never-checked health (None) is not treated as dead — still usable.
+    reg = _HealthReg({"a": "ghp_a"}, {"a": None})
+    svc = AttributionService(_empty_engine(), InMemoryIdentityProvider({}), reg)
+    assert svc.any_giver_pat() == "ghp_a"
+
+
+def test_pinned_own_source_gated_by_headroom():
+    svc, eng = _service(quota_alice=200, pledge_alice=0)
+    src = Source(bucket=Bucket.OWN, giver_id="alice", pat="ghp_alice")
+    svc.pin_source(("alice", "sess-1"), src, expires_at=2000, now=1000)
+    # headroom present → pin honored
+    assert svc.pinned_source(("alice", "sess-1"), cycle_id="c1", now=1500) == src
+    # drain alice's personal credit → no headroom → pin dropped (falls back)
+    eng.record_consumption("c1", "alice", "alice", Bucket.OWN, 200, ts=1, allow_overshoot=True)
+    assert svc.pinned_source(("alice", "sess-1"), cycle_id="c1", now=1500) is None
+    # legacy callers that omit cycle_id skip the headroom re-check
+    assert svc.pinned_source(("alice", "sess-1"), now=1500) == src
+
+
+def test_pinned_grant_source_gated_by_headroom():
+    svc, eng = _service(quota_alice=0)
+    eng.set_quota("c1", "bob", 500)
+    req = eng.create_request("c1", "carol", Role.CONSUMER, 100, "need", None, 1, 10_000_000)
+    grant = eng.fund_request(req.id, "bob", 100, 2)
+    src = Source(bucket=Bucket.GRANT, giver_id="bob", pat="ghp_bob", grant_id=grant.id)
+    svc.pin_source(("carol", "s"), src, expires_at=2000, now=1000)
+    assert svc.pinned_source(("carol", "s"), cycle_id="c1", now=1500) == src
+    eng.record_consumption("c1", "carol", "bob", Bucket.GRANT, 100,
+                           grant_id=grant.id, ts=3, allow_overshoot=True)
+    assert svc.pinned_source(("carol", "s"), cycle_id="c1", now=1500) is None
+
+
 def test_pinned_source_returns_pinned_giver_before_expiry():
     """A giver pinned from a /models/session bootstrap call is returned as-is
     (not re-derived from select_source) as long as it hasn't expired."""

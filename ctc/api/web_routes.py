@@ -299,7 +299,6 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         if lq and lq.get("entitlement") is not None:
             engine.reconcile_giver(cycle.id, uid, lq, ts=now())
 
-        unlimited = ent_aiu == -1
         pledged = gc.pledge
         donated = acct.granted_out(cycle.id, uid)
         # Pledge usage counts legacy pool events plus marketplace pool fills;
@@ -308,17 +307,8 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         donated_consumed = acct.personal_grants_consumed_from(cycle.id, uid)
         donated_remaining = max(0, donated - donated_consumed)
         pledged_remaining = engine.pledge_remaining(cycle.id, uid)
-        if unlimited:
-            dto = OwnProfileDTO(
-                total_credit=gc.quota, pledged_surplus=pledged,
-                retained=engine.personal_remaining(cycle.id, uid),
-                entitlement=-1, remaining=None, unlimited=True, quota_stale=stale,
-                pledged=pledged, donated=donated, used=None, left=None,
-                pledged_consumed=pledged_consumed, donated_consumed=donated_consumed,
-                donated_remaining=donated_remaining, pledged_remaining=pledged_remaining,
-                reset_date=reset, **common)
-            return web.json_response(dto.model_dump(by_alias=True))
-
+        # Unlimited (entitlement == -1) PATs are rejected at onboarding and dropped
+        # at rollover, so a giver never reaches here with -1 — no unlimited branch.
         E = int(ent_aiu) * NANO_PER_AIU
         R = int(rem_aiu or 0) * NANO_PER_AIU
         used = acct.own_consumed(cycle.id, uid) + acct.bypass_consumed(cycle.id, uid)
@@ -372,7 +362,9 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             gc = acct.get_giver_cycle(cycle.id, uid)
             snap = store.get_giver_quota_snapshot(uid)
             ent_aiu = snap["entitlement"] if snap else 0
-            if gc is not None and ent_aiu and ent_aiu != -1:
+            # Unlimited (-1) entitlements are rejected at onboarding, so a giver
+            # always has a positive entitlement here.
+            if gc is not None and ent_aiu:
                 E = int(ent_aiu) * NANO_PER_AIU
                 used = acct.own_consumed(cycle.id, uid) + acct.bypass_consumed(cycle.id, uid)
                 pledged = gc.pledge
@@ -387,8 +379,6 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
                     donated_remaining=max(0, granted - donated_consumed),
                     left=max(0, E - used - pledged - granted),
                 )
-            elif ent_aiu == -1:
-                credit = dict(unlimited=True)
         dto = PublicProfileDTO(
             id=uid, name=name, login=u["ghe_login"], initials=initials(name),
             role=u["role"], tier=tier, net=net, donated=donated,

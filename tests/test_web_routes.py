@@ -185,6 +185,18 @@ async def test_revoke_pat_requires_session():
 
 
 @pytest.mark.asyncio
+async def test_revoke_pat_consumer_does_not_fabricate_giver_cycle():
+    # Deleting the PAT of a plain consumer (no PAT ever connected) must not create
+    # a giver_cycle row that would misclassify them as a giver in aggregates.
+    app, store, eng = _make_seeded()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)                        # consumer
+        uid = store.get_user_by_login("octocat")["id"]
+        assert (await cli.delete("/api/pat")).status == 204
+        assert eng.store.get_giver_cycle("c1", uid) is None
+
+
+@pytest.mark.asyncio
 async def test_giver_without_pat_cannot_fund():
     async with TestClient(TestServer(_make())) as cli:
         await _login(cli)

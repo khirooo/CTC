@@ -117,12 +117,26 @@ class AttributionService:
             ttl = max(SESSION_PIN_MIN_TTL_S, min(SESSION_PIN_MAX_TTL_S, expires_at - now))
         self._session_pins[session_key] = (source, now + ttl)
 
+    def _bucket_has_headroom(self, cycle_id: str, source: Source) -> bool:
+        """Does the pinned source's bucket still have credit to draw? Mirrors the
+        gate select_source applies, so a pin can't be a 30-min bypass of the
+        credit model (debit runs with allow_overshoot=True)."""
+        if source.bucket == Bucket.OWN:
+            return self.engine.personal_remaining(cycle_id, source.giver_id) > 0
+        if source.bucket == Bucket.GRANT:
+            return (source.grant_id is not None
+                    and self.engine.grant_remaining(cycle_id, source.grant_id) > 0)
+        if source.bucket == Bucket.POOL:
+            return self.engine.pledge_remaining(cycle_id, source.giver_id) > 0
+        return True
+
     def pinned_source(self, session_key: tuple[str, str] | None, *,
-                       health: dict | None = None, now: float | None = None) -> Source | None:
+                      cycle_id: str | None = None,
+                      health: dict | None = None, now: float | None = None) -> Source | None:
         """The giver pinned for this (consumer, client_session_id) pair, if
-        any, not yet expired, and not currently reported dead in `health`.
-        None means "no pin, or it's no longer usable" -> caller should fall
-        back to select_source()."""
+        any, not yet expired, not reported dead in `health`, and — when
+        `cycle_id` is given — whose bucket still has headroom. None means "no pin,
+        or it's no longer usable" -> caller should fall back to select_source()."""
         if session_key is None:
             return None
         now = time.time() if now is None else now
@@ -133,18 +147,29 @@ class AttributionService:
         source, expires_at = entry
         if expires_at <= now or self._dead(health, source.giver_id):
             return None
+        if cycle_id is not None and not self._bucket_has_headroom(cycle_id, source):
+            return None
         return source
 
     def any_giver_pat(self) -> str | None:
         """Any stored giver PAT, for non-billable bootstrap/validation calls
         (e.g. /copilot_internal/user, /copilot_internal/v2/token) that aren't
         metered and have no selected source but still need a real PAT upstream.
-        No credit is consumed; returns None if no giver PAT exists."""
+        Prefers a PAT last checked healthy so a non-billable call doesn't ride a
+        dead PAT while a valid one exists (same shape as the /responses incident);
+        falls back to any stored PAT (health None = unknown, not dead). No credit
+        is consumed; returns None if no giver PAT exists."""
+        fallback = None
         for giver_id in self.pats.list_givers():
             pat = self.pats.pat_for(giver_id)
-            if pat is not None:
+            if pat is None:
+                continue
+            status = self.pats.pat_health_status(giver_id)
+            if status == "valid":
                 return pat
-        return None
+            if fallback is None:
+                fallback = pat
+        return fallback
 
     def debit(self, cycle_id: str, consumer: ConsumerIdentity, source: Source,
               cost_nano_aiu: int, ts: int) -> None:

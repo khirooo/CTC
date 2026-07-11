@@ -657,7 +657,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             # on a different giver. Falls back to normal selection when there's
             # no pin (client skipped auto-mode / pinned a specific model) or the
             # pinned giver has expired/gone dead.
-            source = ATTRIBUTION.pinned_source(pin_key, health=health) if pin_key else None
+            source = (ATTRIBUTION.pinned_source(pin_key, cycle_id=cycle.id, health=health)
+                      if pin_key else None)
             if source is None:
                 source = (ATTRIBUTION.select_source(cycle.id, consumer, health=health)
                           if (cycle and consumer) else None)
