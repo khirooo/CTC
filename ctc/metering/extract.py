@@ -10,10 +10,21 @@ def _usage_from_obj(obj) -> int | None:
         return None
     outer, inner = METERING_FIELD
     cu = obj.get(outer)
+    if not isinstance(cu, dict):
+        return None
+    val = cu.get(inner)
     # bool is an int subclass; exclude it so a stray `total_nano_aiu: true` isn't
     # debited as 1 (matches sentinel._field_present, which also excludes bool).
-    if isinstance(cu, dict) and isinstance(cu.get(inner), int) and not isinstance(cu.get(inner), bool):
-        return cu[inner]
+    if isinstance(val, bool):
+        return None
+    # Accept int OR float (JSON may serialize the charge as 1500.0). sentinel
+    # already tolerates floats; without this, extract would silently bill 0 on a
+    # float-valued field while sentinel stayed quiet.
+    if isinstance(val, (int, float)):
+        try:
+            return int(val)
+        except (ValueError, OverflowError):
+            return None
     return None
 
 

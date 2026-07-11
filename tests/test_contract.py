@@ -25,3 +25,9 @@ def test_is_github_ish():
     assert contract.is_github_ish("api.githubcopilot.com")
     assert not contract.is_github_ish("registry.npmjs.org")
     assert not contract.is_github_ish("example.com")
+    # dot-boundary: a lookalike prefix must NOT match the trusted suffix
+    assert not contract.is_github_ish("evilgithubcopilot.com")
+    assert not contract.is_github_ish("notexample.ghe.com")
+    # exact suffix host itself still matches
+    assert contract.is_github_ish("githubcopilot.com")
+    assert contract.is_github_ish("example.ghe.com")

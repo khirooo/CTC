@@ -26,6 +26,7 @@ def test_connect_allowed_rejects_evil_hosts(monkeypatch):
     monkeypatch.setattr(proxy_mod, "MITM_HOSTS", {"copilot-api.example.ghe.com"})
     monkeypatch.setattr(proxy_mod, "EXTRA_ALLOWED_HOSTS", set())
     assert not proxy_mod.connect_allowed("evilgithub.com")
+    assert not proxy_mod.connect_allowed("evilgithubcopilot.com")  # dot-boundary (B7)
     assert not proxy_mod.connect_allowed("example.com")
     assert not proxy_mod.connect_allowed("169.254.169.254")
 

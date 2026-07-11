@@ -72,6 +72,12 @@ _SENTINEL_WATCH_EXACT: frozenset[str] = frozenset({"api.github.com"})
 
 
 def is_github_ish(host: str) -> bool:
-    """True if `host` should be MITM'd rather than blind-tunneled."""
+    """True if `host` should be MITM'd rather than blind-tunneled.
+
+    Suffix match is on a dot boundary (or exact equality): an unbounded
+    endswith let `evilgithubcopilot.com` match the `githubcopilot.com` suffix,
+    which the SSRF/open-relay guard (connect_allowed) treats as trusted."""
     h = host.lower()
-    return h in _SENTINEL_WATCH_EXACT or any(h.endswith(s) for s in SENTINEL_WATCH_SUFFIXES)
+    if h in _SENTINEL_WATCH_EXACT:
+        return True
+    return any(h == s or h.endswith("." + s) for s in SENTINEL_WATCH_SUFFIXES)

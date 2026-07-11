@@ -53,6 +53,16 @@ def test_accepts_bytes_and_detects_sse_without_content_type():
     assert extract_total_nano_aiu(SSE_PRICED.encode(), "") == 8262952500
 
 
+def test_float_total_nano_aiu_is_coerced_to_int():
+    body = '{"copilot_usage":{"total_nano_aiu":1500.0}}'
+    assert extract_total_nano_aiu(body, "application/json") == 1500
+
+
+def test_bool_total_nano_aiu_still_excluded():
+    body = '{"copilot_usage":{"total_nano_aiu":true}}'
+    assert extract_total_nano_aiu(body, "application/json") == 0
+
+
 def test_truncated_sse_before_usage_returns_zero():
     truncated = "event: message_start\ndata: {\"type\":\"message_start\"}\n\n"
     assert extract_total_nano_aiu(truncated, "text/event-stream") == 0
