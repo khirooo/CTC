@@ -4,7 +4,7 @@ import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
 import { CtcApiError } from '@/api/http';
 import { aiu } from '@/domain/credit';
-import { Card, ColorKey } from '@/components';
+import { Card, ColorKey, SecretInput } from '@/components';
 import { ScreenStatus } from '@/components/ScreenStatus';
 import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar';
 import { TerminalBlock } from '@/components/TerminalBlock';
@@ -457,13 +457,13 @@ export function ProfileScreen() {
           )}
           {rotating ? (
             <div style={{ display: 'flex', gap: 10 }}>
-              <input
-                type="text"
+              <SecretInput
                 autoFocus
+                aria-label="New Copilot license"
                 placeholder="github_pat_… (new license)"
                 value={patInput}
-                onChange={(e) => setPatInput(e.target.value)}
-                style={{ ...inputStyle, flex: 1, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
+                onChange={setPatInput}
+                style={{ ...inputStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
               />
               <button
                 type="button"
@@ -531,12 +531,12 @@ export function ProfileScreen() {
             </p>
           )}
           <div style={{ display: 'flex', gap: 10 }}>
-            <input
-              type="text"
+            <SecretInput
+              aria-label="Copilot license"
               placeholder="github_pat_…"
               value={patInput}
-              onChange={(e) => setPatInput(e.target.value)}
-              style={{ ...inputStyle, flex: 1, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
+              onChange={setPatInput}
+              style={{ ...inputStyle, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
             />
             <button
               type="button"

@@ -7,6 +7,7 @@ import { saveSetupState } from '@/domain/setupState';
 import { CreditBar, CreditLegend } from '@/components/CreditBar';
 import { TerminalBlock } from '@/components/TerminalBlock';
 import { PatHelp } from '@/components/PatHelp';
+import { SecretInput } from '@/components/SecretInput';
 import { monoLabel } from '@/theme/styles';
 
 type Role = 'giver' | 'consumer';
@@ -354,13 +355,13 @@ export function OnboardingScreen() {
             </p>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               <span style={monoLabel}>Copilot license</span>
-              <input
-                type="text"
+              <SecretInput
+                aria-label="Copilot license"
                 value={pat}
-                onChange={(e) => setPat(e.target.value)}
+                onChange={setPat}
                 placeholder="github_pat_••••••••••••"
+                wrapperStyle={{ width: '100%', flex: 'none' }}
                 style={{
-                  width: '100%',
                   background: 'var(--surface-2)',
                   border: '1px solid var(--border)',
                   borderRadius: 10,
@@ -369,7 +370,6 @@ export function OnboardingScreen() {
                   fontFamily: "'JetBrains Mono',monospace",
                   fontSize: 13,
                   outline: 'none',
-                  boxSizing: 'border-box',
                 }}
               />
             </label>
