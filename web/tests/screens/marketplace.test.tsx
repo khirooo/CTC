@@ -137,4 +137,35 @@ describe('marketplace', () => {
     );
     expect(screen.getByText('Open requests')).toBeInTheDocument();
   });
+
+  it('shows the source picker for a Host who also has received credit', async () => {
+    // Marco is the Host-with-received-credit fixture (250 received, 90 burned).
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.picker.test' });
+    await api.signIn('marco@example.com', 'x');
+    await setupWithApi(api);
+    await waitFor(() => expect(screen.getByText('Lena Hoffmann')).toBeInTheDocument());
+    const card = screen.getByText('Lena Hoffmann').closest('[data-request-card]') as HTMLElement;
+    const donatedBefore = (await api.getOwnProfile()).donatedSoFar;
+    await userEvent.click(within(card).getByRole('button', { name: /chip in/i }));
+    // Both sources available → the picker appears instead of donating directly
+    await userEvent.click(within(card).getByRole('button', { name: /routed to me/i }));
+    await waitFor(() => expect(within(card).getByText('60.00 AIU / 60.00 AIU')).toBeInTheDocument());
+    const p = await api.getOwnProfile();
+    expect(p.reDonated).toBe(25 * 1_000_000_000);       // Lena's request needed only 25 more
+    expect(p.donatedSoFar).toBe(donatedBefore);         // generosity stays with the original Host
+  });
+
+  it('a Guest with only received credit chips in directly from it (no picker)', async () => {
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'mkt.guest.test' });
+    await api.signIn('lena@example.com', 'x');  // Guest: 35 AIU received left, no personal credit
+    await setupWithApi(api);
+    await waitFor(() => expect(screen.getByText('Diego Ramirez')).toBeInTheDocument());
+    const card = screen.getByText('Diego Ramirez').closest('[data-request-card]') as HTMLElement;
+    await userEvent.click(within(card).getByRole('button', { name: /chip in/i }));
+    // No picker (single source) — the donation lands straight from received credit
+    expect(within(card).queryByRole('button', { name: /routed to me/i })).not.toBeInTheDocument();
+    await waitFor(async () => {
+      expect((await api.getOwnProfile()).reDonated).toBe(30 * 1_000_000_000);  // capped by Diego's need
+    });
+  });
 });

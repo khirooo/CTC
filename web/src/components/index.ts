@@ -9,3 +9,4 @@ export { StatTile } from './StatTile';
 export { InfoTip } from './InfoTip';
 export { TerminalBlock } from './TerminalBlock';
 export { Tour } from './Tour';
+export { ColorKey } from './ColorKey';

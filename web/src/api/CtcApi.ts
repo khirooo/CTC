@@ -25,7 +25,14 @@ export interface ListRequestsResult {
   poolEnabled: boolean;
   /** nano-AIU still pledged and undrawn across all givers. */
   poolAvailable: number;
+  /** Viewer's chip-in sources (nano-AIU). The chip-in source picker shows only
+   *  when both are positive. */
+  viewerPersonalRemaining: number;
+  viewerReceivedRemaining: number;
 }
+
+/** Where a chip-in draws from: your retained credit, or credit routed to you. */
+export type DonationSource = 'personal' | 'received';
 
 export interface CtcApi {
   // Auth (real backend is OAuth-only: signIn redirects to GHE; accounts are
@@ -51,9 +58,11 @@ export interface CtcApi {
   deleteRequest(requestId: string): Promise<void>;
 
   // Donations
-  donate(requestId: string, amount: number): Promise<PublicRequest>;
+  donate(requestId: string, amount: number, source?: DonationSource): Promise<PublicRequest>;
   /** Fill any open request (own included) from the shared pool. */
   poolFund(requestId: string, amount: number): Promise<PublicRequest>;
+  /** Move unspent received credit into the shared pool. */
+  returnReceivedToPool(amount: number): Promise<{ poolAvailable: number; receivedRemaining: number }>;
 
   // Dashboard & leaderboard
   getDashboard(): Promise<DashboardData>;

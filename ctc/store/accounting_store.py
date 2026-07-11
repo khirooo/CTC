@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import sqlite3
 
-from ..domain.types import Bucket, Cycle, Event, Grant, GiverCycle, Request, Role
+from ..domain.types import Bucket, Cycle, Event, Grant, GiverCycle, PoolContribution, Request, Role
+
+# Cancelled-aware "charge" of a leaf grant `c` (one with no children of its own —
+# re-donation depth is capped at 1): while its request is live it charges its
+# funder in full; once cancelled, only what the recipient already burned stays
+# charged. Expects `rc` = c's request row and `uc` = grant-bucket usage subquery.
+_LEAF_CHARGE = ("CASE WHEN rc.cancelled_at IS NULL THEN c.amount "
+                "ELSE MIN(c.amount, COALESCE(uc.used, 0)) END")
+_USED_SUBQ = ("(SELECT grant_id, SUM(credits) AS used FROM consumption_events "
+              "WHERE bucket='grant' GROUP BY grant_id)")
 
 
 class AccountingStore:
@@ -89,13 +98,15 @@ class AccountingStore:
     @staticmethod
     def _grant_row(r) -> Grant:
         return Grant(r["id"], r["cycle_id"], r["request_id"], r["donor_id"],
-                     r["recipient_id"], r["amount"], r["created_at"], r["source"])
+                     r["recipient_id"], r["amount"], r["created_at"], r["source"],
+                     r["origin_grant_id"], r["via_user_id"], r["contribution_id"])
 
     def add_grant(self, g: Grant) -> None:
         self.conn.execute(
-            "INSERT INTO grants (id,cycle_id,request_id,donor_id,recipient_id,amount,created_at,source) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (g.id, g.cycle_id, g.request_id, g.donor_id, g.recipient_id, g.amount, g.created_at, g.source),
+            "INSERT INTO grants (id,cycle_id,request_id,donor_id,recipient_id,amount,created_at,source,"
+            "origin_grant_id,via_user_id,contribution_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (g.id, g.cycle_id, g.request_id, g.donor_id, g.recipient_id, g.amount, g.created_at, g.source,
+             g.origin_grant_id, g.via_user_id, g.contribution_id),
         )
 
     def get_grant(self, grant_id: str) -> Grant | None:
@@ -108,6 +119,76 @@ class AccountingStore:
             (cycle_id, recipient_id),
         ).fetchall()
         return [self._grant_row(r) for r in rows]
+
+    # --- pool contributions (received credit returned to the shared pool) ---
+    @staticmethod
+    def _contribution_row(r) -> PoolContribution:
+        return PoolContribution(r["id"], r["cycle_id"], r["contributor_id"],
+                                r["origin_grant_id"], r["donor_id"], r["amount"], r["created_at"])
+
+    def add_pool_contribution(self, pc: PoolContribution) -> None:
+        self.conn.execute(
+            "INSERT INTO pool_contributions (id,cycle_id,contributor_id,origin_grant_id,donor_id,amount,created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (pc.id, pc.cycle_id, pc.contributor_id, pc.origin_grant_id, pc.donor_id, pc.amount, pc.created_at),
+        )
+
+    def contributions_with_capacity(self, cycle_id: str) -> list[tuple[PoolContribution, int]]:
+        # Each contribution's undrawn capacity, oldest first (the pool-draw
+        # order). Drawn amounts are cancelled-aware so a cancelled TARGET
+        # request refunds its unconsumed draw back into the contribution; a
+        # cancelled ORIGIN request voids the undrawn capacity entirely.
+        rows = self.conn.execute(
+            "SELECT pc.*, CASE WHEN ro.cancelled_at IS NOT NULL THEN 0 "
+            "             ELSE MAX(0, pc.amount - COALESCE(d.drawn, 0)) END AS capacity "
+            "FROM pool_contributions pc "
+            "JOIN grants og ON og.id = pc.origin_grant_id "
+            "JOIN requests ro ON ro.id = og.request_id "
+            "LEFT JOIN (SELECT c.contribution_id AS cid, "
+            f"                 SUM({_LEAF_CHARGE}) AS drawn "
+            "           FROM grants c "
+            "           JOIN requests rc ON rc.id = c.request_id "
+            f"          LEFT JOIN {_USED_SUBQ} uc ON uc.grant_id = c.id "
+            "           WHERE c.contribution_id IS NOT NULL "
+            "           GROUP BY c.contribution_id) d ON d.cid = pc.id "
+            "WHERE pc.cycle_id=? "
+            "ORDER BY pc.created_at, pc.id",
+            (cycle_id,),
+        ).fetchall()
+        return [(self._contribution_row(r), int(r["capacity"] or 0)) for r in rows]
+
+    def re_donated_by(self, cycle_id: str, user_id: str) -> int:
+        # Received credit this user re-donated to other requests (cancelled-aware:
+        # refunded transfers drop back out of this total).
+        return self._sum(
+            f"SELECT SUM({_LEAF_CHARGE}) "
+            "FROM grants c "
+            "JOIN requests rc ON rc.id = c.request_id "
+            f"LEFT JOIN {_USED_SUBQ} uc ON uc.grant_id = c.id "
+            "WHERE c.cycle_id=? AND c.via_user_id=? AND c.contribution_id IS NULL",
+            (cycle_id, user_id),
+        )
+
+    def returned_to_pool_by(self, cycle_id: str, user_id: str) -> int:
+        # Received credit this user moved into the shared pool. Counts the full
+        # contribution while its origin request is live; after an origin cancel
+        # only the part the pool already drew stays counted (the rest was voided).
+        return self._sum(
+            "SELECT SUM(CASE WHEN ro.cancelled_at IS NOT NULL THEN COALESCE(d.drawn, 0) "
+            "            ELSE pc.amount END) "
+            "FROM pool_contributions pc "
+            "JOIN grants og ON og.id = pc.origin_grant_id "
+            "JOIN requests ro ON ro.id = og.request_id "
+            "LEFT JOIN (SELECT c.contribution_id AS cid, "
+            f"                 SUM({_LEAF_CHARGE}) AS drawn "
+            "           FROM grants c "
+            "           JOIN requests rc ON rc.id = c.request_id "
+            f"          LEFT JOIN {_USED_SUBQ} uc ON uc.grant_id = c.id "
+            "           WHERE c.contribution_id IS NOT NULL "
+            "           GROUP BY c.contribution_id) d ON d.cid = pc.id "
+            "WHERE pc.cycle_id=? AND pc.contributor_id=?",
+            (cycle_id, user_id),
+        )
 
     # --- events ---
     def add_event(self, e: Event) -> None:
@@ -153,18 +234,65 @@ class AccountingStore:
         )
 
     def _granted_out_by_source(self, cycle_id: str, donor_id: str, source: str) -> int:
-        # A grant charges its donor in full while its request is live, but once
-        # the request is cancelled only the portion the recipient already burned
-        # stays charged — the unconsumed remainder returns to the donor.
+        # A grant charges its donor in full while its request is live. Once the
+        # request is cancelled, what stays charged is what the recipient burned
+        # PLUS what they moved onward (re-donated child grants and pool draws of
+        # their contributions, cancelled-aware themselves) — that credit is still
+        # live downstream on the donor's PAT. Undrawn pool contributions of a
+        # cancelled origin are voided (refund the donor, shrink the pool).
+        # Child grants (origin_grant_id set) are excluded: they're funded by
+        # their parent grant, not the donor's retained quota/pledge.
         return self._sum(
             "SELECT SUM(CASE WHEN r.cancelled_at IS NULL THEN g.amount "
-            "            ELSE MIN(g.amount, COALESCE(u.used, 0)) END) "
+            "            ELSE MIN(g.amount, COALESCE(u.used, 0) + COALESCE(t.moved, 0)) END) "
             "FROM grants g "
             "JOIN requests r ON r.id = g.request_id "
-            "LEFT JOIN (SELECT grant_id, SUM(credits) AS used FROM consumption_events "
-            "           WHERE bucket='grant' GROUP BY grant_id) u ON u.grant_id = g.id "
-            "WHERE g.cycle_id=? AND g.donor_id=? AND g.source=?",
+            f"LEFT JOIN {_USED_SUBQ} u ON u.grant_id = g.id "
+            "LEFT JOIN (SELECT c.origin_grant_id AS oid, "
+            f"                 SUM({_LEAF_CHARGE}) AS moved "
+            "           FROM grants c "
+            "           JOIN requests rc ON rc.id = c.request_id "
+            f"          LEFT JOIN {_USED_SUBQ} uc ON uc.grant_id = c.id "
+            "           WHERE c.origin_grant_id IS NOT NULL "
+            "           GROUP BY c.origin_grant_id) t ON t.oid = g.id "
+            "WHERE g.cycle_id=? AND g.donor_id=? AND g.source=? AND g.origin_grant_id IS NULL",
             (cycle_id, donor_id, source),
+        )
+
+    def transferred_out(self, grant_id: str) -> int:
+        # Credit re-donated onward out of this grant (direct child grants only —
+        # pool draws charge the contribution instead). Cancelled-aware: if the
+        # target request is cancelled, the unconsumed part refunds back into the
+        # parent grant's remaining (i.e. to the re-donor's received balance).
+        return self._sum(
+            f"SELECT SUM({_LEAF_CHARGE}) "
+            "FROM grants c "
+            "JOIN requests rc ON rc.id = c.request_id "
+            f"LEFT JOIN {_USED_SUBQ} uc ON uc.grant_id = c.id "
+            "WHERE c.origin_grant_id=? AND c.contribution_id IS NULL",
+            (grant_id,),
+        )
+
+    def contribution_drawn_for_origin(self, grant_id: str) -> int:
+        # Pool draws (cancelled-aware) of contributions chained to this origin
+        # grant — the part of a cancelled origin's contributions that stays
+        # charged (the undrawn part is voided back to the donor).
+        return self._sum(
+            f"SELECT SUM({_LEAF_CHARGE}) "
+            "FROM grants c "
+            "JOIN requests rc ON rc.id = c.request_id "
+            f"LEFT JOIN {_USED_SUBQ} uc ON uc.grant_id = c.id "
+            "WHERE c.origin_grant_id=? AND c.contribution_id IS NOT NULL",
+            (grant_id,),
+        )
+
+    def contributed_out(self, grant_id: str) -> int:
+        # Credit moved from this grant into the shared pool. Charged in full
+        # while the origin request is live (grant_remaining is 0 after cancel
+        # anyway, and the cancel-time void is handled in _granted_out_by_source).
+        return self._sum(
+            "SELECT SUM(amount) FROM pool_contributions WHERE origin_grant_id=?",
+            (grant_id,),
         )
 
     def granted_out(self, cycle_id: str, donor_id: str) -> int:
@@ -176,8 +304,10 @@ class AccountingStore:
         return self._granted_out_by_source(cycle_id, giver_id, "pool")
 
     def grants_count_by(self, cycle_id: str, donor_id: str) -> int:
+        # Counts the human act: re-donations count for the re-donor (via_user_id),
+        # not the original PAT holder they chain back to.
         return self._sum(
-            "SELECT COUNT(*) FROM grants WHERE cycle_id=? AND donor_id=?",
+            "SELECT COUNT(*) FROM grants WHERE cycle_id=? AND COALESCE(via_user_id, donor_id)=?",
             (cycle_id, donor_id),
         )
 
@@ -257,9 +387,12 @@ class AccountingStore:
         return [self._request_row(r) for r in rows]
 
     def request_donor_count(self, request_id: str) -> int:
-        # Personal chip-ins only — a pool fill is not an individual donor.
+        # Individual supporters: personal chip-ins by donor, plus re-donations
+        # by their via user (a re-donation of pool-source credit still has a
+        # human supporter). Anonymous pool draws don't count.
         r = self.conn.execute(
-            "SELECT COUNT(DISTINCT donor_id) FROM grants WHERE request_id=? AND source='personal'",
+            "SELECT COUNT(DISTINCT COALESCE(via_user_id, donor_id)) FROM grants "
+            "WHERE request_id=? AND (source='personal' OR via_user_id IS NOT NULL)",
             (request_id,),
         ).fetchone()
         return int(r[0] or 0)

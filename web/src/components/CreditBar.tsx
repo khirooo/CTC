@@ -25,15 +25,16 @@ export function stripedBg(color: string): string {
   return `repeating-linear-gradient(45deg, ${color} 0 5px, ${dim} 5px 10px)`;
 }
 
-/** Soft tint of `color` over the track — the deck's segment treatment. */
+/** Tint of `color` over the track. Strong enough that the hue itself stays
+ *  readable on the dark bg — at ≲30% every hue collapses into the same murk. */
 function tintBg(color: string): string {
-  return `color-mix(in srgb, ${color} 22%, transparent)`;
+  return `color-mix(in srgb, ${color} 62%, transparent)`;
 }
 
-/** Faint hatch (tinted, not saturated) for a "consumed/locked" bar segment. */
+/** Hatch for a "consumed/locked" bar segment — same hue, visibly dimmer than solid. */
 function tintHatch(color: string): string {
-  const lo = `color-mix(in srgb, ${color} 28%, transparent)`;
-  const hi = `color-mix(in srgb, ${color} 9%, transparent)`;
+  const lo = `color-mix(in srgb, ${color} 48%, transparent)`;
+  const hi = `color-mix(in srgb, ${color} 16%, transparent)`;
   return `repeating-linear-gradient(45deg, ${lo} 0 6px, ${hi} 6px 12px)`;
 }
 
@@ -56,15 +57,6 @@ export function CreditBar({ segments, max, slider }: CreditBarProps) {
                       background: segBackground(s), opacity: s.opacity ?? 1,
                       borderLeft: i > 0 ? '1px solid var(--border)' : undefined }} />
       ))}
-      {slider && ts > 0 && (
-        // Lock marker at the floor — the handle can't move left of here.
-        <span aria-hidden="true"
-              style={{ position: 'absolute', top: '50%', left: `${ts * 100}%`,
-                       transform: 'translate(-50%,-50%)', fontSize: 10, lineHeight: 1,
-                       pointerEvents: 'none', opacity: 0.85, filter: 'grayscale(1)' }}>
-          🔒
-        </span>
-      )}
       {slider && (
         <input type="range" className="credit-slider" min={slider.min} max={slider.max} value={slider.value}
           onChange={(e) => slider.onChange(Number(e.target.value))}

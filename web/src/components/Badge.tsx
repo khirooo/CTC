@@ -1,6 +1,6 @@
 import React from 'react';
 
-type Tone = 'give' | 'reroute' | 'consume' | 'default';
+type Tone = 'give' | 'pool' | 'consume' | 'default';
 
 interface BadgeProps {
   tone?: Tone;
@@ -9,7 +9,7 @@ interface BadgeProps {
 
 const TONE_MAP: Record<Tone, { color: string; bg: string }> = {
   give:    { color: 'var(--give)',    bg: 'var(--give-soft)' },
-  reroute: { color: 'var(--reroute)', bg: 'var(--reroute-soft)' },
+  pool: { color: 'var(--pool)', bg: 'var(--pool-soft)' },
   consume: { color: 'var(--consume)', bg: 'var(--consume-soft)' },
   default: { color: 'var(--text-dim)', bg: 'var(--surface-2)' },
 };

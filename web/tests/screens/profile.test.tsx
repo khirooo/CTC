@@ -24,10 +24,10 @@ describe('ProfileScreen (merged profile + settings)', () => {
     renderProfile(api);
     // legend swatch labels (exact, so the "(N used)" value text doesn't double-match)
     await waitFor(() => expect(screen.getByText('used')).toBeInTheDocument());
-    expect(screen.getByText('shared')).toBeInTheDocument();
-    // "chipped in" is now split into used/left green tones
+    // "chipped in" and "shared" are split into used/left tones (striped = spent)
     expect(screen.getByText('chipped in · used')).toBeInTheDocument();
     expect(screen.getByText('chipped in · left')).toBeInTheDocument();
+    expect(screen.getByText('shared · left')).toBeInTheDocument();
     // "Resets <date> · resets today / in N days" — scoped to avoid matching the pool explainer's "Resets on the 1st."
     expect(screen.getByText(/Resets .*(today|day)/)).toBeInTheDocument();
   });
@@ -44,6 +44,20 @@ describe('ProfileScreen (merged profile + settings)', () => {
     expect(screen.getByText(/40\.00 AIU of this came from the shared pool/)).toBeInTheDocument();
     // the free-allowance concept is gone
     expect(screen.queryByText(/free allowance/i)).toBeNull();
+  });
+
+  it('moves received credit to the shared pool from the routed panel', async () => {
+    vi.spyOn(window, 'prompt').mockReturnValue('50');
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'prof.pool-return' });
+    await api.signIn('marco@example.com', 'x'); // Host with 160 AIU of received credit left
+    renderProfile(api);
+    await waitFor(() => expect(screen.getByText(/Routed to you/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /move to pool/i }));
+    // the split gains a "moved to pool" line and the remaining shrinks
+    await waitFor(() => expect(screen.getByText('moved to pool')).toBeInTheDocument());
+    const p = await api.getOwnProfile();
+    expect(p.returnedToPool).toBe(50 * 1_000_000_000);
+    expect(p.donationsReceivedRemaining).toBe(110 * 1_000_000_000);
   });
 
   it('shows the GHE login as the immutable identity headline (no email field)', async () => {

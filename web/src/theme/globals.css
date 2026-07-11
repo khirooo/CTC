@@ -5,23 +5,30 @@ html,body{margin:0;padding:0;}
   --bg:#0a0c10; --surface:#111620; --surface-2:#171d28; --surface-3:#1f2734;
   --border:#242d3b; --border-strong:#33415480;
   --text:#e9edf3; --text-dim:#9aa6b8; --text-faint:#606c80;
+  /* Color contract — each hue means ONE thing:
+     --accent  orange  brand & actions only (buttons, links, focus, open-request progress)
+     --own     blue    YOUR credits (solid = kept/left, striped = used by you) + own-usage stats
+     --pool    purple  everything shared-pool (balance, pledged in, pool-funded, routed to Hosts)
+     --give    teal    Host identity + generosity: chip-ins made, credit routed TO you
+     --consume rose    Guest identity + consumption (used-by-receiver)
+     Striped vs solid on any bar = spent vs still available, within the same hue. */
   --accent:#f2660f; --accent-press:#d9560a; --accent-soft:rgba(242,102,15,.13);
+  --own:#5b8def; --own-soft:rgba(91,141,239,.13);
+  --pool:#b57bff; --pool-soft:rgba(181,123,255,.13);
   --give:#34c1a8; --give-soft:rgba(52,193,168,.13);
-  --reroute:#5b8def; --reroute-soft:rgba(91,141,239,.13);
-  --consume:#f2660f; --consume-soft:rgba(242,102,15,.13);
-  /* credit received from supporters (grants) — a hue used nowhere else */
-  --received:#b57bff; --received-soft:rgba(181,123,255,.13);
+  --consume:#e8637e; --consume-soft:rgba(232,99,126,.13);
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.5);
 }
 input::placeholder{color:var(--text-faint);}
 
-/* Pledge slider handle for <CreditBar> slider mode (track is the bar itself). */
+/* Pledge slider handle for <CreditBar> slider mode (track is the bar itself).
+   A slim vertical grip that reads as "drag this boundary", not a colored dot. */
 .credit-slider{-webkit-appearance:none;appearance:none;background:transparent;}
 .credit-slider::-webkit-slider-runnable-track{background:transparent;height:24px;}
 .credit-slider::-moz-range-track{background:transparent;height:24px;}
-.credit-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab;margin-top:4px;box-shadow:0 1px 4px rgba(0,0,0,.45);}
+.credit-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:10px;height:22px;border-radius:5px;background:var(--text);border:2px solid var(--bg);cursor:grab;margin-top:-1px;box-shadow:0 1px 4px rgba(0,0,0,.5);}
 .credit-slider::-webkit-slider-thumb:active{cursor:grabbing;}
-.credit-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab;box-shadow:0 1px 4px rgba(0,0,0,.45);}
+.credit-slider::-moz-range-thumb{width:10px;height:22px;border-radius:5px;background:var(--text);border:2px solid var(--bg);cursor:grab;box-shadow:0 1px 4px rgba(0,0,0,.5);}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
 @keyframes rise{from{height:0}to{height:var(--fill)}}
 @keyframes flow{to{background-position:36px 0}}

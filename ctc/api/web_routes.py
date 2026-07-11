@@ -53,6 +53,10 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         return web.json_response(ListRequestsDTO(
             requests=dtos, counts=counts,
             pool_enabled=pool_enabled, pool_available=pool_available,
+            # Viewer context for the chip-in source picker: the picker only
+            # shows when BOTH sources have credit left.
+            viewer_personal_remaining=engine.personal_remaining(cycle.id, user["id"]),
+            viewer_received_remaining=engine.re_donatable_remaining(cycle.id, user["id"]),
         ).model_dump(by_alias=True))
 
     async def create_request(req):
@@ -80,12 +84,30 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             raise web.HTTPNotFound(text="request not found")
         ts = now()
         try:
-            engine.fund_request(rid, user["id"], body.amount, ts)
+            if body.source == "received":
+                engine.fund_request_from_received(rid, user["id"], body.amount, ts)
+            else:
+                engine.fund_request(rid, user["id"], body.amount, ts)
         except RequestClosed as e:
             raise web.HTTPConflict(text=str(e))
         except (InsufficientCredit, InvalidConsumption) as e:
             raise web.HTTPUnprocessableEntity(text=str(e))
         return web.json_response(build_public_request(acct, get_user, acct.get_request(rid), ts).model_dump(by_alias=True))
+
+    async def pool_return(req):
+        user = await _require_user(req)
+        body = DonateDTO.model_validate(await req.json())
+        if not getattr(engine.config, "shared_pool_enabled", True):
+            raise web.HTTPConflict(text="the shared pool is disabled")
+        cycle = _cycle()
+        try:
+            engine.return_received_to_pool(user["id"], cycle.id, body.amount, now())
+        except (InsufficientCredit, InvalidConsumption) as e:
+            raise web.HTTPUnprocessableEntity(text=str(e))
+        return web.json_response({
+            "poolAvailable": engine.pool_available(cycle.id),
+            "receivedRemaining": engine.re_donatable_remaining(cycle.id, user["id"]),
+        })
 
     async def pool_fund(req):
         user = await _require_user(req)
@@ -209,12 +231,22 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         for g in recv_grants:
             rq = acct.get_request(g.request_id)
             cancelled = rq is not None and rq.cancelled_at is not None
-            amt = acct.grant_consumed(cycle.id, g.id) if cancelled else g.amount
+            # On a cancelled request, what still counts as "received" is what was
+            # burned PLUS what was moved onward (re-donated / drawn from the pool
+            # after a return) — the truly unmoved remainder went back to its donor.
+            amt = (acct.grant_consumed(cycle.id, g.id)
+                   + acct.transferred_out(g.id)
+                   + acct.contribution_drawn_for_origin(g.id)) if cancelled else g.amount
             donations_received += amt
             donations_received_remaining += engine.grant_remaining(cycle.id, g.id)
             if g.source == "pool":
                 donations_received_from_pool += amt
-        donations_received_consumed = max(0, donations_received - donations_received_remaining)
+        # Split of the received total: re-donated and returned-to-pool are their
+        # own buckets — without them, moved credit would display as "used by you".
+        re_donated = acct.re_donated_by(cycle.id, uid)
+        returned_to_pool = acct.returned_to_pool_by(cycle.id, uid)
+        donations_received_consumed = max(
+            0, donations_received - donations_received_remaining - re_donated - returned_to_pool)
 
         common = dict(
             user=PublicUserDTO(id=uid, name=name, initials=initials(name), role=user["role"]),
@@ -224,6 +256,8 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             donations_received_consumed=donations_received_consumed,
             donations_received_remaining=donations_received_remaining,
             donations_received_from_pool=donations_received_from_pool,
+            re_donated=re_donated,
+            returned_to_pool=returned_to_pool,
         )
 
         # Aristocracy tier (givers-only) — computed over all givers this cycle so
@@ -324,6 +358,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         cycle = _cycle()
         name = u["display_name"] or u["ghe_login"]
         tier = net = donated = donations_made = None
+        credit: dict = {}
         if u["role"] == "giver":
             ranked = assign_tiers(giver_tier_inputs(engine, _leaderboard_users(), cycle.id))
             entry = next((r for r in ranked if r.user_id == uid), None)
@@ -331,10 +366,33 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
             net = entry.net if entry else None
             donated = engine.donated_live(cycle.id, uid)
             donations_made = acct.grants_count_by(cycle.id, uid)
+            # Public credit cycle — snapshot entitlement (no live GHE call on a
+            # profile visit); usage/pledge splits come from events, same sources
+            # as the owner's own bar.
+            gc = acct.get_giver_cycle(cycle.id, uid)
+            snap = store.get_giver_quota_snapshot(uid)
+            ent_aiu = snap["entitlement"] if snap else 0
+            if gc is not None and ent_aiu and ent_aiu != -1:
+                E = int(ent_aiu) * NANO_PER_AIU
+                used = acct.own_consumed(cycle.id, uid) + acct.bypass_consumed(cycle.id, uid)
+                pledged = gc.pledge
+                granted = acct.granted_out(cycle.id, uid)
+                pledged_consumed = engine.pledge_used(cycle.id, uid)
+                donated_consumed = acct.personal_grants_consumed_from(cycle.id, uid)
+                credit = dict(
+                    entitlement=E, used=used, pledged=pledged,
+                    pledged_consumed=pledged_consumed,
+                    pledged_remaining=engine.pledge_remaining(cycle.id, uid),
+                    donated_consumed=donated_consumed,
+                    donated_remaining=max(0, granted - donated_consumed),
+                    left=max(0, E - used - pledged - granted),
+                )
+            elif ent_aiu == -1:
+                credit = dict(unlimited=True)
         dto = PublicProfileDTO(
             id=uid, name=name, login=u["ghe_login"], initials=initials(name),
             role=u["role"], tier=tier, net=net, donated=donated,
-            donations_made=donations_made,
+            donations_made=donations_made, **credit,
         )
         return web.json_response(dto.model_dump(by_alias=True))
 
@@ -345,6 +403,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         web.post("/api/requests", create_request),
         web.post("/api/requests/{id}/donate", donate),
         web.post("/api/requests/{id}/pool-fund", pool_fund),
+        web.post("/api/pool/return", pool_return),
         web.delete("/api/requests/{id}", delete_request),
         web.get("/api/settings", get_settings),
         web.patch("/api/settings", patch_settings),

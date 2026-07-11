@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { PublicRequest } from '@/domain/types';
+import type { DonationSource } from '@/api/CtcApi';
 import { pct, aiu } from '@/domain/credit';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
@@ -11,7 +12,7 @@ interface RequestCardProps {
   request: PublicRequest;
   /** Amount (AIU) the "Chip in" action contributes; shown on the button. */
   chipInAiu: number;
-  onDonate: (id: string, amountAiu?: number) => void;
+  onDonate: (id: string, amountAiu?: number, source?: DonationSource) => void;
   /** Fill this request from the shared pool (any request, own included). */
   onPoolFund?: (id: string, amountAiu?: number) => void;
   /** Owner cancels their own request. */
@@ -19,6 +20,10 @@ interface RequestCardProps {
   /** Whether the shared pool is on and has credit to draw. */
   poolEnabled?: boolean;
   poolAvailable?: number;  // nano-AIU
+  /** Viewer's chip-in sources (nano-AIU). When BOTH are positive, chipping in
+   *  opens a source picker; a single source donates directly from it. */
+  viewerPersonalRemaining?: number;
+  viewerReceivedRemaining?: number;
 }
 
 function timeLabel(expiresAt: number, nowMs: number, status: PublicRequest['status']): string {
@@ -29,12 +34,31 @@ function timeLabel(expiresAt: number, nowMs: number, status: PublicRequest['stat
   return `${hoursLeft}h left`;
 }
 
-export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete, poolEnabled, poolAvailable = 0 }: RequestCardProps) {
+export function RequestCard({
+  request, chipInAiu, onDonate, onPoolFund, onDelete, poolEnabled, poolAvailable = 0,
+  viewerPersonalRemaining = 0, viewerReceivedRemaining = 0,
+}: RequestCardProps) {
   // Evaluate display-time freshly on each render so "Xh/Xd left" never goes
   // stale across reloads or long sessions. Tests freeze the api's clock, not
   // this one, but expired/fulfilled cards (which the tests cover) don't depend
   // on `now` since their label is derived from `status`.
   const now = Date.now();
+
+  // Chip-in source picker: only when the viewer holds BOTH kinds of credit.
+  // `pickerAmount` carries the amount the pending chip-in was started with.
+  const needsSourcePicker = viewerPersonalRemaining > 0 && viewerReceivedRemaining > 0;
+  const [pickerAmount, setPickerAmount] = useState<number | null>(null);
+  const defaultSource: DonationSource = viewerPersonalRemaining > 0 ? 'personal' : 'received';
+
+  function startChipIn(amountAiu: number) {
+    if (needsSourcePicker) setPickerAmount(amountAiu);
+    else onDonate(request.id, amountAiu, defaultSource);
+  }
+  function pickSource(source: DonationSource) {
+    if (pickerAmount == null) return;
+    setPickerAmount(null);
+    onDonate(request.id, pickerAmount, source);
+  }
 
   const {
     id,
@@ -60,8 +84,8 @@ export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete
   const isOpen = isLive && !isOwn;
   // Pool credit can only be routed onto your OWN request.
   const canPoolFund = isLive && isOwn && !!poolEnabled && poolAvailable > 0 && !!onPoolFund;
-  const avatarTone = requesterRole === 'pro' ? 'reroute' : 'consume';
-  const badgeTone = requesterRole === 'pro' ? 'reroute' : 'consume';
+  const avatarTone = requesterRole === 'pro' ? 'give' : 'consume';
+  const badgeTone = requesterRole === 'pro' ? 'give' : 'consume';
   const roleLabel = requesterRole === 'pro' ? 'Host' : 'Guest';
   const tLabel = timeLabel(expiresAt, now, status);
   const targetLabel = target ? `→ ${target}` : 'open to all';
@@ -122,7 +146,7 @@ export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete
         </div>
         <ProgressBar pct={progress} color={isFulfilled ? 'var(--give)' : 'var(--accent)'} />
         {poolFunded > 0 && (
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--reroute)', marginTop: 6 }}>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--pool)', marginTop: 6 }}>
             {aiu(poolFunded)} from the shared pool
           </div>
         )}
@@ -132,21 +156,21 @@ export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete
       {showConsumption && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--received)' }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--consume)' }}>
               used by receiver
             </span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)' }}>
               {aiu(consumed)} / {aiu(amountFunded)} · {aiu(Math.max(0, amountFunded - consumed))} left
             </span>
           </div>
-          <ProgressBar pct={consumedPct} color="var(--received)" />
+          <ProgressBar pct={consumedPct} color="var(--consume)" />
         </div>
       )}
 
       {/* Action row */}
       {(isOpen || (isLive && canPoolFund) || (isOwn && isLive && onDelete)) && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {isOpen && (
+          {isOpen && pickerAmount == null && (
             <>
               <Button
                 style={{
@@ -158,7 +182,7 @@ export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete
                   padding: '0 16px',
                   fontSize: 13,
                 }}
-                onClick={() => onDonate(id)}
+                onClick={() => startChipIn(chipInAiu)}
               >
                 Chip in {chipInAiu} →
               </Button>
@@ -175,19 +199,47 @@ export function RequestCard({ request, chipInAiu, onDonate, onPoolFund, onDelete
                   if (raw == null) return;
                   const n = Number(raw);
                   if (!Number.isFinite(n) || n <= 0) return;
-                  onDonate(id, n);
+                  startChipIn(n);
                 }}
               >
                 Custom…
               </Button>
             </>
           )}
+          {isOpen && pickerAmount != null && (
+            <div data-source-picker style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-dim)' }}>
+                Chip in {pickerAmount} from…
+              </span>
+              <Button
+                variant="ghost"
+                style={{ color: 'var(--own)', border: '1px solid var(--own)', borderRadius: 9, height: 36, padding: '0 12px', fontSize: 13 }}
+                onClick={() => pickSource('personal')}
+              >
+                My credits · {aiu(viewerPersonalRemaining)} left
+              </Button>
+              <Button
+                variant="ghost"
+                style={{ color: 'var(--give)', border: '1px solid var(--give)', borderRadius: 9, height: 36, padding: '0 12px', fontSize: 13 }}
+                onClick={() => pickSource('received')}
+              >
+                Routed to me · {aiu(viewerReceivedRemaining)} left
+              </Button>
+              <Button
+                variant="ghost"
+                style={{ borderRadius: 9, height: 36, padding: '0 10px', fontSize: 13, color: 'var(--text-faint)' }}
+                onClick={() => setPickerAmount(null)}
+              >
+                ✕
+              </Button>
+            </div>
+          )}
           {canPoolFund && (
             <Button
               variant="ghost"
               style={{
-                color: 'var(--reroute)',
-                border: '1px solid var(--reroute)',
+                color: 'var(--pool)',
+                border: '1px solid var(--pool)',
                 borderRadius: 9,
                 height: 36,
                 padding: '0 16px',

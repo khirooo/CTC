@@ -37,8 +37,24 @@ CREATE TABLE IF NOT EXISTS grants (
   recipient_id TEXT NOT NULL,
   amount INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
-  source TEXT NOT NULL DEFAULT 'personal'
+  source TEXT NOT NULL DEFAULT 'personal',
+  origin_grant_id TEXT,
+  via_user_id TEXT,
+  contribution_id TEXT
 );
+CREATE TABLE IF NOT EXISTS pool_contributions (
+  id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  contributor_id TEXT NOT NULL,
+  origin_grant_id TEXT NOT NULL,
+  donor_id TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_pool_contrib_cycle ON pool_contributions (cycle_id);
+CREATE INDEX IF NOT EXISTS ix_pool_contrib_origin ON pool_contributions (origin_grant_id);
+CREATE INDEX IF NOT EXISTS ix_grants_origin ON grants (origin_grant_id);
+CREATE INDEX IF NOT EXISTS ix_grants_contribution ON grants (contribution_id);
 CREATE TABLE IF NOT EXISTS consumption_events (
   id TEXT PRIMARY KEY,
   cycle_id TEXT NOT NULL,
@@ -148,3 +164,6 @@ def init_db(conn: sqlite3.Connection) -> None:
     gcols = {r["name"] for r in conn.execute("PRAGMA table_info(grants)")}
     if "source" not in gcols:
         conn.execute("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'personal'")
+    for col in ("origin_grant_id", "via_user_id", "contribution_id"):
+        if col not in gcols:
+            conn.execute(f"ALTER TABLE grants ADD COLUMN {col} TEXT")

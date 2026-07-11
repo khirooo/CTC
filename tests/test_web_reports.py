@@ -289,10 +289,20 @@ async def test_search_users_requires_session():
 # Public profile endpoint  GET /api/users/{id}
 # ---------------------------------------------------------------------------
 
+# The exact public field set. The credit cycle (entitlement/used/pledged/kept)
+# is public by design since 2026-07-11 — visitors see the Host's credit bar.
+PUBLIC_PROFILE_KEYS = {
+    "id", "name", "login", "initials", "role", "tier", "net", "donated",
+    "donationsMade", "entitlement", "used", "pledged", "pledgedConsumed",
+    "pledgedRemaining", "donatedConsumed", "donatedRemaining", "left", "unlimited",
+}
+
+
 @pytest.mark.asyncio
 async def test_public_profile_giver_exact_keys_and_matches_leaderboard():
-    """Public profile has EXACTLY the allowed keys, no sensitive fields, and
-    tier/net must match the leaderboard standings entry for the same user."""
+    """Public profile has EXACTLY the allowed keys (incl. the public credit
+    cycle), no sensitive fields, and tier/net must match the leaderboard
+    standings entry for the same user."""
     from ctc.domain.types import Bucket
     app, store, engine = _build()
     async with TestClient(TestServer(app)) as cli:
@@ -307,13 +317,18 @@ async def test_public_profile_giver_exact_keys_and_matches_leaderboard():
         body = await r.json()
 
         # exact public field set — no more, no less
-        assert set(body.keys()) == {"id", "name", "login", "initials", "role",
-                                    "tier", "net", "donated", "donationsMade"}
+        assert set(body.keys()) == PUBLIC_PROFILE_KEYS
 
-        # deny-list: none of these may ever appear
-        for forbidden in ("totalCredit", "pledgedSurplus", "entitlement", "remaining",
+        # deny-list: none of these may ever appear (raw PAT/quota internals)
+        for forbidden in ("totalCredit", "pledgedSurplus", "remaining",
                           "allowance", "allowanceMax", "allowanceLeft", "resetDate", "email"):
             assert forbidden not in body, f"forbidden field {forbidden!r} present in public profile"
+
+        # credit cycle is exposed and internally consistent
+        assert body["entitlement"] == 4000 * NANO_PER_AIU
+        assert body["used"] == 1 * NANO_PER_AIU
+        assert body["unlimited"] is False
+        assert body["left"] == body["entitlement"] - body["used"] - body["pledged"] - body["donated"]
 
         # tier and net must match the leaderboard standings for the same user
         lb = await (await cli.get("/api/leaderboard")).json()
@@ -345,9 +360,13 @@ async def test_public_profile_consumer_has_null_reputation():
         assert r.status == 200
         body = await r.json()
 
-        assert set(body.keys()) == {"id", "name", "login", "initials", "role",
-                                    "tier", "net", "donated", "donationsMade"}
+        assert set(body.keys()) == PUBLIC_PROFILE_KEYS
         assert body["tier"] is None
         assert body["net"] is None
         assert body["donated"] is None
         assert body["donationsMade"] is None
+        # consumers have no credit cycle — all fields stay null
+        assert body["entitlement"] is None
+        assert body["used"] is None
+        assert body["pledged"] is None
+        assert body["left"] is None

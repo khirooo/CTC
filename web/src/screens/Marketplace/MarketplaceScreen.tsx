@@ -3,9 +3,11 @@ import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
 import { CtcApiError } from '@/api/http';
 import { aiu } from '@/domain/credit';
+import { ColorKey } from '@/components';
 import { RequestCard } from './RequestCard';
 import { ComposeForm } from './ComposeForm';
 import type { CreateRequestInput } from '@/domain/types';
+import type { DonationSource } from '@/api/CtcApi';
 
 type Filter = 'all' | 'pro' | 'noob';
 
@@ -44,11 +46,11 @@ export function MarketplaceScreen() {
   const poolEnabled = data?.poolEnabled ?? false;
   const poolAvailable = data?.poolAvailable ?? 0;
 
-  async function handleDonate(id: string, amountAiu?: number) {
+  async function handleDonate(id: string, amountAiu?: number, source?: DonationSource) {
     setActionError(null);
     const amount = amountAiu ?? chipInAiu;
     try {
-      await api.donate(id, amount * 1_000_000_000);  // AIU → nano-AIU
+      await api.donate(id, amount * 1_000_000_000, source);  // AIU → nano-AIU
       reload();
     } catch (e) {
       setActionError(e instanceof CtcApiError ? e.message : 'Something went wrong — please try again.');
@@ -163,6 +165,8 @@ export function MarketplaceScreen() {
         )}
       </div>
 
+      <ColorKey />
+
       {/* Load error */}
       {!!loadError && (
         <p
@@ -214,6 +218,8 @@ export function MarketplaceScreen() {
               onDelete={handleDelete}
               poolEnabled={poolEnabled}
               poolAvailable={poolAvailable}
+              viewerPersonalRemaining={data?.viewerPersonalRemaining ?? 0}
+              viewerReceivedRemaining={data?.viewerReceivedRemaining ?? 0}
             />
           ))}
         </div>

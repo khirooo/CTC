@@ -13,12 +13,12 @@ import { LeaderRow } from '@/components/LeaderRow';
 const kindColor: Record<string, string> = {
   // live consumption feed
   grant: 'var(--give)',      // used a directed marketplace chip-in
-  pool: 'var(--reroute)',    // drew from the shared pool
+  pool: 'var(--pool)',    // drew from the shared pool
   // legacy demo kinds
   donate: 'var(--give)',
   request: 'var(--accent)',
   fulfill: 'var(--give)',
-  rotate: 'var(--reroute)',
+  rotate: 'var(--pool)',
 };
 
 // Display labels for activity kinds.
@@ -204,7 +204,7 @@ export function DashboardScreen() {
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--give)' }} /> chip-in
               </span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--reroute)' }} /> pool
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--pool)' }} /> pool
               </span>
               <span>· 24h</span>
             </span>

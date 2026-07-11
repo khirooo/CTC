@@ -7,7 +7,8 @@ import uuid
 from ..domain.config import NANO_PER_AIU
 from ..domain.config import config as _env_config
 from ..domain.rules import derive_status
-from ..domain.types import Bucket, Cycle, Event, Grant, GiverCycle, Request, RequestStatus, Role
+from ..domain.types import (Bucket, Cycle, Event, Grant, GiverCycle, PoolContribution,
+                            Request, RequestStatus, Role)
 from ..store.accounting_store import AccountingStore
 from .errors import InsufficientCredit, InvalidConsumption, InvalidPledge, RequestClosed
 
@@ -41,8 +42,10 @@ class AccountingEngine:
         return max(0, gc.pledge - self.pledge_used(cycle_id, giver_id))
 
     def pool_available(self, cycle_id: str) -> int:
-        return sum(self.pledge_remaining(cycle_id, gc.giver_id)
-                   for gc in self.store.all_giver_cycles(cycle_id))
+        # Pledged capacity plus received credit recipients returned to the pool.
+        return (sum(self.pledge_remaining(cycle_id, gc.giver_id)
+                    for gc in self.store.all_giver_cycles(cycle_id))
+                + sum(cap for _, cap in self.store.contributions_with_capacity(cycle_id)))
 
     def grant_remaining(self, cycle_id: str, grant_id: str) -> int:
         g = self.store.get_grant(grant_id)
@@ -51,7 +54,17 @@ class AccountingEngine:
         r = self.store.get_request(g.request_id)
         if r is not None and r.cancelled_at is not None:
             return 0
-        return g.amount - self.store.grant_consumed(cycle_id, grant_id)
+        return (g.amount - self.store.grant_consumed(cycle_id, grant_id)
+                - self.store.transferred_out(grant_id)
+                - self.store.contributed_out(grant_id))
+
+    def re_donatable_remaining(self, cycle_id: str, user_id: str) -> int:
+        # Received credit this user can still re-donate or return to the pool.
+        # Only original (origin-null) grants qualify — re-donation depth is
+        # capped at 1 so the cancelled-charge accounting stays non-recursive.
+        return sum(self.grant_remaining(cycle_id, g.id)
+                   for g in self.store.grants_for_recipient(cycle_id, user_id)
+                   if g.origin_grant_id is None)
 
     def donated_live(self, cycle_id: str, giver_id: str) -> int:
         return self.store.donated_live(cycle_id, giver_id)
@@ -283,10 +296,26 @@ class AccountingEngine:
             cap = min(amount, r.amount_needed - funded, self.pool_available(r.cycle_id))
             if cap <= 0:
                 raise InsufficientCredit("shared pool has no credit available")
-            givers = sorted(self.givers_with_pool_capacity(r.cycle_id),
-                            key=lambda t: t[1], reverse=True)
             grants: list[Grant] = []
             left = cap
+            # Recycled contributions drain first (oldest-first) so returned credit
+            # moves on before donors' pledges are touched. A contribution draw
+            # keeps the origin grant's donor for PAT routing and records the
+            # chain (origin_grant_id + contribution_id) for the charge math.
+            for pc, pc_cap in self.store.contributions_with_capacity(r.cycle_id):
+                take = min(left, pc_cap)
+                if take <= 0:
+                    continue
+                g = Grant(uuid.uuid4().hex, r.cycle_id, request_id, pc.donor_id,
+                          r.requester_id, take, now, source="pool",
+                          origin_grant_id=pc.origin_grant_id, contribution_id=pc.id)
+                self.store.add_grant(g)
+                grants.append(g)
+                left -= take
+                if left <= 0:
+                    break
+            givers = sorted(self.givers_with_pool_capacity(r.cycle_id),
+                            key=lambda t: t[1], reverse=True)
             for giver_id, rem in givers:
                 take = min(left, rem)
                 if take <= 0:
@@ -300,6 +329,86 @@ class AccountingEngine:
                     break
             self.conn.execute("COMMIT")
             return grants
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    def fund_request_from_received(self, request_id: str, actor_id: str, amount: int, now: int) -> list[Grant]:
+        """Chip in to someone else's request using credit that was granted TO the
+        actor. The child grants keep the origin grant's donor_id so consumption
+        still routes to the original PAT holder; the actor is recorded as
+        via_user_id (the human supporter shown on the card). Depth is capped at
+        1: credit received from a re-donation or a pool draw of returned credit
+        cannot be re-donated again."""
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            r = self.store.get_request(request_id)
+            if r is None:
+                raise InvalidConsumption("unknown request")
+            if actor_id == r.requester_id:
+                raise InvalidConsumption("cannot fund your own request")
+            funded = self.store.request_funded(request_id)
+            status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
+            if status in (RequestStatus.FULFILLED, RequestStatus.EXPIRED, RequestStatus.CANCELLED):
+                raise RequestClosed(f"request is {status.value}")
+            cap = min(amount, r.amount_needed - funded,
+                      self.re_donatable_remaining(r.cycle_id, actor_id))
+            if cap <= 0:
+                raise InsufficientCredit("no received credit available to re-donate")
+            grants: list[Grant] = []
+            left = cap
+            for g in self.store.grants_for_recipient(r.cycle_id, actor_id):
+                if g.origin_grant_id is not None:
+                    continue  # depth cap: children can't be re-donated
+                if g.donor_id == r.requester_id:
+                    continue  # keep the donor≠requester invariant on the child
+                take = min(left, self.grant_remaining(r.cycle_id, g.id))
+                if take <= 0:
+                    continue
+                child = Grant(uuid.uuid4().hex, r.cycle_id, request_id, g.donor_id,
+                              r.requester_id, take, now, source=g.source,
+                              origin_grant_id=g.id, via_user_id=actor_id)
+                self.store.add_grant(child)
+                grants.append(child)
+                left -= take
+                if left <= 0:
+                    break
+            if not grants:
+                # cap > 0 but every eligible grant was donor==requester
+                raise InsufficientCredit("no received credit available to re-donate")
+            self.conn.execute("COMMIT")
+            return grants
+        except BaseException:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    def return_received_to_pool(self, actor_id: str, cycle_id: str, amount: int, now: int) -> list[PoolContribution]:
+        """Move unspent received credit into the shared pool. Booked as
+        pool_contributions charged to the origin grants' donors; drawn by
+        fund_request_from_pool before pledges."""
+        if amount <= 0:
+            raise InvalidConsumption("amount must be positive")
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            left = min(amount, self.re_donatable_remaining(cycle_id, actor_id))
+            if left <= 0:
+                raise InsufficientCredit("no received credit available to return")
+            out: list[PoolContribution] = []
+            for g in self.store.grants_for_recipient(cycle_id, actor_id):
+                if g.origin_grant_id is not None:
+                    continue  # depth cap
+                take = min(left, self.grant_remaining(cycle_id, g.id))
+                if take <= 0:
+                    continue
+                pc = PoolContribution(uuid.uuid4().hex, cycle_id, actor_id, g.id,
+                                      g.donor_id, take, now)
+                self.store.add_pool_contribution(pc)
+                out.append(pc)
+                left -= take
+                if left <= 0:
+                    break
+            self.conn.execute("COMMIT")
+            return out
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise

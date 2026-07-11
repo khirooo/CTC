@@ -128,7 +128,7 @@ export function MarketplaceHero({ data }: Props) {
                   width: 8,
                   height: 8,
                   borderRadius: '50%',
-                  background: 'var(--consume)',
+                  background: 'var(--pool)',
                   display: 'inline-block',
                 }}
               />
@@ -140,7 +140,7 @@ export function MarketplaceHero({ data }: Props) {
                 fontFamily: "'JetBrains Mono', monospace",
                 fontWeight: 600,
                 fontSize: 32,
-                color: 'var(--consume)',
+                color: 'var(--pool)',
                 lineHeight: 1,
               }}
             >
@@ -309,7 +309,7 @@ export function MarketplaceHero({ data }: Props) {
                     fontFamily: "'JetBrains Mono', monospace",
                     fontWeight: 600,
                     fontSize: 26,
-                    color: 'var(--reroute)',
+                    color: 'var(--pool)',
                     lineHeight: 1.2,
                   }}
                 >
@@ -361,7 +361,7 @@ export function MarketplaceHero({ data }: Props) {
             justifyContent: 'center',
           }}
         >
-          <div style={connectorMix('var(--reroute)', 'var(--accent)')} />
+          <div style={connectorMix('var(--pool)', 'var(--accent)')} />
         </div>
 
         {/* Recipients column: Rotated + Donated to non-PAT (right-aligned to mirror the left column → equal gap to center) */}
@@ -397,7 +397,7 @@ export function MarketplaceHero({ data }: Props) {
                   width: 8,
                   height: 8,
                   borderRadius: '50%',
-                  background: 'var(--reroute)',
+                  background: 'var(--pool)',
                   display: 'inline-block',
                 }}
               />
@@ -409,7 +409,7 @@ export function MarketplaceHero({ data }: Props) {
                 fontFamily: "'JetBrains Mono', monospace",
                 fontWeight: 600,
                 fontSize: 32,
-                color: 'var(--reroute)',
+                color: 'var(--pool)',
                 lineHeight: 1,
               }}
             >
@@ -450,7 +450,7 @@ export function MarketplaceHero({ data }: Props) {
                   width: 8,
                   height: 8,
                   borderRadius: '50%',
-                  background: 'var(--consume)',
+                  background: 'var(--give)',
                   display: 'inline-block',
                 }}
               />
@@ -462,7 +462,7 @@ export function MarketplaceHero({ data }: Props) {
                 fontFamily: "'JetBrains Mono', monospace",
                 fontWeight: 600,
                 fontSize: 32,
-                color: 'var(--consume)',
+                color: 'var(--give)',
                 lineHeight: 1,
               }}
             >

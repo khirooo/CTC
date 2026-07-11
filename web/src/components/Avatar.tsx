@@ -1,4 +1,4 @@
-type AvatarTone = 'give' | 'reroute' | 'consume' | 'default';
+type AvatarTone = 'give' | 'pool' | 'consume' | 'default';
 
 interface AvatarProps {
   initials: string;
@@ -8,7 +8,7 @@ interface AvatarProps {
 
 const TONE_MAP: Record<AvatarTone, { color: string; bg: string }> = {
   give:    { color: 'var(--give)',    bg: 'var(--give-soft)' },
-  reroute: { color: 'var(--reroute)', bg: 'var(--reroute-soft)' },
+  pool: { color: 'var(--pool)', bg: 'var(--pool-soft)' },
   consume: { color: 'var(--consume)', bg: 'var(--consume-soft)' },
   default: { color: 'var(--text)',    bg: 'var(--surface-3)' },
 };

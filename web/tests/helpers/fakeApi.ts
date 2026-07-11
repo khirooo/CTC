@@ -5,7 +5,7 @@
 // so this in-memory fake implements the CtcApi surface with a small seeded store
 // and the few stateful mutations tests exercise (donate, createRequest, settings).
 // It is a test fixture, not shipped code — keep it here under tests/.
-import type { CtcApi, ListRequestsResult } from '@/api/CtcApi';
+import type { CtcApi, DonationSource, ListRequestsResult } from '@/api/CtcApi';
 import type {
   PublicRequest, CreateRequestInput, DashboardData, Leaderboard, OwnProfile,
   SettingsData, SettingsPatch, Session, OnboardingInput, CycleReport,
@@ -25,6 +25,8 @@ interface FakeUser {
   consumedThisMonth?: number; poolConsumedFrom?: number; grantsConsumed?: number;
   receivedConsumed?: number;  // nano-AIU of received grants already burned
   receivedFromPool?: number;  // nano-AIU of donationsReceived that came from the pool
+  reDonated?: number;         // nano-AIU of received credit passed on to other requests
+  returnedToPool?: number;    // nano-AIU of received credit moved into the shared pool
 }
 interface FakeRequest {
   id: string; requesterId?: string; requesterName: string; initials: string;
@@ -33,6 +35,21 @@ interface FakeRequest {
   reason: string; target: string | null;
   createdAt: number; expiresAt: number;  // SECONDS — matches the wire contract
   donorCount: number;
+}
+
+/** Unspent received credit (what can still be spent, re-donated, or pooled). */
+function receivedRemaining(u: FakeUser): number {
+  return Math.max(0, u.donationsReceived - (u.receivedConsumed ?? 0)
+    - (u.reDonated ?? 0) - (u.returnedToPool ?? 0));
+}
+
+/** Giver's retained credit; consumers have none. Givers seeded without a quota
+ *  (totalCredit null) are treated as having plenty — the fake never gates them. */
+function personalRemaining(u: FakeUser): number {
+  if (u.role !== 'giver') return 0;
+  if (u.totalCredit === null) return 1_000_000_000_000;
+  const entitlement = u.totalCredit + (u.consumedThisMonth ?? 0);
+  return Math.max(0, entitlement - (u.consumedThisMonth ?? 0) - (u.pledgedSurplus ?? 0) - u.donatedSoFar);
 }
 
 const DEFAULT_BOOT_CONFIG: AdminBootConfig = { webTransport: 'http' };
@@ -107,7 +124,11 @@ function seedUsers(): FakeUser[] {
       consumedThisMonth: 200 * N, poolConsumedFrom: 100 * N, grantsConsumed: 50 * N },
     { id: 'u_kef', name: 'Yuki Tanaka', initials: 'KF', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1860 * N, consumed: 1240 * N, donationsReceived: 0 },
     { id: 'u_sl', name: 'Sofia Lindqvist', initials: 'SL', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1400 * N, consumed: 780 * N, donationsReceived: 0 },
-    { id: 'u_mb', name: 'Marco Bianchi', initials: 'MB', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 1540 * N, consumed: 540 * N, donationsReceived: 0 },
+    // Marco doubles as the "Host who also RECEIVED credit" fixture: a giver with
+    // grants routed to him (chip-ins + a pool fill on a past request of his own).
+    { id: 'u_mb', name: 'Marco Bianchi', initials: 'MB', role: 'giver', hasPat: true, totalCredit: 4000 * N, pledgedSurplus: 800 * N,
+      donatedSoFar: 1540 * N, consumed: 540 * N, donationsReceived: 250 * N, receivedConsumed: 90 * N, receivedFromPool: 150 * N,
+      consumedThisMonth: 300 * N, poolConsumedFrom: 200 * N, grantsConsumed: 400 * N },
     { id: 'u_at', name: 'Amine Tazi', initials: 'AT', role: 'giver', hasPat: true, totalCredit: null, pledgedSurplus: null, donatedSoFar: 610 * N, consumed: 310 * N, donationsReceived: 0 },
     { id: 'u_lh', name: 'Lena Hoffmann', initials: 'LH', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, consumed: 412 * N, donationsReceived: 120 * N, receivedConsumed: 85 * N, receivedFromPool: 40 * N },
     { id: 'u_dr', name: 'Diego Ramirez', initials: 'DR', role: 'consumer', hasPat: false, totalCredit: null, pledgedSurplus: null, donatedSoFar: 0, consumed: 388 * N, donationsReceived: 0 },
@@ -230,10 +251,13 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const now = Math.floor(getNow() / 1000);
       const all = requests.filter(r => !r.cancelled);  // cancelled requests are hidden
       const filtered = filter === 'all' ? all : all.filter(r => r.requesterRole === filter);
+      const viewer = session ? users.find(u => u.id === session!.userId) : undefined;
       return {
         requests: filtered.map(r => toPublic(r, now, session?.userId)),
         counts: { all: all.length, pro: all.filter(r => r.requesterRole === 'pro').length, noob: all.filter(r => r.requesterRole === 'noob').length },
         poolEnabled: sharedPoolEnabled, poolAvailable,
+        viewerPersonalRemaining: viewer ? personalRemaining(viewer) : 0,
+        viewerReceivedRemaining: viewer ? receivedRemaining(viewer) : 0,
       };
     },
     async createRequest(input: CreateRequestInput): Promise<PublicRequest> {
@@ -257,7 +281,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       if (r.amountFunded >= r.amountNeeded) throw new CtcApiError('conflict', 'request is fulfilled', 409);
       requests = requests.map((x, idx) => (idx === i ? { ...x, cancelled: true } : x));
     },
-    async donate(requestId: string, amount: number): Promise<PublicRequest> {
+    async donate(requestId: string, amount: number, source: DonationSource = 'personal'): Promise<PublicRequest> {
       const giver = requireUser();
       const now = Math.floor(getNow() / 1000);
       const i = requests.findIndex(r => r.id === requestId);
@@ -265,13 +289,32 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       const r = requests[i];
       if (r.cancelled) throw new Error('request is cancelled');
       if (r.requesterId === giver.id) throw new Error('cannot fund your own request');
-      const actual = Math.min(amount, r.amountNeeded - r.amountFunded);
-      if (actual <= 0) throw new Error('Nothing to donate');
+      const budget = source === 'received' ? receivedRemaining(giver) : Infinity;
+      const actual = Math.min(amount, r.amountNeeded - r.amountFunded, budget);
+      if (actual <= 0) {
+        throw new CtcApiError('unprocessable',
+          source === 'received' ? 'no received credit available to re-donate' : 'Nothing to donate', 422);
+      }
       const updated: FakeRequest = { ...r, amountFunded: r.amountFunded + actual, donorCount: r.donorCount + 1 };
       requests = requests.map((x, idx) => (idx === i ? updated : x));
       const gi = users.findIndex(u => u.id === giver.id);
-      users[gi] = { ...users[gi], donatedSoFar: users[gi].donatedSoFar + actual };
+      if (source === 'received') {
+        // Generosity stays with the original PAT holder — only track the re-donation.
+        users[gi] = { ...users[gi], reDonated: (users[gi].reDonated ?? 0) + actual };
+      } else {
+        users[gi] = { ...users[gi], donatedSoFar: users[gi].donatedSoFar + actual };
+      }
       return toPublic(updated, now, giver.id);
+    },
+    async returnReceivedToPool(amount: number): Promise<{ poolAvailable: number; receivedRemaining: number }> {
+      const u = requireUser();
+      if (!sharedPoolEnabled) throw new CtcApiError('conflict', 'the shared pool is disabled', 409);
+      const actual = Math.min(amount, receivedRemaining(u));
+      if (actual <= 0) throw new CtcApiError('unprocessable', 'no received credit available to return', 422);
+      const i = users.findIndex(x => x.id === u.id);
+      users[i] = { ...users[i], returnedToPool: (users[i].returnedToPool ?? 0) + actual };
+      poolAvailable += actual;
+      return { poolAvailable, receivedRemaining: receivedRemaining(users[i]) };
     },
     async poolFund(requestId: string, amount: number): Promise<PublicRequest> {
       const u = requireUser();
@@ -351,8 +394,9 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
         totalCredit: u.totalCredit, pledgedSurplus: u.pledgedSurplus, retained, donatedSoFar: u.donatedSoFar,
         consumed: u.consumed, donationsReceived: u.donationsReceived,
         donationsReceivedConsumed: Math.min(u.donationsReceived, u.receivedConsumed ?? 0),
-        donationsReceivedRemaining: Math.max(0, u.donationsReceived - (u.receivedConsumed ?? 0)),
+        donationsReceivedRemaining: receivedRemaining(u),
         donationsReceivedFromPool: u.receivedFromPool ?? 0,
+        reDonated: u.reDonated ?? 0, returnedToPool: u.returnedToPool ?? 0,
         entitlement, remaining, used, pledged, donated, left, pledgedConsumed, donatedConsumed,
         donatedRemaining: donated !== null && donatedConsumed !== null ? Math.max(0, donated - donatedConsumed) : null,
         pledgedRemaining: pledged !== null && pledgedConsumed !== null ? Math.max(0, pledged - pledgedConsumed) : null,
@@ -388,8 +432,26 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       if (!u) throw new CtcApiError('not_found', 'not found', 404);
       let tier: string | null = null;
       if (u.role === 'giver') { const ranked = assignTiers(giverNets()); tier = ranked.find(r => r.name === u.name)?.tier ?? null; }
+      // Public credit cycle — same math as getOwnProfile's giver branch.
+      let cycle: Partial<PublicProfile> = {};
+      if (u.role === 'giver' && u.totalCredit !== null) {
+        const entitlement = u.totalCredit + (u.consumedThisMonth ?? 0);
+        const used = u.consumedThisMonth ?? 0;
+        const pledged = u.pledgedSurplus ?? 0;
+        const donated = u.donatedSoFar;
+        const pledgedConsumed = Math.min(pledged, u.poolConsumedFrom ?? 0);
+        const donatedConsumed = Math.min(donated, u.grantsConsumed ?? 0);
+        cycle = {
+          entitlement, used, pledged, pledgedConsumed, donatedConsumed,
+          donatedRemaining: Math.max(0, donated - donatedConsumed),
+          pledgedRemaining: Math.max(0, pledged - pledgedConsumed),
+          left: Math.max(0, entitlement - used - pledged - donated),
+          unlimited: false,
+        };
+      }
       return { id: u.id, name: u.name, login: loginOf(u), initials: u.initials, role: u.role, tier,
-        net: u.role === 'giver' ? u.donatedSoFar - u.consumed : null, donated: u.role === 'giver' ? u.donatedSoFar : null, donationsMade: u.role === 'giver' ? 0 : null };
+        net: u.role === 'giver' ? u.donatedSoFar - u.consumed : null, donated: u.role === 'giver' ? u.donatedSoFar : null, donationsMade: u.role === 'giver' ? 0 : null,
+        ...cycle };
     },
     async searchUsers(q: string): Promise<PublicUserHit[]> {
       if (!q.trim()) return [];

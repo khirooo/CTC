@@ -396,18 +396,18 @@ export function OnboardingScreen() {
             </p>
             <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span style={monoLabel}>
-                Shared with the pool <span style={{ color: 'var(--give)', textTransform: 'none', letterSpacing: 0 }}>· private</span>
+                Shared with the pool
               </span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, color: 'var(--give)' }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, color: 'var(--pool)' }}>
                 {aiu(pledgedSurplus)}
               </span>
             </div>
             <CreditBar
               max={entitlementNano}
               segments={[
-                { key: 'used', label: 'used', value: usedNano, color: 'var(--text-dim)', pattern: 'striped' as const },
-                { key: 'shared', label: 'shared', value: pledgedSurplus, color: 'var(--accent)' },
-                { key: 'kept', label: 'kept', value: Math.max(0, remainingNano - pledgedSurplus), color: 'var(--reroute)' },
+                { key: 'used', label: 'used', value: usedNano, color: 'var(--own)', pattern: 'striped' as const },
+                { key: 'shared', label: 'shared', value: pledgedSurplus, color: 'var(--pool)' },
+                { key: 'kept', label: 'kept', value: Math.max(0, remainingNano - pledgedSurplus), color: 'var(--own)' },
               ].filter((s) => s.value > 0)}
               slider={{
                 value: pledgedSurplus,
@@ -421,13 +421,13 @@ export function OnboardingScreen() {
             />
             <div data-testid="credit-legend">
               <CreditLegend items={[
-                { label: 'used', value: aiu(usedNano), color: 'var(--text-dim)', pattern: 'striped' as const },
-                { label: 'shared', value: aiu(pledgedSurplus), color: 'var(--accent)' },
-                { label: 'kept', value: aiu(Math.max(0, remainingNano - pledgedSurplus)), color: 'var(--reroute)' },
+                { label: 'used', value: aiu(usedNano), color: 'var(--own)', pattern: 'striped' as const },
+                { label: 'shared', value: aiu(pledgedSurplus), color: 'var(--pool)' },
+                { label: 'kept', value: aiu(Math.max(0, remainingNano - pledgedSurplus)), color: 'var(--own)' },
               ]} />
             </div>
             <p style={{ color: 'var(--text-faint)', fontSize: 12, margin: '12px 0 0', fontFamily: "'JetBrains Mono',monospace" }}>
-              🔒 Private — only you see this. It&apos;s the slice of your quota Guests can draw from; not a cap on chipping in.
+              Shown on your profile. It&apos;s the slice of your quota Guests can draw from; not a cap on chipping in.
             </p>
             <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
               <button type="button" onClick={savePledge} disabled={busy} style={primaryBtn}>

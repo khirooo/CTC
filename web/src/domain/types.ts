@@ -13,7 +13,8 @@ export interface PublicUser {
   role: Role;
 }
 
-/** Public profile for a user — NO financial fields (no credits, no pledgedSurplus, etc.) */
+/** Public profile for a user. The credit cycle (entitlement/used/pledged/kept)
+ *  is public by design since 2026-07-11 — visitors see a Host's credit bar. */
 export interface PublicProfile {
   id: string;
   name: string;
@@ -24,6 +25,17 @@ export interface PublicProfile {
   net: number | null;        // nano-AIU
   donated: number | null;    // nano-AIU
   donationsMade: number | null;
+  // Credit-cycle breakdown (givers only; nano-AIU; null/absent for consumers
+  // or unlimited entitlements). Powers the public credit bar.
+  entitlement?: number | null;
+  used?: number | null;
+  donatedConsumed?: number | null;
+  donatedRemaining?: number | null;
+  pledged?: number | null;
+  pledgedConsumed?: number | null;
+  pledgedRemaining?: number | null;
+  left?: number | null;
+  unlimited?: boolean;
 }
 
 /** Lightweight hit returned by the user search endpoint */
@@ -167,6 +179,8 @@ export interface OwnProfile {
   donationsReceivedConsumed: number;   // nano-AIU of received grants already burned
   donationsReceivedRemaining: number;  // nano-AIU of received grants still available
   donationsReceivedFromPool: number;   // nano-AIU of the received total that came from the shared pool
+  reDonated?: number;                  // nano-AIU of received credit passed on to other requests
+  returnedToPool?: number;             // nano-AIU of received credit moved into the shared pool
   // Credit-segment fields (giver: from quota)
   entitlement: number | null;
   remaining: number | null;

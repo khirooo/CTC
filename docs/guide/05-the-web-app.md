@@ -28,7 +28,7 @@ flowchart LR
 | **Leaderboard** | Top givers and top consumers this cycle. |
 | **History** | Past cycles: how much was consumed and donated. |
 | **Profile** | Your own detailed stats: quota, pledge, retained, donated, consumed, plus a **"Routed to you"** panel showing credit others chipped in / you pulled from the pool onto your requests (used vs left, and how much came from the pool). This is also where you **hand in your Copilot token** (become a giver), set your pledge, and get your **CLI setup** code (proxy token + install command) — the old separate "Settings" screen is gone and `/app/settings` now redirects here. Givers also get **Rotate** (replace the stored PAT) and **Revoke** (remove it and zero this cycle's credit) buttons. |
-| **Public profile** | A read-only view of *another* teammate's stats (`/app/users/:id`): their name, role, aristocracy **tier badge**, and — for givers — net/donated this cycle. Reached by clicking any user's name in the marketplace, dashboard, leaderboard, or via the header **people search**. |
+| **Public profile** | A read-only view of *another* teammate's stats (`/app/users/:id`): their name, role, aristocracy **tier badge**, and — for givers — net/donated this cycle plus their full **credit bar** (used / chipped in / shared with the pool / kept — the same bar the Host sees on their own profile). Reached by clicking any user's name in the marketplace, dashboard, leaderboard, or via the header **people search**. |
 
 A couple of things appear on **every** signed-in screen:
 

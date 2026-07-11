@@ -217,7 +217,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                 width: '100%',
                 height: 3,
                 backgroundImage:
-                  'linear-gradient(90deg,var(--reroute) 0 30%,transparent 30% 50%,var(--accent) 50% 80%,transparent 80%)',
+                  'linear-gradient(90deg,var(--pool) 0 30%,transparent 30% 50%,var(--accent) 50% 80%,transparent 80%)',
                 backgroundSize: '28px 3px',
                 backgroundRepeat: 'repeat-x',
                 opacity: 0.6,
@@ -239,7 +239,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
           >
             <div style={{ textAlign: 'right' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--reroute)', flex: 'none' }} />
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--pool)', flex: 'none' }} />
                 <span
                   style={{
                     fontFamily: "'JetBrains Mono', monospace",
@@ -257,7 +257,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--consume)', flex: 'none' }} />
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--give)', flex: 'none' }} />
                 <span
                   style={{
                     fontFamily: "'JetBrains Mono', monospace",
@@ -391,7 +391,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
               marginBottom: 18,
             }}
           >
-            <div style={{ width: `${patPct}%`, background: 'var(--reroute)' }} />
+            <div style={{ width: `${patPct}%`, background: 'var(--give)' }} />
             <div style={{ width: `${nonPatPct}%`, background: 'var(--consume)' }} />
           </div>
           <div style={{ display: 'flex', gap: 16 }}>
@@ -401,7 +401,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                   width: 9,
                   height: 9,
                   borderRadius: '50%',
-                  background: 'var(--reroute)',
+                  background: 'var(--give)',
                   flex: 'none',
                 }}
               />
@@ -557,8 +557,8 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                   width: 30,
                   height: 30,
                   borderRadius: 8,
-                  background: 'var(--reroute-soft)',
-                  color: 'var(--reroute)',
+                  background: 'var(--own-soft)',
+                  color: 'var(--own)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -596,7 +596,7 @@ export function CycleDetail({ report, rate }: { report: CycleReport; rate?: numb
                 style={{
                   fontFamily: "'JetBrains Mono', monospace",
                   fontWeight: 600,
-                  color: 'var(--reroute)',
+                  color: 'var(--own)',
                 }}
               >
                 {aiu(report.winners.pro.value)}

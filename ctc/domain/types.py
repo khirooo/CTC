@@ -65,6 +65,25 @@ class Grant:
     amount: int
     created_at: int
     source: str = "personal"  # 'personal' | 'pool'
+    # Re-donation chain (depth capped at 1): a child grant is funded by its
+    # parent grant's remaining credit, NOT by donor_id's retained quota —
+    # donor_id stays the original PAT holder so routing charges the right PAT.
+    origin_grant_id: str | None = None   # parent grant this was funded from
+    via_user_id: str | None = None       # the re-donor (display attribution)
+    contribution_id: str | None = None   # set when drawn from a pool contribution
+
+
+@dataclass(frozen=True)
+class PoolContribution:
+    """Received credit a recipient moved into the shared pool. Backed by (and
+    charged to) the origin grant's donor; drawn by fund_request_from_pool."""
+    id: str
+    cycle_id: str
+    contributor_id: str
+    origin_grant_id: str
+    donor_id: str
+    amount: int
+    created_at: int
 
 
 @dataclass(frozen=True)

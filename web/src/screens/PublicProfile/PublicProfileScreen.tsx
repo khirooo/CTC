@@ -5,6 +5,7 @@ import { aiu, euros } from '@/domain/credit';
 import { tierMeta } from '@/domain/tiers';
 import { TierBadge } from '@/components/TierBadge';
 import { Avatar } from '@/components/Avatar';
+import { CreditBar, CreditLegend } from '@/components/CreditBar';
 import { monoLabel as monoLabelBase } from '@/theme/styles';
 
 // Short, aristocracy-flavoured blurb keyed to the giver's standing tier.
@@ -147,7 +148,7 @@ export function PublicProfileScreen() {
           <StatCard
             label="Donations made"
             icon="⇄"
-            iconTone="var(--reroute)"
+            iconTone="var(--give)"
             value={p.donationsMade != null ? String(p.donationsMade) : '—'}
             sub={`separate chip-in${p.donationsMade === 1 ? '' : 's'}`}
           />
@@ -175,6 +176,41 @@ export function PublicProfileScreen() {
               Personal balances stay private.
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Public credit cycle — same bar the Host sees on their own profile,
+          read-only. Hidden for unlimited entitlements (no meaningful split). */}
+      {isGiver && p.entitlement != null && !p.unlimited && (
+        <div
+          data-public-credit-bar
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '22px 24px' }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+            <span style={monoLabel}>Monthly credits</span>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>
+              {aiu(p.entitlement)}
+            </span>
+          </div>
+          <CreditBar
+            max={p.entitlement}
+            segments={[
+              { key: 'used', label: 'used', value: p.used ?? 0, color: 'var(--own)', pattern: 'striped' as const },
+              { key: 'donatedC', label: 'chipped in', value: p.donatedConsumed ?? 0, color: 'var(--give)', pattern: 'striped' as const },
+              { key: 'pledgedC', label: 'shared', value: p.pledgedConsumed ?? 0, color: 'var(--pool)', pattern: 'striped' as const },
+              { key: 'donatedR', label: 'chipped in', value: p.donatedRemaining ?? 0, color: 'var(--give)' },
+              { key: 'pledgedR', label: 'shared', value: p.pledgedRemaining ?? 0, color: 'var(--pool)' },
+              { key: 'left', label: 'kept', value: p.left ?? 0, color: 'var(--own)' },
+            ].filter((s) => s.value > 0)}
+          />
+          <CreditLegend items={[
+            { label: 'used', value: aiu(p.used ?? 0), color: 'var(--own)', pattern: 'striped' as const },
+            ...((p.donatedConsumed ?? 0) > 0 ? [{ label: 'chipped in · used', value: aiu(p.donatedConsumed ?? 0), color: 'var(--give)', pattern: 'striped' as const }] : []),
+            ...((p.pledgedConsumed ?? 0) > 0 ? [{ label: 'shared · used', value: aiu(p.pledgedConsumed ?? 0), color: 'var(--pool)', pattern: 'striped' as const }] : []),
+            ...((p.donatedRemaining ?? 0) > 0 ? [{ label: 'chipped in · left', value: aiu(p.donatedRemaining ?? 0), color: 'var(--give)' }] : []),
+            ...((p.pledgedRemaining ?? 0) > 0 ? [{ label: 'shared · left', value: aiu(p.pledgedRemaining ?? 0), color: 'var(--pool)' }] : []),
+            { label: 'kept', value: aiu(p.left ?? 0), color: 'var(--own)' },
+          ]} />
         </div>
       )}
     </div>

@@ -99,8 +99,8 @@ export function LeaderboardScreen() {
       tip: 'Ranks Hosts by how many credits they used themselves this cycle. About using, not giving.',
       subtitle: 'Host · most credit used',
       icon: '◆',
-      color: 'var(--give)',
-      softColor: 'var(--give-soft)',
+      color: 'var(--own)',
+      softColor: 'var(--own-soft)',
       entries: data.topPro,
     },
     {

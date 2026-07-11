@@ -41,6 +41,10 @@ class ListRequestsDTO(CamelModel):
     counts: RoleCountsDTO
     pool_enabled: bool = False
     pool_available: int = 0      # nano-AIU still pledged and undrawn across all givers
+    # Viewer's chip-in sources (nano-AIU) — the card shows a source picker only
+    # when both are positive.
+    viewer_personal_remaining: int = 0
+    viewer_received_remaining: int = 0
 
 
 class CreateRequestDTO(CamelModel):
@@ -52,6 +56,9 @@ class CreateRequestDTO(CamelModel):
 
 class DonateDTO(CamelModel):
     amount: int                  # nano-AIU
+    # 'personal' = the donor's retained credit; 'received' = re-donate credit
+    # that was granted to them (chains attribution to the original PAT holder).
+    source: str = "personal"
 
 
 class SettingsDTO(CamelModel):
@@ -97,6 +104,18 @@ class PublicProfileDTO(CamelModel):
     net: int | None = None           # nano-AIU
     donated: int | None = None       # nano-AIU
     donations_made: int | None = None
+    # Public credit cycle (givers only; nano-AIU; None for consumers or
+    # unlimited entitlements). Public by design since 2026-07-11 — visitors
+    # see the same bar the Host sees on their own profile.
+    entitlement: int | None = None
+    used: int | None = None
+    pledged: int | None = None
+    pledged_consumed: int | None = None
+    pledged_remaining: int | None = None
+    donated_consumed: int | None = None
+    donated_remaining: int | None = None
+    left: int | None = None
+    unlimited: bool = False
 
 
 class OwnProfileDTO(CamelModel):
@@ -112,6 +131,8 @@ class OwnProfileDTO(CamelModel):
     donations_received_consumed: int = 0   # nano-AIU of received grants already burned
     donations_received_remaining: int = 0  # nano-AIU of received grants still available
     donations_received_from_pool: int = 0  # nano-AIU of the received total that came from the shared pool
+    re_donated: int = 0                    # nano-AIU of received credit passed on to other requests
+    returned_to_pool: int = 0              # nano-AIU of received credit moved into the shared pool
     entitlement: int | None = None       # nano-AIU; -1*NANO sentinel never used — see unlimited
     remaining: int | None = None
     used: int | None = None

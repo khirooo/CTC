@@ -51,7 +51,7 @@ export const glossary: Record<GlossaryTerm, { title: string; body: string }> = {
   },
   pledge: {
     title: 'Shared with the pool',
-    body: 'The slice of your own monthly quota you put in the shared pool. It leaves your hands when someone routes it to a request. Private — only you see this number.',
+    body: 'The slice of your own monthly quota you put in the shared pool. It leaves your hands when someone routes it to a request. Shown on your profile.',
   },
   kept: {
     title: 'Kept for themselves',

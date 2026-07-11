@@ -1,4 +1,4 @@
-import type { CtcApi, ListRequestsResult } from './CtcApi';
+import type { CtcApi, DonationSource, ListRequestsResult } from './CtcApi';
 import type {
   PublicRequest, CreateRequestInput, DashboardData, Leaderboard, OwnProfile,
   SettingsData, SettingsPatch, Session, OnboardingInput, CycleReport,
@@ -33,6 +33,8 @@ export class HttpCtcApi implements CtcApi {
     return {
       requests: r.requests, counts: r.counts,
       poolEnabled: Boolean(r.poolEnabled), poolAvailable: r.poolAvailable ?? 0,
+      viewerPersonalRemaining: r.viewerPersonalRemaining ?? 0,
+      viewerReceivedRemaining: r.viewerReceivedRemaining ?? 0,
     };
   }
   async createRequest(input: CreateRequestInput): Promise<PublicRequest> {
@@ -40,8 +42,13 @@ export class HttpCtcApi implements CtcApi {
       method: 'POST', body: JSON.stringify(input),
     });
   }
-  async donate(requestId: string, amount: number): Promise<PublicRequest> {
+  async donate(requestId: string, amount: number, source: DonationSource = 'personal'): Promise<PublicRequest> {
     return apiFetch(this.base, '', `/requests/${requestId}/donate`, {
+      method: 'POST', body: JSON.stringify({ amount, source }),
+    });
+  }
+  async returnReceivedToPool(amount: number): Promise<{ poolAvailable: number; receivedRemaining: number }> {
+    return apiFetch(this.base, '', '/pool/return', {
       method: 'POST', body: JSON.stringify({ amount }),
     });
   }
