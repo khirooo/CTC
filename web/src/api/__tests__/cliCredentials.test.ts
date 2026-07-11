@@ -38,7 +38,9 @@ describe('getCliCredentials (HttpCtcApi)', () => {
     // omits them and we assert only their shape here.
     expect(creds.proxyHost).toContain(':');            // host:port shape
     expect(creds.installCommand).toContain('install.sh');
-    expect(creds.installCommand).toContain('-fsSLk');  // bootstrap tolerates self-signed cert
+    // jsdom loads over http by default → no -k (see the scheme-specific tests below).
+    expect(creds.installCommand).toContain('curl -fsSL ');
+    expect(creds.installCommand).not.toContain('-fsSLk');
     expect(creds).toHaveProperty('caFingerprint');
   });
 
@@ -47,7 +49,22 @@ describe('getCliCredentials (HttpCtcApi)', () => {
     mockFetch(200, { token: fakeToken, ca_fingerprint: null });
     const creds = await api.getCliCredentials();
     expect(creds.installCommand).toContain(`| sh -s -- --token ${fakeToken}`);
-    expect(creds.installCommand).toContain('curl -fsSLk');
+    expect(creds.installCommand).toContain('curl -fsSL ');
+  });
+
+  it('omits -k under plain http (no TLS to skip; -k would only invite a MITM swap)', async () => {
+    Object.defineProperty(window, 'location', { value: { protocol: 'http:' }, writable: true, configurable: true });
+    mockFetch(200, { token: 'github_pat_' + 'D'.repeat(36), ca_fingerprint: null });
+    const creds = await api.getCliCredentials();
+    expect(creds.installCommand).toContain('curl -fsSL http://');
+    expect(creds.installCommand).not.toContain('-fsSLk');
+  });
+
+  it('uses -k only under https (self-signed CA case)', async () => {
+    Object.defineProperty(window, 'location', { value: { protocol: 'https:' }, writable: true, configurable: true });
+    mockFetch(200, { token: 'github_pat_' + 'E'.repeat(36), ca_fingerprint: null });
+    const creds = await api.getCliCredentials();
+    expect(creds.installCommand).toContain('curl -fsSLk https://');
   });
 
   it('calls POST /proxy-token on each invocation (server owns idempotency, not the client)', async () => {

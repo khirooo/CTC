@@ -148,10 +148,15 @@ export class HttpCtcApi implements CtcApi {
     // Match the scheme the app was actually loaded over: an http-mode deployment
     // has no :443, so an https one-liner would refuse to connect.
     const scheme = window.location.protocol === 'http:' ? 'http' : 'https';
+    // -k (skip TLS verify) is only meaningful — and only needed — under https,
+    // where the deployment may front a self-signed CA (verify the CA fingerprint
+    // below instead). Never send -k over plain http, where it invites a MITM'd
+    // script swap for no benefit.
+    const curlFlags = scheme === 'https' ? '-fsSLk' : '-fsSL';
     return {
       token: minted.token,
       proxyHost: (import.meta.env.VITE_PROXY_HOST as string | undefined) ?? 'localhost:8080',
-      installCommand: `curl -fsSLk ${scheme}://${ctcHost}/install.sh | sh -s -- --token ${minted.token}`,
+      installCommand: `curl ${curlFlags} ${scheme}://${ctcHost}/install.sh | sh -s -- --token ${minted.token}`,
       caFingerprint: minted.ca_fingerprint ?? null,
     };
   }
