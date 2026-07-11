@@ -1,5 +1,5 @@
 import pytest
-from ctc.auth.oauth import GitLabOAuth
+from ctc.auth.oauth import GitLabOAuth, OAuthExchangeError
 
 
 class FakeHttp:
@@ -54,3 +54,21 @@ async def test_fetch_identity_falls_back_to_username_when_name_missing():
             return {"username": "octo", "id": 1}
     ident = await _oauth(NoName()).fetch_identity("glpat_TEST")
     assert ident["name"] == "octo"
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_raises_without_access_token():
+    class NoTok(FakeHttp):
+        async def post_json(self, url, data, headers):
+            return {"error": "invalid_grant"}
+    with pytest.raises(OAuthExchangeError):
+        await _oauth(NoTok()).exchange_code("abc")
+
+
+@pytest.mark.asyncio
+async def test_fetch_identity_raises_without_username():
+    class NoUser(FakeHttp):
+        async def get_json(self, url, headers):
+            return {"id": 1}
+    with pytest.raises(OAuthExchangeError):
+        await _oauth(NoUser()).fetch_identity("glpat_TEST")

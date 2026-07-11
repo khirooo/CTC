@@ -20,6 +20,31 @@ def test_user_upsert_and_lookup():
     assert s.get_user_by_id("u1")["role"] == "giver"
 
 
+def test_upsert_refreshes_display_name_but_keeps_id_and_role():
+    s = _store()
+    s.upsert_user("u1", "octocat", "Old Name", "consumer", 100)
+    s.set_user_role("u1", "giver")
+    # A later login with a fresh uuid + different name/role: name refreshes, but
+    # the existing id and role are preserved (ON CONFLICT DO UPDATE only name).
+    s.upsert_user("uX", "octocat", "New Name", "consumer", 200)
+    row = s.get_user_by_login("octocat")
+    assert row["id"] == "u1"
+    assert row["display_name"] == "New Name"
+    assert row["role"] == "giver"
+
+
+def test_search_users_escapes_like_wildcards():
+    s = _store()
+    s.upsert_user("u1", "alice", "Alice", "consumer", 1)
+    s.upsert_user("u2", "a_b", "Under_score", "consumer", 2)
+    s.upsert_user("u3", "bob", "Bob", "consumer", 3)
+    # '_' is a LIKE wildcard; it must match literally
+    hits = s.search_users("a_b")
+    assert {h["ghe_login"] for h in hits} == {"a_b"}
+    # '%' must match literally (nothing here) rather than matching every row
+    assert s.search_users("%") == []
+
+
 def test_list_users():
     s = _store()
     assert s.list_users() == []

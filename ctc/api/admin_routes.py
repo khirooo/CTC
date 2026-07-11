@@ -70,6 +70,10 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
 
     @admin_only
     async def reveal_pat(req, admin):
+        # The PAT is returned in cleartext over the wire; require TLS transport so
+        # it can't be sniffed on a plain-HTTP (VPN/LAN) deployment.
+        if deployment.web_transport != "https":
+            raise web.HTTPForbidden(text="reveal-pat requires https transport")
         uid = req.match_info["id"]
         pat = registry.pat_for(uid)
         if pat is None:

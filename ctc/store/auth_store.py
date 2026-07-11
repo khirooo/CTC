@@ -8,9 +8,14 @@ class AuthStore:
         self.conn = conn
 
     def upsert_user(self, user_id, ghe_login, display_name, role, now):
+        # DO UPDATE (not DO NOTHING) on the login conflict: refreshes a stale
+        # display_name and guarantees the row exists for a follow-up read (avoids
+        # the DO NOTHING → get_user_by_id(None) race). The id/role/created_at are
+        # left as-is on conflict, so an existing account keeps its id and role.
         self.conn.execute(
             "INSERT INTO users (id, ghe_login, display_name, role, created_at) "
-            "VALUES (?,?,?,?,?) ON CONFLICT(ghe_login) DO NOTHING",
+            "VALUES (?,?,?,?,?) ON CONFLICT(ghe_login) DO UPDATE SET "
+            "display_name=excluded.display_name",
             (user_id, ghe_login, display_name, role, now),
         )
 
@@ -35,10 +40,14 @@ class AuthStore:
         return [dict(r) for r in rows]
 
     def search_users(self, q, limit=8):
-        like = f"%{q}%"
+        # Escape LIKE wildcards so a query containing % / _ / \ is matched
+        # literally (no wildcard injection). '\' is the ESCAPE character.
+        esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{esc}%"
         rows = self.conn.execute(
             "SELECT id, ghe_login, display_name, role FROM users "
-            "WHERE display_name LIKE ? COLLATE NOCASE OR ghe_login LIKE ? COLLATE NOCASE "
+            "WHERE display_name COLLATE NOCASE LIKE ? ESCAPE '\\' "
+            "OR ghe_login COLLATE NOCASE LIKE ? ESCAPE '\\' "
             "ORDER BY created_at, id LIMIT ?",
             (like, like, limit),
         ).fetchall()

@@ -17,7 +17,7 @@ from ctc.api.rate_limit import (RateLimiter, PAT_LIMIT, LOGIN_LIMIT,
                                 PROXY_TOKEN_LIMIT, MAX_ACTIVE_PROXY_TOKENS)
 from ctc.auth.registry import AuthRegistry
 from ctc.auth.sessions import SessionService
-from ctc.auth.oauth import GitLabOAuth, AiohttpJson
+from ctc.auth.oauth import GitLabOAuth, AiohttpJson, OAuthExchangeError
 from ctc.auth.onboarding import validate_and_store_pat, PatInvalid
 from ctc.auth.admin import is_admin as _is_admin
 from ctc.accounting.errors import AccountingError
@@ -129,13 +129,16 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         cstate, _, csig = cookie.partition(".")
         if not state or state != cstate or not hmac.compare_digest(_sign(secret, state), csig):
             raise web.HTTPBadRequest(text="bad oauth state")
-        token = await oauth.exchange_code(code)
-        ident = await oauth.fetch_identity(token)
+        try:
+            token = await oauth.exchange_code(code)
+            ident = await oauth.fetch_identity(token)
+        except OAuthExchangeError as e:
+            raise web.HTTPBadRequest(text=str(e))
+        # Upsert-then-get-by-login: DO UPDATE refreshes a stale display_name and
+        # avoids the DO NOTHING → get_user_by_id(None) race on concurrent first
+        # logins (the fresh uuid is ignored when the login already exists).
+        store.upsert_user(uuid.uuid4().hex, ident["login"], ident["name"], "consumer", now())
         user = store.get_user_by_login(ident["login"])
-        if user is None:
-            uid = uuid.uuid4().hex
-            store.upsert_user(uid, ident["login"], ident["name"], "consumer", now())
-            user = store.get_user_by_id(uid)
         cookie_val = sessions.create(user["id"], now())
         secure = app_origin.startswith("https")
         resp = web.HTTPFound(app_origin)

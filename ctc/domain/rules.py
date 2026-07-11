@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .types import Bucket, RequestStatus, Role
+from .types import RequestStatus
 
 
 def derive_status(
@@ -19,20 +19,3 @@ def derive_status(
     if amount_funded > 0:
         return RequestStatus.PARTIALLY_FUNDED
     return RequestStatus.OPEN
-
-
-def next_bucket(
-    role: Role,
-    *,
-    personal_remaining: int = 0,
-    grant_remaining: int = 0,
-) -> Bucket | None:
-    if role == Role.GIVER:
-        if personal_remaining > 0:
-            return Bucket.OWN
-        if grant_remaining > 0:
-            return Bucket.GRANT
-        return None
-    if grant_remaining > 0:
-        return Bucket.GRANT
-    return None

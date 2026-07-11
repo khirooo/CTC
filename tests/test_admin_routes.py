@@ -1,6 +1,20 @@
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-from tests.test_api_server import _client, _login
+from tests.test_api_server import _client, _login, StubOAuth
+from api_server import make_app
+from ctc.auth.crypto import derive_key
+from ctc.auth.registry import AuthRegistry
+from ctc.auth.sessions import SessionService
+from ctc.accounting.engine import AccountingEngine
+from ctc.store.auth_store import AuthStore
+from ctc.store.accounting_store import AccountingStore
+from ctc.store.db import connect, init_db
+from ctc.domain.deployment import DeploymentConfig
+
+
+async def _giver_user(pat):
+    return {"login": "octocat",
+            "quota_snapshots": {"premium_interactions": {"entitlement": 4000, "remaining": 4000}}}
 
 
 @pytest.mark.asyncio
@@ -40,6 +54,27 @@ async def test_admin_lists_users_and_reveals_pat_with_audit():
         rev = await cli.post(f"/api/admin/users/{uid}/reveal-pat")
         assert rev.status == 200
         assert (await rev.json())["pat"] == "github_pat_SECRET"      # decrypted once
+
+
+@pytest.mark.asyncio
+async def test_reveal_pat_forbidden_over_http_transport():
+    # reveal-pat returns cleartext; on a plain-HTTP deployment it must 403.
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)
+    app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   admins=frozenset({"octocat"}),
+                   deployment=DeploymentConfig(web_transport="http"))
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "github_pat_SECRET"})
+        me = await (await cli.get("/api/me")).json()
+        r = await cli.post(f"/api/admin/users/{me['user_id']}/reveal-pat")
+        assert r.status == 403
 
 
 @pytest.mark.asyncio

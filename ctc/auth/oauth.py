@@ -3,6 +3,12 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 
+class OAuthExchangeError(Exception):
+    """GitLab returned an error or an unexpected payload during the OAuth flow
+    (no access_token from /oauth/token, or no username from /api/v4/user). Callers
+    surface this as a clean 400 rather than a 500 KeyError."""
+
+
 class AiohttpJson:
     """Production http dependency wrapping an aiohttp session."""
     def __init__(self, session):
@@ -44,11 +50,17 @@ class GitLabOAuth:
         body = await self.http.post_json(
             f"{self.base}/oauth/token", data, {"Accept": "application/json"}
         )
-        return body["access_token"]
+        token = (body or {}).get("access_token")
+        if not token:
+            raise OAuthExchangeError("token endpoint returned no access_token")
+        return token
 
     async def fetch_identity(self, access_token: str) -> dict:
         # GitLab /api/v4/user returns `username`; map it to our `login` field.
         body = await self.http.get_json(
             f"{self.base}/api/v4/user", {"Authorization": f"Bearer {access_token}"}
         )
-        return {"login": body["username"], "name": body.get("name") or body["username"]}
+        username = (body or {}).get("username")
+        if not username:
+            raise OAuthExchangeError("identity endpoint returned no username")
+        return {"login": username, "name": (body.get("name") or username)}
