@@ -88,6 +88,8 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
     @admin_only
     async def patch_settings(req, admin):
         body = await req.json()
+        if not isinstance(body, dict):
+            raise web.HTTPBadRequest(text="body must be a JSON object")
         current = {
             "request_expiry_hours": effective_config.request_expiry_hours,
             "request_expiry_max_hours": effective_config.request_expiry_max_hours,

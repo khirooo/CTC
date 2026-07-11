@@ -12,6 +12,7 @@ from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
 from ctc.domain.deployment import DeploymentConfig
 from ctc.domain.types import Role
+from ctc.domain.config import NANO_PER_AIU as N
 
 _DEFAULT_DEPLOYMENT = DeploymentConfig(web_transport="https")
 
@@ -95,6 +96,46 @@ async def test_donate_requires_session():
     async with TestClient(TestServer(_make())) as cli:
         r = await cli.post("/api/requests/x/donate", json={"amount": 5})
         assert r.status == 401
+
+
+@pytest.mark.asyncio
+async def test_create_request_rejects_invalid_amount_and_reason():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        # amount must be > 0
+        assert (await cli.post("/api/requests",
+                json={"amountNeeded": 0, "reason": "x", "target": None})).status == 422
+        # amount must be <= 10,000 AIU
+        assert (await cli.post("/api/requests",
+                json={"amountNeeded": 10_000 * N + 1, "reason": "x", "target": None})).status == 422
+        # reason must be non-empty
+        r = await cli.post("/api/requests",
+                           json={"amountNeeded": 10, "reason": "", "target": None})
+        assert r.status == 422
+        body = await r.json()
+        assert "error" in body and "message" in body
+        # reason too long
+        assert (await cli.post("/api/requests",
+                json={"amountNeeded": 10, "reason": "z" * 501, "target": None})).status == 422
+
+
+@pytest.mark.asyncio
+async def test_donate_rejects_non_positive_amount():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        rid = (await (await cli.post("/api/requests",
+               json={"amountNeeded": 50, "reason": "x", "target": None})).json())["id"]
+        assert (await cli.post(f"/api/requests/{rid}/donate", json={"amount": 0})).status == 422
+
+
+@pytest.mark.asyncio
+async def test_get_public_user_unknown_is_404_middleware_shape():
+    async with TestClient(TestServer(_make())) as cli:
+        await _login(cli)
+        r = await cli.get("/api/users/does-not-exist")
+        assert r.status == 404
+        body = await r.json()
+        assert "error" in body and "message" in body
 
 
 @pytest.mark.asyncio

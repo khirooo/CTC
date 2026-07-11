@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from ..domain.config import NANO_PER_AIU
 from ..domain.rules import derive_status
 from ..domain.types import Request, Role
+
+# Request-amount ceiling: 10,000 AIU in nano-AIU. Bounds a single marketplace ask
+# so a fat-fingered or hostile value can't pollute the board / overflow displays.
+MAX_REQUEST_NANO = 10_000 * NANO_PER_AIU
 
 
 class CamelModel(BaseModel):
@@ -48,14 +53,14 @@ class ListRequestsDTO(CamelModel):
 
 
 class CreateRequestDTO(CamelModel):
-    amount_needed: int           # nano-AIU
-    reason: str
-    target: str | None = None
+    amount_needed: int = Field(gt=0, le=MAX_REQUEST_NANO)   # nano-AIU
+    reason: str = Field(min_length=1, max_length=500)
+    target: str | None = Field(default=None, max_length=200)
     expiry_hours: int | None = None
 
 
 class DonateDTO(CamelModel):
-    amount: int                  # nano-AIU
+    amount: int = Field(gt=0)    # nano-AIU
     # 'personal' = the donor's retained credit; 'received' = re-donate credit
     # that was granted to them (chains attribution to the original PAT holder).
     source: str = "personal"

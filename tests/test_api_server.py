@@ -11,6 +11,8 @@ from ctc.store.auth_store import AuthStore
 from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
 from ctc.domain.deployment import DeploymentConfig
+from ctc.domain.config import NANO_PER_AIU as N
+from ctc.domain.types import Bucket, GiverCycle
 
 _DEFAULT_DEPLOYMENT = DeploymentConfig(web_transport="https")
 
@@ -146,6 +148,57 @@ async def test_onboarding_complete_requires_session():
     async with TestClient(TestServer(app)) as cli:
         r = await cli.post("/api/onboarding/complete")
         assert r.status == 401
+
+
+# ---------------------------------------------------------------------------
+# A3: client-error handling (JSONDecodeError / non-object body / AccountingError)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_malformed_json_body_is_400_json():
+    app = await _client()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        r = await cli.post("/api/pat", data="{not json",
+                           headers={"content-type": "application/json"})
+        assert r.status == 400
+        body = await r.json()
+        assert "error" in body and "message" in body
+
+
+@pytest.mark.asyncio
+async def test_non_object_json_body_is_400():
+    app = await _client()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        r = await cli.post("/api/pat", json=[1, 2, 3])
+        assert r.status == 400
+
+
+@pytest.mark.asyncio
+async def test_pat_resubmission_below_consumed_pledge_is_409():
+    # A giver with already-booked pool spend, re-submitting a PAT whose entitlement
+    # is below that spend, must get 409 (InvalidPledge) — not a 500.
+    async def small_ent(pat):
+        return {"login": "octocat",
+                "quota_snapshots": {"premium_interactions": {"entitlement": 1, "remaining": 1}}}
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10_000_000_000)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10_000)
+    app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=small_ent, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   deployment=_DEFAULT_DEPLOYMENT)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        uid = store.get_user_by_login("octocat")["id"]
+        eng.store.upsert_giver_cycle(GiverCycle("c1", uid, 5000 * N, 5000 * N))
+        eng.record_consumption("c1", uid, uid, Bucket.POOL, 100 * N, ts=1, allow_overshoot=True)
+        r = await cli.post("/api/pat", json={"pat": "github_pat_X"})
+        assert r.status == 409
+        body = await r.json()
+        assert "error" in body and "message" in body
 
 
 def test_build_from_env_takes_session_and_builds_without_a_loop(monkeypatch, tmp_path):

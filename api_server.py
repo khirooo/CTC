@@ -18,7 +18,9 @@ from ctc.auth.sessions import SessionService
 from ctc.auth.oauth import GitLabOAuth, AiohttpJson
 from ctc.auth.onboarding import validate_and_store_pat, PatInvalid
 from ctc.auth.admin import is_admin as _is_admin
+from ctc.accounting.errors import AccountingError
 from ctc.domain.deployment import DeploymentConfig
+from pydantic import ValidationError
 
 COOKIE = "ctc_session"
 STATE_COOKIE = "ctc_oauth_state"
@@ -78,6 +80,14 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
                     status=exc.status,
                 )
             raise
+        except json.JSONDecodeError:
+            # Malformed request body — a client error, not a 500.
+            return web.json_response(
+                {"error": "bad_request", "message": "malformed JSON body"}, status=400)
+        except ValidationError as exc:
+            # Pydantic validation (bad field types / out-of-range values) — 422.
+            return web.json_response(
+                {"error": "unprocessable_entity", "message": str(exc)}, status=422)
 
     # cors_middleware must be outermost so it applies to responses synthesized
     # by json_error_middleware (which catches HTTPExceptions before they propagate).
@@ -172,7 +182,9 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
             raise web.HTTPServiceUnavailable(text="no active cycle")
         live_cycle_id = cycle.id
         body = await req.json()
-        pat = (body or {}).get("pat", "")
+        if not isinstance(body, dict):
+            raise web.HTTPBadRequest(text="body must be a JSON object")
+        pat = body.get("pat", "")
         if not pat:
             raise web.HTTPBadRequest(text="pat required")
         try:
@@ -182,6 +194,10 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
                                                enforce_identity=False)
         except PatInvalid as e:
             raise web.HTTPBadRequest(text=str(e))
+        except AccountingError as e:
+            # e.g. InvalidPledge when a giver re-submits after their entitlement
+            # dropped below already-consumed pool spend — a conflict, not a 500.
+            raise web.HTTPConflict(text=str(e))
         return web.json_response(res)
 
     async def api_pat_delete(req):

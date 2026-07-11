@@ -354,7 +354,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         uid = req.match_info["id"]
         u = store.get_user_by_id(uid)
         if u is None:
-            return web.json_response({"error": "not found"}, status=404)
+            raise web.HTTPNotFound(text="user not found")
         cycle = _cycle()
         name = u["display_name"] or u["ghe_login"]
         tier = net = donated = donations_made = None
