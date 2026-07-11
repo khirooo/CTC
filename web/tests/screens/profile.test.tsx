@@ -82,6 +82,20 @@ describe('ProfileScreen (merged profile + settings)', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ pat: 'ghp_newtoken' }));
   });
 
+  it('refreshes the session after connecting a license (consumer→giver)', async () => {
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 's.pat.refresh' });
+    await api.signIn('priya@example.com', 'x'); // Guest (no license)
+    const getSession = vi.spyOn(api, 'getSession');
+    renderProfile(api);
+    const input = await screen.findByPlaceholderText(/github_pat_/i);
+    // Mount fired getSession once (AppProvider bootstrap).
+    await waitFor(() => expect(getSession).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, { target: { value: 'ghp_newtoken' } });
+    fireEvent.click(screen.getByRole('button', { name: /connect license/i }));
+    // A successful PAT connect must refresh() the session so hasPat/role update.
+    await waitFor(() => expect(getSession).toHaveBeenCalledTimes(2));
+  });
+
   it('giver: pledge slider commit calls updateSettings({pledgedSurplus})', async () => {
     const api = makeFakeApi({ latencyMs: 0, storageKey: 's.slider' });
     await api.signIn('ada@example.com', 'x'); // seed giver

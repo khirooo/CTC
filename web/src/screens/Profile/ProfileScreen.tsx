@@ -55,7 +55,7 @@ function nudgeLine(tier: string | null, netToNext: number | null): string | null
  * no editable name/email fields.
  */
 export function ProfileScreen() {
-  const { api, signOut, session } = useApp();
+  const { api, signOut, session, refresh } = useApp();
   const navigate = useNavigate();
   const settings = useAsync(() => api.getSettings(), []);
   const profile = useAsync(() => api.getOwnProfile(), []);
@@ -118,6 +118,9 @@ export function ProfileScreen() {
       setRotating(false);
       settings.reload();
       profile.reload();
+      // Connecting/rotating a license promotes a consumer to giver (hasPat/role
+      // change) — refresh the session so the dashboard stops gating on stale state.
+      await refresh();
     } catch (e) {
       setPatSaveError(e instanceof CtcApiError ? e.message : 'Could not validate that license — check it and try again.');
     } finally {
@@ -135,6 +138,9 @@ export function ProfileScreen() {
       setRotating(false);
       settings.reload();
       profile.reload();
+      // Revoke reverts giver → consumer — refresh the session so guards/dashboard
+      // reflect the lost license immediately.
+      await refresh();
     } catch (e) {
       setPatSaveError(e instanceof CtcApiError ? e.message : 'Could not revoke the license — please try again.');
     } finally {
