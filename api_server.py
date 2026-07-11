@@ -12,7 +12,9 @@ from aiohttp import web
 
 from ctc.store.db import connect, init_db
 from ctc.store.auth_store import AuthStore
-from ctc.auth.crypto import derive_key
+from ctc.auth.crypto import derive_key, validate_secret
+from ctc.api.rate_limit import (RateLimiter, PAT_LIMIT, LOGIN_LIMIT,
+                                PROXY_TOKEN_LIMIT, MAX_ACTIVE_PROXY_TOKENS)
 from ctc.auth.registry import AuthRegistry
 from ctc.auth.sessions import SessionService
 from ctc.auth.oauth import GitLabOAuth, AiohttpJson
@@ -46,6 +48,9 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
 
     from ctc.auth.ca_fingerprint import ca_fingerprint_sha256
     _ca_fingerprint = ca_fingerprint_sha256(ca_cert_path)
+
+    # Rate limiter shares the app clock so tests can drive it deterministically.
+    _rate = RateLimiter(now=now)
 
     # ── CORS middleware ──────────────────────────────────────────────────────
     @web.middleware
@@ -109,6 +114,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         return wrapped
 
     async def auth_login(req):
+        _rate.check("login", req.remote or "unknown", LOGIN_LIMIT)
         state = uuid.uuid4().hex
         resp = web.HTTPFound(oauth.authorize_url(state))
         secure = app_origin.startswith("https")
@@ -175,6 +181,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         user = await current_user(req)
         if not user:
             raise web.HTTPUnauthorized(text="no session")
+        _rate.check("pat", user["id"], PAT_LIMIT)
         # Resolve cycle per-request so it reflects the live DB state (also rolls a
         # month-ended cycle over to the new month on first access).
         cycle = engine.ensure_active_cycle(now())
@@ -226,6 +233,14 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         user = await current_user(req)
         if not user:
             raise web.HTTPUnauthorized(text="no session")
+        _rate.check("proxy_token", user["id"], PROXY_TOKEN_LIMIT)
+        # Cap simultaneously-active tokens per user; auto-revoke the oldest at the
+        # cap so a client that keeps minting can't accumulate unbounded live tokens.
+        active = [t for t in store.list_proxy_tokens(user["id"]) if t["revoked_at"] is None]
+        while len(active) >= MAX_ACTIVE_PROXY_TOKENS:
+            oldest = min(active, key=lambda t: t["created_at"])
+            registry.store.revoke_proxy_token(oldest["id"], user["id"], now())
+            active.remove(oldest)
         tid, token, fp = registry.issue_proxy_token(user["id"], now())
         return web.json_response({"id": tid, "token": token, "fingerprint": fp,
                                   "ca_fingerprint": _ca_fingerprint})
@@ -292,6 +307,7 @@ def build_from_env(session) -> web.Application:
     """Build the app from env, using a caller-supplied aiohttp session (created
     inside the event loop — aiohttp forbids ClientSession() with no running loop)."""
     secret = os.environ["CTC_SECRET_KEY"]
+    validate_secret(secret)
     conn = connect(os.environ["CTC_DB_PATH"])
     init_db(conn)
     store = AuthStore(conn)

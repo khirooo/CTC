@@ -73,7 +73,8 @@ def _build_attribution():
     secret = os.environ.get("CTC_SECRET_KEY")
     if db_path and secret and not os.environ.get("CTC_IDENTITY_JSON"):
         from ctc.accounting.wiring import build_live_engine
-        from ctc.auth.crypto import derive_key
+        from ctc.auth.crypto import derive_key, validate_secret
+        validate_secret(secret)
         from ctc.auth.registry import AuthRegistry
         from ctc.routing.attribution import AttributionService
         from ctc.store.auth_store import AuthStore
