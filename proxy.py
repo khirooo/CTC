@@ -20,7 +20,7 @@ Run:
 import asyncio, ssl, os, json, logging, time
 from typing import Optional, Dict
 import aiohttp
-from ctc.metering.capture import record_exchange
+from ctc.metering.capture import record_exchange, redact_text, redact_headers
 from ctc.metering.extract import extract_total_nano_aiu
 from ctc import contract
 from ctc import sentinel
@@ -215,11 +215,14 @@ def decode_body(raw: bytes, content_encoding: str = "", content_type: str = "", 
     return text
 
 def _log_block(label: str, text: str):
-    """Indented multi-line log entry."""
-    log.info("    ┌── %s ──", label)
+    """Indented multi-line log entry. Emitted at DEBUG only: request/response
+    bodies are 30-80 verbose records per request and can carry secrets, so they
+    stay off unless the operator explicitly turns logging up. Callers must have
+    already run the text through redact_text()."""
+    log.debug("    ┌── %s ──", label)
     for line in text.splitlines() or [""]:
-        log.info("    │ %s", line)
-    log.info("    └──")
+        log.debug("    │ %s", line)
+    log.debug("    └──")
 
 
 def build_upstream_ssl_context(insecure: bool, ca_bundle):
@@ -455,7 +458,8 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
                             status=resp.status, request_headers=request_headers or {},
                             response_headers=dict(resp.headers), response_body=rb,
                             response_content_type=ct)
-        _log_block("RESPONSE BODY", decode_body(rb, "", ct, LOG_BODY_CAP))
+        if log.isEnabledFor(logging.DEBUG):
+            _log_block("RESPONSE BODY", redact_text(decode_body(rb, "", ct, LOG_BODY_CAP)))
         rh["Content-Length"] = str(len(rb))
         rh["Connection"] = "keep-alive"
         hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
@@ -496,8 +500,10 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
                         status=resp.status, request_headers=request_headers or {},
                         response_headers=dict(resp.headers), response_body=bytes(full),
                         response_content_type=ct)
-    _log_block("RESPONSE BODY (streamed)",
-               decode_body(bytes(tee), "", ct, LOG_BODY_CAP) + "\n… (streamed, truncated)")
+    if log.isEnabledFor(logging.DEBUG):
+        _log_block("RESPONSE BODY (streamed)",
+                   redact_text(decode_body(bytes(tee), "", ct, LOG_BODY_CAP))
+                   + "\n… (streamed, truncated)")
     if capture_full:
         return bytes(full) if full is not None else b""
     return None
@@ -719,10 +725,15 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         tag = "[→ COPILOT] " if "copilot" in path.lower() else "[→ REQUEST] "
         log.info("%s session=%-12s method=%-6s host=%-25s path=%s",
                  tag, session, method, upstream_host, path)
-        for k, v in hdrs.items():
-            log.info("    %-30s %s", k + ":", "***MASKED***" if k == "authorization" else v)
-        if body:
-            _log_block("REQUEST BODY", decode_body(body, "", hdrs.get("content-type", ""), LOG_BODY_CAP))
+        if log.isEnabledFor(logging.DEBUG):
+            # redact_headers masks the full sensitive-header set (authorization,
+            # cookie/set-cookie, x-access-token, copilot-session-token) and scrubs
+            # tokens from any other header value — not just authorization.
+            for k, v in redact_headers(hdrs).items():
+                log.debug("    %-30s %s", k + ":", v)
+            if body:
+                _log_block("REQUEST BODY",
+                           redact_text(decode_body(body, "", hdrs.get("content-type", ""), LOG_BODY_CAP)))
 
         source = None
         consumer = None
