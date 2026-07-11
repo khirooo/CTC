@@ -354,49 +354,83 @@ def connect_allowed(host: str) -> bool:
 # ---------------------------------------------------------------------------
 # Request-body assembly (Content-Length and Transfer-Encoding: chunked)
 # ---------------------------------------------------------------------------
+class RequestBodyError(Exception):
+    """Malformed or incomplete client request body. Rather than forward a
+    truncated/corrupt body upstream (which corrupts billing and, under
+    keep-alive pipelining, the next request), the proxy replies 400 and closes."""
+
+
 async def _read_chunked(reader, leftover: bytes) -> bytes:
-    buf = leftover
-    out = b""
+    buf = bytearray(leftover)
+    out = bytearray()
     while True:
         while b"\r\n" not in buf:
             try:
                 chunk = await asyncio.wait_for(reader.read(4096), timeout=30)
             except asyncio.TimeoutError:
-                return out
+                raise RequestBodyError("timeout reading chunk size")
             if not chunk:
-                return out
+                raise RequestBodyError("EOF before chunk size")
             buf += chunk
-        line, _, buf = buf.partition(b"\r\n")
-        size = int(line.split(b";")[0].strip() or b"0", 16)
+        line, _, rest = buf.partition(b"\r\n")
+        buf = bytearray(rest)
+        try:
+            size = int(line.split(b";")[0].strip() or b"0", 16)
+        except ValueError:
+            raise RequestBodyError("malformed chunk size")
         if size == 0:
+            # Consume the optional trailer section, terminated by a blank line,
+            # so it isn't mistaken for the head of a pipelined next request.
+            while True:
+                while b"\r\n" not in buf:
+                    try:
+                        chunk = await asyncio.wait_for(reader.read(4096), timeout=30)
+                    except asyncio.TimeoutError:
+                        raise RequestBodyError("timeout reading trailers")
+                    if not chunk:
+                        return bytes(out)  # EOF w/o terminating CRLF — body is complete
+                    buf += chunk
+                tline, _, rest = buf.partition(b"\r\n")
+                buf = bytearray(rest)
+                if tline == b"":
+                    break
             break
         while len(buf) < size + 2:
             try:
                 chunk = await asyncio.wait_for(reader.read(4096), timeout=30)
             except asyncio.TimeoutError:
-                return out
+                raise RequestBodyError("timeout reading chunk body")
             if not chunk:
-                break
+                raise RequestBodyError("EOF mid-chunk")
             buf += chunk
         out += buf[:size]
-        buf = buf[size + 2:]  # drop the chunk's trailing CRLF
-    return out
+        buf = bytearray(buf[size + 2:])  # drop the chunk's trailing CRLF
+    return bytes(out)
 
 
 async def assemble_request_body(reader, hdrs, leftover: bytes) -> bytes:
     if "chunked" in hdrs.get("transfer-encoding", "").lower():
         return await _read_chunked(reader, leftover)
-    cl = int(hdrs.get("content-length", 0) or 0)
-    body = leftover
+    try:
+        cl = int(hdrs.get("content-length", 0) or 0)
+    except ValueError:
+        raise RequestBodyError("malformed content-length")
+    body = bytearray(leftover)
+    if len(body) > cl:
+        # More bytes buffered than Content-Length declares — truncate so the
+        # excess (a pipelined next request) doesn't corrupt this forwarded body.
+        log.warning("[body] buffered bytes exceed Content-Length (%d > %d); truncating",
+                    len(body), cl)
+        return bytes(body[:cl])
     while len(body) < cl:
         try:
             chunk = await asyncio.wait_for(reader.read(cl - len(body)), timeout=30)
         except asyncio.TimeoutError:
-            break
+            raise RequestBodyError("timeout reading body")
         if not chunk:
-            break
+            raise RequestBodyError("EOF before Content-Length satisfied")
         body += chunk
-    return body
+    return bytes(body)
 
 
 # ---------------------------------------------------------------------------
@@ -708,7 +742,17 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 k, _, v = line.partition(b":")
                 hdrs[k.decode().strip().lower()] = v.decode().strip()
 
-        body = await assemble_request_body(reader, hdrs, leftover)
+        try:
+            body = await assemble_request_body(reader, hdrs, leftover)
+        except RequestBodyError as exc:
+            log.warning("[400] malformed request body: %s", exc)
+            try:
+                writer.write(b"HTTP/1.1 400 Bad Request\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                await writer.drain()
+            except Exception:
+                pass
+            break
 
         auth    = hdrs.get("authorization", "")
         session = _tag(auth)
