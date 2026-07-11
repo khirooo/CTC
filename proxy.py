@@ -186,6 +186,9 @@ def _safe_sentinel_emit(detector, *args, **kwargs):
     except Exception as exc:
         log.error("[!] sentinel detector raised (logged, not surfaced): %s", exc)
 
+_HEAD_CAP = 64 * 1024
+
+
 async def _read_head(reader: asyncio.StreamReader) -> Optional[bytes]:
     buf = b""
     try:
@@ -194,6 +197,12 @@ async def _read_head(reader: asyncio.StreamReader) -> Optional[bytes]:
             if not chunk:
                 return None
             buf += chunk
+            if len(buf) > _HEAD_CAP:
+                # Bound memory on a client that never sends the header terminator
+                # (garbage / slowloris-ish). Give up and close.
+                log.warning("[head] request head exceeded %d bytes without terminator; closing",
+                            _HEAD_CAP)
+                return None
     except Exception:
         return None
     return buf
@@ -509,6 +518,16 @@ class RelayState:
         self.body = None
 
 
+def _headers_block(headers, skip, extra) -> str:
+    """Render an HTTP response header block. Iterates `headers` as a LIST of
+    (k, v) pairs — aiohttp's CIMultiDict yields duplicate keys separately — so
+    duplicate Set-Cookie headers survive instead of being collapsed by a dict;
+    drops any key in `skip`, then appends the headers we set ourselves (`extra`)."""
+    pairs = [(k, v) for k, v in headers.items() if k.lower() not in skip]
+    pairs.extend(extra.items())
+    return "".join(f"{k}: {v}\r\n" for k, v in pairs)
+
+
 async def _relay_response(writer, resp, upstream_host, path, method="", request_headers=None,
                           capture_full=False, state: Optional["RelayState"] = None) -> Optional[bytes]:
     log.info("[← RESPONSE] status=%-3s host=%-25s path=%s", resp.status, upstream_host, path)
@@ -518,13 +537,11 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
         state.status = resp.status
         state.content_type = ct
     skip = {"transfer-encoding", "content-encoding", "content-length", "connection"}
-    rh = {k: v for k, v in resp.headers.items() if k.lower() not in skip}
 
     # RFC 7230 §3.3: 204 and 304 responses MUST NOT include a message body or
     # Transfer-Encoding.  Short-circuit before any content read.
     if resp.status in (204, 304):
-        rh["Connection"] = "keep-alive"
-        hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
+        hblock = _headers_block(resp.headers, skip, {"Connection": "keep-alive"})
         writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode())
         if state is not None:
             state.head_sent = True
@@ -543,18 +560,16 @@ async def _relay_response(writer, resp, upstream_host, path, method="", request_
                             response_content_type=ct)
         if log.isEnabledFor(logging.DEBUG):
             _log_block("RESPONSE BODY", redact_text(decode_body(rb, "", ct, LOG_BODY_CAP)))
-        rh["Content-Length"] = str(len(rb))
-        rh["Connection"] = "keep-alive"
-        hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
+        hblock = _headers_block(resp.headers, skip,
+                                {"Content-Length": str(len(rb)), "Connection": "keep-alive"})
         writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode() + rb)
         if state is not None:
             state.head_sent = True
         await writer.drain()
         return rb if capture_full else None
 
-    rh["Transfer-Encoding"] = "chunked"
-    rh["Connection"] = "keep-alive"
-    hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
+    hblock = _headers_block(resp.headers, skip,
+                            {"Transfer-Encoding": "chunked", "Connection": "keep-alive"})
     writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode())
     if state is not None:
         state.head_sent = True
@@ -609,12 +624,9 @@ def _write_buffered(writer, resp, body: bytes, state: Optional["RelayState"] = N
     its error code and so can no longer stream it via _relay_response. Mirrors the
     buffered branch of _relay_response: drop hop-by-hop/length/encoding headers and
     re-emit a fixed Content-Length."""
-    rh = {k: v for k, v in resp.headers.items()
-          if k.lower() not in ("content-length", "transfer-encoding",
-                               "content-encoding", "connection")}
-    rh["Content-Length"] = str(len(body))
-    rh["Connection"] = "keep-alive"
-    hblock = "".join(f"{k}: {v}\r\n" for k, v in rh.items())
+    skip = {"content-length", "transfer-encoding", "content-encoding", "connection"}
+    hblock = _headers_block(resp.headers, skip,
+                            {"Content-Length": str(len(body)), "Connection": "keep-alive"})
     writer.write(f"HTTP/1.1 {resp.status} {resp.reason}\r\n{hblock}\r\n".encode() + body)
     if state is not None:
         state.status = resp.status
@@ -1156,6 +1168,17 @@ async def _dispatch(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
             target = first.split()[1]
             host, port = (target.rsplit(":", 1) if ":" in target else (target, "443"))
             port = int(port)
+
+            # Optimistic-TLS clients pipeline the TLS ClientHello immediately
+            # after the CONNECT head. We can't feed these pre-read bytes into
+            # loop.start_tls (it reads straight from the transport), so they are
+            # dropped — such a client will stall until it retries. The Copilot
+            # CLI waits for our 200 before starting TLS, so this doesn't affect
+            # it; documented limitation (audit P3).
+            _, _, connect_leftover = raw.partition(b"\r\n\r\n")
+            if connect_leftover:
+                log.warning("[CONNECT]   %d byte(s) after CONNECT head dropped "
+                            "(optimistic-TLS client unsupported)", len(connect_leftover))
 
             # Decide: MITM or blind tunnel (also remaps localhost aliases)
             do_mitm, tunnel_host, tunnel_port = decide_route(host, port, REAL_GHE_HOST)
