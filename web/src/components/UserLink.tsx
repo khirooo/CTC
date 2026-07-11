@@ -2,13 +2,16 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
 interface UserLinkProps {
-  userId: string;
+  userId: string | null | undefined;
   name?: string;
   children?: React.ReactNode;
 }
 
 export function UserLink({ userId, name, children }: UserLinkProps) {
   const navigate = useNavigate();
+  // No id → render plain text, not a link. Guards against click-through to
+  // /app/users/null (e.g. a leaderboard/dashboard row with no resolvable user).
+  if (!userId) return <span>{children ?? name}</span>;
   return (
     <span
       role="link"

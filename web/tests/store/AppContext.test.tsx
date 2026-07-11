@@ -5,11 +5,12 @@ import { AppProvider, useApp } from '@/store/AppContext';
 import { makeFakeApi } from '../helpers/fakeApi';
 
 function Probe() {
-  const { session, signIn } = useApp();
+  const { session, signIn, signOut } = useApp();
   return (
     <div>
       <span data-testid="sess">{session ? session.role : 'none'}</span>
       <button onClick={() => signIn('ada@example.com', 'x')}>in</button>
+      <button onClick={() => { void signOut(); }}>out</button>
     </div>
   );
 }
@@ -46,5 +47,16 @@ describe('AppContext', () => {
     // Retry succeeded (null session) → panel gone, app renders.
     await waitFor(() => expect(screen.getByTestId('sess')).toHaveTextContent('none'));
     expect(screen.queryByText(/can't reach ctc/i)).toBeNull();
+  });
+
+  it('clears the local session even when the network sign-out fails', async () => {
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'ctx.signout' });
+    api.signOut = (async () => { throw new Error('logout POST failed'); }) as typeof api.signOut;
+    render(<AppProvider api={api}><Probe /></AppProvider>);
+    await userEvent.click(screen.getByText('in'));
+    await waitFor(() => expect(screen.getByTestId('sess')).toHaveTextContent('giver'));
+    await userEvent.click(screen.getByText('out'));
+    // Failed logout must still strand the user signed out locally, not signed in.
+    await waitFor(() => expect(screen.getByTestId('sess')).toHaveTextContent('none'));
   });
 });

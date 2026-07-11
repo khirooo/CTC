@@ -108,7 +108,14 @@ export function AppProvider({ children, api: apiProp, initialSession }: AppProvi
   );
 
   const signOut = useCallback(async (): Promise<void> => {
-    await api.signOut();
+    // Always clear the local session, even if the network sign-out fails — the
+    // user asked to leave; a failed logout POST must not strand them signed in
+    // or throw out of the caller's navigate().
+    try {
+      await api.signOut();
+    } catch {
+      /* best-effort remote logout; local session is cleared regardless */
+    }
     setSession(null);
   }, [api]);
 

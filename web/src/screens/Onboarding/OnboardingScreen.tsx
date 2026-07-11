@@ -49,6 +49,7 @@ export function OnboardingScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  if (session === undefined) return null;  // bootstrap still in flight — hold, don't bounce to /signin
   if (!session) return <Navigate to="/signin" replace />;
   if (session.onboarded) return <Navigate to="/app/dashboard" replace />;
 

@@ -3,11 +3,16 @@ import type { RequestStatus } from './types';
 
 export const NANO_PER_AIU = 1_000_000_000;
 
-export const aiu = (nano: number): string =>
-  (Number(nano || 0) / NANO_PER_AIU).toLocaleString('en-US', {
+export const aiu = (nano: number): string => {
+  const v = Number(nano || 0) / NANO_PER_AIU;
+  // A tiny but nonzero charge rounds to "0.00 AIU", which reads as free. Show
+  // "<0.01 AIU" so sub-cent usage is still visibly nonzero.
+  if (v > 0 && v < 0.005) return '<0.01 AIU';
+  return v.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }) + ' AIU';
+};
 
 /** Same number formatting as aiu(), but with the plain-word suffix used across the UI. */
 export const credits = (nano: number): string =>

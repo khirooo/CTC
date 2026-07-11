@@ -19,7 +19,8 @@ interface TrackConfig {
 }
 
 function TrackCard({ label, tip, subtitle, icon, color, softColor, entries }: TrackConfig) {
-  const max = entries[0]?.value ?? 1;
+  // `|| 1` (not `?? 1`) so a top value of 0 doesn't make every bar width NaN%.
+  const max = entries[0]?.value || 1;
   return (
     <div
       style={{

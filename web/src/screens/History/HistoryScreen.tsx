@@ -14,6 +14,9 @@ export function HistoryScreen() {
   if (error || !data) {
     return <ScreenStatus message="Couldn't load your reports. Refresh to try again." tone="dim" />;
   }
+  if (data.length === 0) {
+    return <ScreenStatus message="No closed cycles yet — monthly reports appear here after the first cycle resets." tone="dim" />;
+  }
 
   const activeId = selectedId ?? (data[0]?.id ?? null);
   const selected: CycleReport | undefined = data.find((m) => m.id === activeId) ?? data[0];

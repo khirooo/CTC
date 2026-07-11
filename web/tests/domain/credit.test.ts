@@ -11,6 +11,12 @@ describe('credit math', () => {
     expect(aiu(9800 * NANO_PER_AIU)).toBe('9,800.00 AIU');
     expect(aiu(0)).toBe('0.00 AIU');
   });
+  it('renders a tiny nonzero charge as "<0.01 AIU" instead of "0.00 AIU"', () => {
+    expect(aiu(1_000_000)).toBe('<0.01 AIU');       // 0.001 AIU — nonzero but sub-cent
+    expect(aiu(4_000_000)).toBe('<0.01 AIU');       // 0.004 AIU — still rounds to 0.00
+    expect(aiu(5_000_000)).toBe('0.01 AIU');        // 0.005 AIU — rounds up to 0.01
+    expect(aiu(0)).toBe('0.00 AIU');                // exact zero stays 0.00
+  });
   it('clamps funded percentage 0..100', () => {
     expect(pct(35, 60)).toBe(58);
     expect(pct(120, 120)).toBe(100);

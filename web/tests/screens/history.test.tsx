@@ -23,6 +23,19 @@ describe('history', () => {
     await waitFor(() => expect(screen.getByText('5,400.00 AIU')).toBeInTheDocument());
   });
 
+  it('shows an empty state when there are no closed cycles', async () => {
+    const api = makeFakeApi({ latencyMs: 0, storageKey: 'hist.empty' });
+    await api.signIn('ada@example.com', 'x');
+    api.getHistory = (async () => []) as typeof api.getHistory;
+    render(<ThemeProvider><AppProvider api={api}>
+      <MemoryRouter initialEntries={['/app/history']}>
+        <Routes><Route path="/app/history" element={<HistoryScreen />} /></Routes>
+      </MemoryRouter></AppProvider></ThemeProvider>);
+    await waitFor(() => expect(screen.getByText(/no closed cycles yet/i)).toBeInTheDocument());
+    // No cycle rail when there's nothing to show.
+    expect(screen.queryByText('Cycles')).toBeNull();
+  });
+
   it('shows euro conversions for routed/transferred/unused budget', async () => {
     const api = makeFakeApi({ latencyMs: 0, storageKey: 'hist.eur' });
     await api.signIn('ada@example.com', 'x');
