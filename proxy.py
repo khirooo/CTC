@@ -129,8 +129,24 @@ def _build_attribution():
     engine = build_live_engine(connect(db_path))
     return AttributionService(engine, InMemoryIdentityProvider(idmap),
                               InMemoryPatRegistry(_json.loads(pats)))
+def _truthy(v) -> bool:
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _insecure_requested(env) -> bool:
+    return _truthy(env.get("UPSTREAM_INSECURE", ""))
+
+
+def _parse_insecure(env) -> bool:
+    """Upstream TLS verification is disabled ONLY when BOTH UPSTREAM_INSECURE
+    and UPSTREAM_INSECURE_CONFIRM are truthy. Disabling verification exposes the
+    real PAT to an on-path attacker, so a bare UPSTREAM_INSECURE (no confirm) is
+    refused: verification stays ON (the caller logs an ERROR). Pure — no I/O."""
+    return _insecure_requested(env) and _truthy(env.get("UPSTREAM_INSECURE_CONFIRM", ""))
+
+
 UPSTREAM_CA_BUNDLE = os.environ.get("UPSTREAM_CA_BUNDLE") or None
-UPSTREAM_INSECURE  = os.environ.get("UPSTREAM_INSECURE", "") not in ("", "0", "false", "False")
+UPSTREAM_INSECURE  = _parse_insecure(os.environ)
 LOG_BODY_CAP      = int(os.environ.get("LOG_BODY_CAP", "8192"))
 CAPTURE_DIR = os.environ.get("CTC_CAPTURE_DIR")  # metering spike: dump redacted exchanges
 
@@ -1222,6 +1238,11 @@ async def main():
     upstream_ssl_context()
     if UPSTREAM_INSECURE:
         log.warning("UPSTREAM_INSECURE=1 — upstream GHE certificate will NOT be verified")
+    elif _insecure_requested(os.environ):
+        log.error("UPSTREAM_INSECURE is set but UPSTREAM_INSECURE_CONFIRM is not — "
+                  "refusing to disable upstream TLS verification (keeping it ON). "
+                  "Set UPSTREAM_INSECURE_CONFIRM=1 to confirm you accept the "
+                  "on-path PAT-exposure risk.")
 
     if not REAL_PAT:
         log.warning("REAL_PAT is not set — forwarded requests will have no auth!")
