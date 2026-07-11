@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AppProvider } from '@/store/AppContext';
 import { ProfileScreen } from '../ProfileScreen';
@@ -66,6 +67,7 @@ function makeApi(overrides?: Partial<Record<string, unknown>>) {
     getOwnProfile: vi.fn(async () => giverProfile),
     getSettings: vi.fn(async () => giverSettings),
     getCliCredentials: vi.fn(async () => ({ token: 'tok', proxyHost: 'localhost:8080', installCommand: 'ctc install', caFingerprint: null })),
+    listProxyTokens: vi.fn(async () => []),
     ...overrides,
   };
 }
@@ -132,5 +134,27 @@ describe('ProfileScreen credit figures', () => {
     const flexBasis = pledgedRSeg!.style.flexBasis;
     expect(flexBasis).toBe('2.25%');   // backend field
     expect(flexBasis).not.toBe('3%');  // old recompute absent
+  });
+});
+
+describe('ProfileScreen CLI setup: mint only on explicit action', () => {
+  it('does not mint a proxy token on mount, and mints exactly once per click', async () => {
+    const api = makeApi();
+    render(
+      <MemoryRouter>
+        <AppProvider api={api as any}>
+          <ProfileScreen />
+        </AppProvider>
+      </MemoryRouter>,
+    );
+
+    // The "Generate install command" button appears once data loads.
+    const btn = await screen.findByRole('button', { name: /generate install command/i });
+    // No mint happened on mount — only the read-only token list was fetched.
+    expect(api.getCliCredentials).not.toHaveBeenCalled();
+    expect(api.listProxyTokens).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(btn);
+    await waitFor(() => expect(api.getCliCredentials).toHaveBeenCalledTimes(1));
   });
 });

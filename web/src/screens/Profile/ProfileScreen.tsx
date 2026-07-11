@@ -59,7 +59,10 @@ export function ProfileScreen() {
   const navigate = useNavigate();
   const settings = useAsync(() => api.getSettings(), []);
   const profile = useAsync(() => api.getOwnProfile(), []);
-  const cli = useAsync(() => api.getCliCredentials(), []);
+  // List existing tokens on mount (read-only). Minting a token is a write, so it
+  // happens only when the user clicks "Generate install command" below — not on
+  // every Profile view (which used to spawn a fresh token each time).
+  const tokens = useAsync(() => api.listProxyTokens(), []);
 
   const [localPledged, setLocalPledged] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,6 +72,9 @@ export function ProfileScreen() {
   const [patInput, setPatInput] = useState('');
   const [rotating, setRotating] = useState(false);
   const [revoking, setRevoking] = useState(false);
+  const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null } | null>(null);
+  const [minting, setMinting] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
 
   if (settings.loading) return <ScreenStatus message="Loading…" />;
   if (settings.error || !settings.data) {
@@ -139,6 +145,19 @@ export function ProfileScreen() {
   async function handleSignOut() {
     await signOut();
     navigate('/signin');
+  }
+
+  async function handleGenerateCli() {
+    setMinting(true);
+    setMintError(null);
+    try {
+      setCli(await api.getCliCredentials());
+      tokens.reload();
+    } catch (e) {
+      setMintError(e instanceof CtcApiError ? e.message : 'Could not generate the command — please try again.');
+    } finally {
+      setMinting(false);
+    }
   }
 
   async function handleMoveToPool() {
@@ -526,25 +545,50 @@ export function ProfileScreen() {
         </div>
       )}
 
-      {/* Set up CLI */}
-      {cli.data && (
-        <Card>
-          <h3 style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, marginBottom: 8 }}>Set up CLI</h3>
-          <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
-            Install once, then launch Copilot with the ctc command. New laptop or lost the command? Just run it again.
+      {/* Set up CLI — the install one-liner embeds a fresh proxy token, so it is
+          minted only when the user asks for it (never on mount). */}
+      <Card>
+        <h3 style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, marginBottom: 8 }}>Set up CLI</h3>
+        <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
+          Install once, then launch Copilot with the ctc command. New laptop or lost the command? Generate a fresh one below.
+        </p>
+        {cli ? (
+          <>
+            <TerminalBlock
+              command={cli.installCommand}
+              caption="Paste in a terminal and press Enter, then type ctc to start Copilot through CTC."
+            />
+            <p style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 12 }}>Proxy: {cli.proxyHost}</p>
+            {cli.caFingerprint && (
+              <p style={{ color: 'var(--text-faint)', fontSize: 11, wordBreak: 'break-all' }}>
+                CA fingerprint (SHA-256): <code>{cli.caFingerprint}</code> — <code>ctc login</code> prints this; verify they match.
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            {(tokens.data?.length ?? 0) > 0 && (
+              <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
+                You have {tokens.data!.length} active install token{tokens.data!.length === 1 ? '' : 's'}. The token is
+                shown only once when created — generate a new command if you no longer have it.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={handleGenerateCli}
+              disabled={minting}
+              style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, cursor: minting ? 'default' : 'pointer', opacity: minting ? 0.7 : 1 }}
+            >
+              {minting ? 'Generating…' : 'Generate install command'}
+            </button>
+          </>
+        )}
+        {mintError && (
+          <p role="alert" style={{ color: 'var(--consume)', fontSize: 13, margin: '12px 0 0', fontFamily: "'JetBrains Mono', monospace" }}>
+            {mintError}
           </p>
-          <TerminalBlock
-            command={cli.data.installCommand}
-            caption="Paste in a terminal and press Enter, then type ctc to start Copilot through CTC."
-          />
-          <p style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 12 }}>Proxy: {cli.data.proxyHost}</p>
-          {cli.data.caFingerprint && (
-            <p style={{ color: 'var(--text-faint)', fontSize: 11, wordBreak: 'break-all' }}>
-              CA fingerprint (SHA-256): <code>{cli.data.caFingerprint}</code> — <code>ctc login</code> prints this; verify they match.
-            </p>
-          )}
-        </Card>
-      )}
+        )}
+      </Card>
 
       {/* Sign out */}
       <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px' }}>

@@ -100,7 +100,7 @@ export function SetupChecklist() {
               )}
               {!item.done && item.key === 'install' && (
                 <button type="button" onClick={toggleExpand} style={{ ...linkBtn, marginLeft: 'auto' }}>
-                  {expanded ? 'Hide' : 'Show the command'}
+                  {expanded ? 'Hide' : 'Generate the command'}
                 </button>
               )}
             </div>

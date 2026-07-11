@@ -153,6 +153,12 @@ export class HttpCtcApi implements CtcApi {
       caFingerprint: minted.ca_fingerprint ?? null,
     };
   }
+  async listProxyTokens(): Promise<{ id: string; fingerprint: string; createdAt: number; revoked: boolean }[]> {
+    const rows = await apiFetch(this.base, '/proxy-token');
+    return (rows ?? []).map((t: any) => ({
+      id: t.id, fingerprint: t.fingerprint, createdAt: t.created_at, revoked: Boolean(t.revoked),
+    }));
+  }
 
   // --- Public profiles ---
   async getUserProfile(id: string): Promise<PublicProfile> {

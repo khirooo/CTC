@@ -35,13 +35,13 @@ describe('SetupChecklist', () => {
 
   it('expanding the terminal item fetches and shows the install command', async () => {
     renderChecklist({ role: 'consumer' });
-    fireEvent.click(await screen.findByRole('button', { name: /show the command/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /generate the command/i }));
     await waitFor(() => expect(screen.getByText('Terminal')).toBeInTheDocument());
   });
 
   it('"Mark as done" persists and hides the card when everything is done', async () => {
     renderChecklist({ role: 'consumer' });
-    fireEvent.click(await screen.findByRole('button', { name: /show the command/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /generate the command/i }));
     fireEvent.click(await screen.findByRole('button', { name: /mark as done/i }));
     await waitFor(() => expect(screen.queryByText('Finish setting up')).toBeNull());
   });
