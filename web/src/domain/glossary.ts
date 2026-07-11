@@ -23,15 +23,15 @@ export const glossary: Record<GlossaryTerm, { title: string; body: string }> = {
   },
   pool: {
     title: 'Shared pool',
-    body: 'Credits Hosts pledged for everyone. Post a request, then top it up from the pool yourself — the amount you drew shows on your request.',
+    body: 'Credits anyone can fund a request from: Hosts’ pledges plus credit people returned to the pool. Post a request, then top up your own from the pool — the amount shows on your request.',
   },
   chipIn: {
     title: 'Chip-in',
-    body: 'A direct gift of credits from one person to another, usually answering a Marketplace request.',
+    body: 'Funding someone’s request — from your own credit, or by passing on credit that was routed to you (it still comes from the original Host).',
   },
   routed: {
-    title: 'Routed',
-    body: 'Surplus credits passed between Hosts — one Host covers another who ran out.',
+    title: 'Routed to you',
+    body: 'Credit others chipped in, or you pulled from the pool, onto your requests. Spend it by using the CLI — or pass it on to someone else or back to the pool.',
   },
   quota: {
     title: 'Monthly quota',

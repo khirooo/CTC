@@ -58,12 +58,20 @@ when a word trips you up.)
 - **Quota** — how much total Copilot capacity a giver has this cycle (read from
   GitHub when they hand in their PAT).
 - **Pledge** — the slice of their quota a giver volunteers into the shared pool.
-- **Pool** — the combined pledges of all givers. Its balance is shown on the
-  marketplace; credit leaves it only when someone fills a request from it.
-- **Grant** — a unit of funding on a request, served by one giver's token. Two
-  kinds: a **chip-in** (a giver funds someone else's request from their retained
-  credit) and a **pool fill** (the requester tops up their *own* request from the
-  pool). Only the request owner can pool-fill their request.
+- **Pool** — credit anyone can fund a request from: all givers' **pledges** plus
+  any **returned contributions** (credit routed to someone that they pushed back
+  into the pool). Its balance is shown on the marketplace; returned contributions
+  are spent before pledges.
+- **Grant** — a unit of funding on a request, always served by one giver's token.
+  Kinds: a **chip-in** (funded from the supporter's own retained credit), a
+  **pool fill** (the requester tops up their *own* request from the pool — only
+  the owner can), and a **re-donation** (a supporter funds someone else's request
+  from credit that was routed to *them*).
+- **Re-donate / return** — credit routed to you that you haven't burned isn't a
+  dead end: you can **re-donate** it (chip in to someone else's request) or
+  **return** it to the shared pool. It still forwards the original giver's token.
+  One hop only — credit that itself arrived via a re-donation or pool draw can't
+  be passed on again.
 - **Cycle** — a billing period (one calendar month). Balances reset each cycle.
   CTC **rolls over automatically** at month end: the ended cycle is archived, a new
   one opens, and each giver's pledge carries forward. Archived cycle reports are

@@ -254,8 +254,10 @@ always stable (they derive from frozen events); freezing fixes only the labels.
   (admin-controllable); there is no per-person spending cap on it.
 
 ### Relevant files
-`ctc/accounting/engine.py` (the rules + atomic spend + pool fill + cancel + cycle
-rollover), `ctc/routing/attribution.py` (source selection + grant-spill debit),
+`ctc/accounting/engine.py` (the rules + atomic spend + `fund_request` /
+`fund_request_from_pool` / `fund_request_from_received` / `return_received_to_pool`
++ cancel + cycle rollover), `ctc/routing/attribution.py` (source selection +
+grant-spill debit),
 `ctc/domain/rules.py` (status, bucket order), `ctc/domain/config.py` (units),
 `ctc/auth/onboarding.py` (PAT validation + quota seeding),
 `ctc/store/db.py` (schema), `ctc/store/accounting_store.py` (queries),

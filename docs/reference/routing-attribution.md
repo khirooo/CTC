@@ -61,11 +61,18 @@ From the metering contract and the Task 0 probe (`tools/verify_token_rewrite.py`
 > described below was **removed**. Consumers no longer draw from the pool at spend
 > time; the pool now reaches people only through the marketplace, as `source='pool'`
 > **grants** created when a requester fills their own request (see
-> `docs/guide/04-credits-and-accounting.md`). A pool fill is still attributed to the
-> giver(s) with the most spare pledge, so at spend time everything is a `GRANT`.
-> Net effect on the rules here: a non-PAT consumer's order is now just `GRANT`
-> (no `POOL` bucket at selection time), and the per-consumer allowance is gone.
-> The rest of this section is the original design, kept for history.
+> `docs/guide/04-credits-and-accounting.md`). A pool fill is attributed to a real
+> giver — the origin donor of a returned contribution, or the giver with the most
+> spare pledge — so at spend time everything is a `GRANT`. Net effect on the rules
+> here: a non-PAT consumer's order is now just `GRANT` (no `POOL` bucket at
+> selection time), and the per-consumer allowance is gone.
+>
+> **Re-donation (later):** credit routed to a recipient that they haven't burned
+> can be **re-donated** (chip in to another request) or **returned to the pool**.
+> These create child grants that keep the **origin grant's `donor_id`** — so the
+> "PAT forwarded == giver debited" invariant below still holds; the re-donor is
+> recorded only as `via_user_id` for display. Depth is capped at 1. The rest of
+> this section is the original design, kept for history.
 
 Consumption order per live request — **first non-empty bucket wins**:
 
