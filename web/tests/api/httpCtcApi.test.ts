@@ -14,7 +14,7 @@ function fakeFetch(status: number, body: unknown) {
 describe('HttpCtcApi', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
 
-  it('createRequest POSTs camelCase JSON with X-CTC-User and returns parsed body', async () => {
+  it('createRequest POSTs camelCase JSON without any X-CTC-User header and returns parsed body', async () => {
     const created = { id: 'r1', requesterName: 'Ada Lovelace', amountNeeded: 50 };
     const f = fakeFetch(200, created);
     vi.stubGlobal('fetch', f);
@@ -25,7 +25,11 @@ describe('HttpCtcApi', () => {
     const [url, init] = (f as any).mock.calls[0];
     expect(url).toBe('http://api/requests');
     expect(init.method).toBe('POST');
-    expect(init.headers['X-CTC-User']).toBe('');
+    // The legacy X-CTC-User header is gone (broke CORS preflight cross-origin);
+    // only Content-Type is sent.
+    expect('X-CTC-User' in init.headers).toBe(false);
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(init.credentials).toBe('include');
     expect(JSON.parse(init.body)).toEqual({ amountNeeded: 50, reason: 'x', target: null, expiryHours: 24 });
   });
 

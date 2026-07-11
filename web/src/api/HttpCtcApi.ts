@@ -12,8 +12,8 @@ import { apiFetch, CtcApiError } from './http';
  * signOut), PAT submit, marketplace/settings, read screens (dashboard,
  * leaderboard, history, profile), and CLI credentials. This is the only CtcApi
  * used in production — there is no mock fallback. Auth is the httpOnly session
- * cookie (sent via credentials: 'include'); the empty X-CTC-User header is a
- * legacy field the cookie-authed backend ignores.
+ * cookie (sent via credentials: 'include'); requests carry no user-identifying
+ * header, so cross-origin deployments pass CORS preflight (content-type only).
  */
 export class HttpCtcApi implements CtcApi {
   constructor(private base: string) {}
@@ -24,12 +24,12 @@ export class HttpCtcApi implements CtcApi {
   }
 
   private getJson(path: string): Promise<any> {
-    return apiFetch(this.base, '', path);
+    return apiFetch(this.base, path);
   }
 
   // --- v1 over HTTP ---
   async listRequests(filter: 'all' | 'pro' | 'noob'): Promise<ListRequestsResult> {
-    const r = await apiFetch(this.base, '', `/requests?filter=${filter}`);
+    const r = await apiFetch(this.base, `/requests?filter=${filter}`);
     return {
       requests: r.requests, counts: r.counts,
       poolEnabled: Boolean(r.poolEnabled), poolAvailable: r.poolAvailable ?? 0,
@@ -38,44 +38,44 @@ export class HttpCtcApi implements CtcApi {
     };
   }
   async createRequest(input: CreateRequestInput): Promise<PublicRequest> {
-    return apiFetch(this.base, '', '/requests', {
+    return apiFetch(this.base, '/requests', {
       method: 'POST', body: JSON.stringify(input),
     });
   }
   async donate(requestId: string, amount: number, source: DonationSource = 'personal'): Promise<PublicRequest> {
-    return apiFetch(this.base, '', `/requests/${requestId}/donate`, {
+    return apiFetch(this.base, `/requests/${requestId}/donate`, {
       method: 'POST', body: JSON.stringify({ amount, source }),
     });
   }
   async returnReceivedToPool(amount: number): Promise<{ poolAvailable: number; receivedRemaining: number }> {
-    return apiFetch(this.base, '', '/pool/return', {
+    return apiFetch(this.base, '/pool/return', {
       method: 'POST', body: JSON.stringify({ amount }),
     });
   }
   async poolFund(requestId: string, amount: number): Promise<PublicRequest> {
-    return apiFetch(this.base, '', `/requests/${requestId}/pool-fund`, {
+    return apiFetch(this.base, `/requests/${requestId}/pool-fund`, {
       method: 'POST', body: JSON.stringify({ amount }),
     });
   }
   async deleteRequest(requestId: string): Promise<void> {
-    await apiFetch(this.base, '', `/requests/${requestId}`, { method: 'DELETE' });
+    await apiFetch(this.base, `/requests/${requestId}`, { method: 'DELETE' });
   }
   async getSettings(): Promise<SettingsData> {
-    return apiFetch(this.base, '', '/settings');
+    return apiFetch(this.base, '/settings');
   }
   async updateSettings(patch: SettingsPatch): Promise<SettingsData> {
     // PAT submit is a distinct endpoint (validates against GHE, promotes to giver).
     if (patch.pat) {
-      await apiFetch(this.base, '', '/pat', {
+      await apiFetch(this.base, '/pat', {
         method: 'POST', body: JSON.stringify({ pat: patch.pat }),
       });
     }
     if (patch.pledgedSurplus !== undefined) {
-      await apiFetch(this.base, '', '/settings', {
+      await apiFetch(this.base, '/settings', {
         method: 'PATCH', body: JSON.stringify({ pledgedSurplus: patch.pledgedSurplus }),
       });
     }
-    return apiFetch(this.base, '', '/settings');
+    return apiFetch(this.base, '/settings');
   }
 
   // --- auth: OAuth-only (signIn redirects to GitLab; accounts created on first login) ---
@@ -112,7 +112,7 @@ export class HttpCtcApi implements CtcApi {
   }
   async completeOnboarding(input: OnboardingInput): Promise<Session> {
     if (input.pat) {
-      await apiFetch(this.base, '', '/pat', {
+      await apiFetch(this.base, '/pat', {
         method: 'POST', body: JSON.stringify({ pat: input.pat }),
       });
     }
@@ -121,7 +121,7 @@ export class HttpCtcApi implements CtcApi {
     return s;
   }
   async validatePat(pat: string): Promise<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; resetDate: string | null; pledgedNano: number; usedNano: number }> {
-    const res = await apiFetch(this.base, '', '/pat', {
+    const res = await apiFetch(this.base, '/pat', {
       method: 'POST', body: JSON.stringify({ pat }),
     });
     return { gheLogin: res.ghe_login, quotaAiu: res.quota_aiu,
@@ -130,10 +130,10 @@ export class HttpCtcApi implements CtcApi {
              usedNano: res.used_nano ?? 0 };
   }
   async revokePat(): Promise<void> {
-    await apiFetch(this.base, '', '/pat', { method: 'DELETE' });
+    await apiFetch(this.base, '/pat', { method: 'DELETE' });
   }
   async markOnboarded(): Promise<void> {
-    await apiFetch(this.base, '', '/onboarding/complete', { method: 'POST' });
+    await apiFetch(this.base, '/onboarding/complete', { method: 'POST' });
   }
   // --- read screens over HTTP ---
   getDashboard(): Promise<DashboardData> { return this.getJson('/dashboard'); }
@@ -141,7 +141,7 @@ export class HttpCtcApi implements CtcApi {
   getOwnProfile(): Promise<OwnProfile> { return this.getJson('/profile'); }
   getHistory(): Promise<CycleReport[]> { return this.getJson('/history'); }
   async getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null }> {
-    const minted = await apiFetch(this.base, '', '/proxy-token', { method: 'POST' });
+    const minted = await apiFetch(this.base, '/proxy-token', { method: 'POST' });
     const ctcHost = (import.meta.env.VITE_CTC_HOST as string | undefined) ?? 'localhost';
     // Match the scheme the app was actually loaded over: an http-mode deployment
     // has no :443, so an https one-liner would refuse to connect.
@@ -165,11 +165,11 @@ export class HttpCtcApi implements CtcApi {
 
   // --- Admin ---
   async listAllUsers(): Promise<AdminUser[]> {
-    const rows = await apiFetch(this.base, '', '/admin/users');
+    const rows = await apiFetch(this.base, '/admin/users');
     return rows.map(mapAdminUser);
   }
   async getUserDetail(id: string): Promise<AdminUserDetail> {
-    const d = await apiFetch(this.base, '', `/admin/users/${id}`);
+    const d = await apiFetch(this.base, `/admin/users/${id}`);
     return {
       ...mapAdminUser(d),
       proxyTokens: (d.proxy_tokens ?? []).map((t: any) => ({
@@ -179,11 +179,11 @@ export class HttpCtcApi implements CtcApi {
     };
   }
   async revealPat(id: string): Promise<string> {
-    const r = await apiFetch(this.base, '', `/admin/users/${id}/reveal-pat`, { method: 'POST' });
+    const r = await apiFetch(this.base, `/admin/users/${id}/reveal-pat`, { method: 'POST' });
     return r.pat;
   }
   async getAdminSettings(): Promise<AdminSettings> {
-    return mapAdminSettings(await apiFetch(this.base, '', '/admin/settings'));
+    return mapAdminSettings(await apiFetch(this.base, '/admin/settings'));
   }
   async updateAdminSettings(patch: AdminSettingsPatch): Promise<AdminSettings> {
     const body: Record<string, number | string | boolean> = {};
@@ -194,7 +194,7 @@ export class HttpCtcApi implements CtcApi {
     if (patch.defaultChipInAiu !== undefined) body.default_chip_in_aiu = patch.defaultChipInAiu;
     if (patch.participantsMode !== undefined) body.participants_mode = patch.participantsMode;
     if (patch.sharedPoolEnabled !== undefined) body.shared_pool_enabled = patch.sharedPoolEnabled ? 'on' : 'off';
-    return mapAdminSettings(await apiFetch(this.base, '', '/admin/settings', {
+    return mapAdminSettings(await apiFetch(this.base, '/admin/settings', {
       method: 'PATCH', body: JSON.stringify(body),
     }));
   }

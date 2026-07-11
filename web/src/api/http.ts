@@ -7,7 +7,6 @@ export class CtcApiError extends Error {
 
 export async function apiFetch(
   base: string,
-  userId: string,
   path: string,
   init?: RequestInit,
 ): Promise<any> {
@@ -16,7 +15,6 @@ export async function apiFetch(
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      'X-CTC-User': userId,
       ...(init?.headers ?? {}),
     },
   });

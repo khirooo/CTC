@@ -56,23 +56,45 @@ export function AppProvider({ children, api: apiProp, initialSession }: AppProvi
   const api = apiRef.current;
 
   const [session, setSession] = useState<Session | null | undefined>(initialSession);
+  // True when the mount-time getSession() rejected outright (control plane down,
+  // VPN blip). Distinct from a clean logged-out result (session===null,
+  // bootError===false): a rejection means we don't actually know the auth state,
+  // so we show a retry panel instead of the landing page.
+  const [bootError, setBootError] = useState(false);
+  // Latest session in a ref so refresh() can preserve it on failure without
+  // adding `session` to its dependency list (which would churn every consumer).
+  const sessionRef = useRef<Session | null | undefined>(initialSession);
+  sessionRef.current = session;
 
   // Restore session from the api on mount.
   // Cancelled guard prevents setState after unmount.
   useEffect(() => {
     let cancelled = false;
-    api.getSession().then((s) => {
-      if (!cancelled) setSession(s);
-    });
+    api.getSession()
+      .then((s) => {
+        if (!cancelled) { setSession(s); setBootError(false); }
+      })
+      .catch(() => {
+        // Fetch itself threw — treat as "unknown", not "logged out", and surface
+        // a retry affordance rather than a permanently blank app.
+        if (!cancelled) { setSession(null); setBootError(true); }
+      });
     return () => {
       cancelled = true;
     };
   }, [api]);
 
   const refresh = useCallback(async (): Promise<Session | null> => {
-    const s = await api.getSession();
-    setSession(s);
-    return s;
+    try {
+      const s = await api.getSession();
+      setSession(s);
+      setBootError(false);
+      return s;
+    } catch {
+      // Transient failure (e.g. right after a PAT save) — keep the current
+      // session rather than blanking the app.
+      return sessionRef.current ?? null;
+    }
   }, [api]);
 
   const signIn = useCallback(
@@ -95,7 +117,68 @@ export function AppProvider({ children, api: apiProp, initialSession }: AppProvi
     [session, signIn, signOut, api, refresh],
   );
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      {bootError && session === null ? <BootErrorPanel onRetry={refresh} /> : children}
+    </AppContext.Provider>
+  );
+}
+
+/** Full-page fallback when the session bootstrap fetch fails outright (control
+ *  plane unreachable). Retry re-runs getSession(); on success the app renders
+ *  normally. Without this, a failed bootstrap left a permanently blank page. */
+function BootErrorPanel({ onRetry }: { onRetry(): Promise<Session | null> }) {
+  const [retrying, setRetrying] = useState(false);
+  async function retry() {
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  }
+  return (
+    <div
+      role="alert"
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 16,
+        padding: 24,
+        textAlign: 'center',
+        fontFamily: "'JetBrains Mono', monospace",
+        color: 'var(--text)',
+        background: 'var(--bg)',
+      }}
+    >
+      <div style={{ fontSize: 16, fontWeight: 600 }}>Can&apos;t reach CTC</div>
+      <div style={{ fontSize: 13, color: 'var(--text-dim)', maxWidth: 360 }}>
+        We couldn&apos;t load your session. Check your connection or VPN, then try again.
+      </div>
+      <button
+        type="button"
+        onClick={retry}
+        disabled={retrying}
+        style={{
+          background: 'var(--accent)',
+          color: '#fff',
+          border: 'none',
+          borderRadius: 10,
+          padding: '10px 20px',
+          fontFamily: 'inherit',
+          fontWeight: 600,
+          fontSize: 14,
+          cursor: retrying ? 'default' : 'pointer',
+          opacity: retrying ? 0.7 : 1,
+        }}
+      >
+        {retrying ? 'Retrying…' : 'Retry'}
+      </button>
+    </div>
+  );
 }
 
 export function useApp(): AppContextValue {
