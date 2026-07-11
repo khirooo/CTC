@@ -34,9 +34,11 @@ REAL_GHE_HOST     = os.environ.get("REAL_GHE_HOST", f"api.{contract.GHE_DOMAIN}"
 REAL_PAT          = os.environ.get("REAL_PAT", "")
 LISTEN_PORT       = int(os.environ.get("PORT", "8080"))
 # When the proxy is reachable from a public/untrusted network (e.g. a raw L4
-# port forwarded by a front server), set CTC_RESTRICT_CONNECT=1 so CONNECT is
-# only honored for the GitHub/GHE/Copilot host set — closing the open-relay
-# path. Default off keeps VPN/localhost-only deployments unchanged.
+# port forwarded by a front server), set CTC_RESTRICT_CONNECT=1 so both CONNECT
+# tunnels AND direct (non-CONNECT) plain-HTTP proxy requests are only honored
+# for the GitHub/GHE/Copilot host set — closing the open-relay/SSRF path on
+# both dispatch branches. Default off keeps VPN/localhost-only deployments
+# unchanged.
 RESTRICT_CONNECT  = os.environ.get("CTC_RESTRICT_CONNECT", "").strip().lower() in ("1", "true", "yes", "on")
 # Extra hostnames to allow through CONNECT when CTC_RESTRICT_CONNECT=1 — e.g.
 # an internal Jira/Confluence/other MCP host that legitimate tooling (like an
@@ -968,6 +970,19 @@ async def _dispatch(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
                     k, _, v = line.partition(b":")
                     hdrs[k.decode().strip().lower()] = v.decode().strip()
             host = hdrs.get("host", REAL_GHE_HOST).split(":")[0]
+
+            # Open-relay/SSRF guard, mirroring the CONNECT branch: a non-CONNECT
+            # proxy request forwards to https://{host}{path}, so without this an
+            # arbitrary Host: header would turn the proxy into an open forward
+            # proxy (and, in legacy single-PAT mode, leak REAL_PAT to any
+            # attacker-chosen GHE-shaped host). Refuse anything outside the
+            # allowlist when CTC_RESTRICT_CONNECT is on.
+            if RESTRICT_CONNECT and not connect_allowed(host):
+                log.warning("[HTTP]      REJECTED (restricted) %s → %s", peer, host)
+                writer.write(b"HTTP/1.1 403 Forbidden\r\nProxy-Agent: copilot-proxy\r\nContent-Length: 0\r\n\r\n")
+                await writer.drain()
+                return
+
             replay = asyncio.StreamReader()
             replay.feed_data(raw)
             replay.feed_eof()  # single one-shot request; without EOF _serve's next
