@@ -167,3 +167,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     for col in ("origin_grant_id", "via_user_id", "contribution_id"):
         if col not in gcols:
             conn.execute(f"ALTER TABLE grants ADD COLUMN {col} TEXT")
+    # Normalize legacy inclusive month-end cycles (…T23:59:59 UTC) to the exclusive
+    # boundary (first second of the next month) so liveness `now < ends_at` covers
+    # the whole final day (P0-1). Idempotent: once bumped, ends_at%86400==0 no longer
+    # matches. Realistic cycle ends are exact UTC-midnight boundaries and unaffected.
+    conn.execute("UPDATE cycles SET ends_at = ends_at + 1 WHERE ends_at % 86400 = 86399")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 import datetime
 import uuid
 
@@ -109,23 +108,59 @@ class AccountingEngine:
     @staticmethod
     def _month_cycle(now: int) -> Cycle:
         """Build (without persisting) the Cycle for the calendar month containing
-        `now` (UTC). Used by both the no-cycle-gap path and rollover."""
+        `now` (UTC). Used by both the no-cycle-gap path and rollover.
+
+        `ends_at` is EXCLUSIVE — the first second of the *next* month — so that
+        liveness (`now < ends_at`) covers the whole final day. The old inclusive
+        23:59:59 end left a one-second window at month-end where a request would
+        roll the cycle over onto itself and orphan the active cycle (P0-1)."""
         d = datetime.datetime.fromtimestamp(now, datetime.timezone.utc)
         start = int(datetime.datetime(d.year, d.month, 1, tzinfo=datetime.timezone.utc).timestamp())
-        last = calendar.monthrange(d.year, d.month)[1]
-        end = int(datetime.datetime(d.year, d.month, last, 23, 59, 59,
-                                    tzinfo=datetime.timezone.utc).timestamp())
+        ny, nm = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+        end = int(datetime.datetime(ny, nm, 1, tzinfo=datetime.timezone.utc).timestamp())
         return Cycle(f"cycle-{d.year:04d}-{d.month:02d}", d.strftime("%B %Y"), start, end, "active")
+
+    def _open_month_cycle(self, now: int, prev_cycle_id: str | None) -> Cycle:
+        """Insert-or-reactivate the calendar-month cycle for `now` and seed its
+        giver_cycles from the connected PATs (quota = entitlement, prior pledge
+        carried forward from `prev_cycle_id` and clamped to the new quota).
+
+        MUST be called inside an open transaction (BEGIN IMMEDIATE). Rows that
+        already exist in the target cycle are left untouched, so this is safe on
+        reactivation and re-entry."""
+        new = self._month_cycle(now)
+        if self.store.get_cycle(new.id) is None:
+            self.store.add_cycle(new)
+        else:
+            # Revisited a month whose cycle row already exists (rollover onto an
+            # archived row, dormancy edge): reactivate rather than duplicate the id.
+            self.conn.execute("UPDATE cycles SET status='active' WHERE id=?", (new.id,))
+        # Seed giver_cycles from connected PATs: full entitlement as the new quota
+        # (GitHub resets the real quota at the boundary too), prior pledge carried
+        # forward and clamped. Skip PATs with no usable entitlement and rows that
+        # already exist in this cycle. Seeding here (not only on the archive path)
+        # is what fixes the gap path never seeding givers (P0-1).
+        for row in self.conn.execute("SELECT user_id, entitlement FROM giver_pats"):
+            ent = row["entitlement"]
+            if not ent or ent <= 0:
+                continue
+            if self.store.get_giver_cycle(new.id, row["user_id"]) is not None:
+                continue
+            quota = int(ent) * NANO_PER_AIU
+            prev_gc = (self.store.get_giver_cycle(prev_cycle_id, row["user_id"])
+                       if prev_cycle_id else None)
+            pledge = min(prev_gc.pledge, quota) if prev_gc else 0
+            self.store.upsert_giver_cycle(GiverCycle(new.id, row["user_id"], quota, pledge))
+        return new
 
     def ensure_active_cycle(self, now: int) -> Cycle:
         """Guarantee a *live* active cycle exists. Behaviour:
 
-        - No active cycle  → open the current calendar month's cycle (the
-          no-cycle gap; e.g. a fresh/empty DB on startup).
         - Active cycle still within its window (`now < ends_at`) → return unchanged.
-        - Active cycle has ended (`now >= ends_at`) → roll over: archive it, open
-          the cycle for the month containing `now`, and seed giver_cycles from the
-          connected PATs (quota = entitlement, pledge carried forward & clamped).
+        - Otherwise (no active cycle, or it has ended) → roll over: open the cycle
+          for the month containing `now` and seed giver_cycles from the connected
+          PATs. Both the no-cycle gap (fresh/empty DB) and the month-ended case go
+          through the same `BEGIN IMMEDIATE`-guarded path.
 
         Idempotent and concurrency-safe (in-transaction double-check + BEGIN
         IMMEDIATE), so it's safe to call on startup and on every request that needs
@@ -133,59 +168,37 @@ class AccountingEngine:
         cur = self.current_cycle()
         if cur is not None and now < cur.ends_at:
             return cur
-        if cur is not None:
-            return self._roll_over(now)
-        c = self._month_cycle(now)
-        return self.start_cycle(c.id, c.label, c.starts_at, c.ends_at)
+        return self._roll_over(now)
 
     def _roll_over(self, now: int) -> Cycle:
-        """Archive the ended active cycle, open the month-of-`now` cycle, and seed
-        its giver_cycles from connected PATs. All in one transaction with an
-        in-transaction re-check so a concurrent caller can't double-roll."""
+        """Archive the ended active cycle (if any) and open the month-of-`now`
+        cycle, seeding its giver_cycles from connected PATs. Runs in one
+        transaction with an in-transaction re-check so a concurrent caller can't
+        double-roll and a fresh-DB concurrent first request can't hit a bare-INSERT
+        IntegrityError.
+
+        Compute the target cycle BEFORE archiving: if it resolves to the live
+        cycle's own id (a legacy inclusive-end row sitting in its final second),
+        the month-of-`now` IS the live cycle — commit and return it unarchived
+        rather than orphaning it (P0-1 boundary tolerance)."""
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             live = self.store.active_cycle()
-            if live is None:
-                # Someone archived prev but left no active cycle — open the gap.
-                new = self._month_cycle(now)
-                if self.store.get_cycle(new.id) is None:
-                    self.store.add_cycle(new)
-                else:
-                    self.conn.execute("UPDATE cycles SET status='active' WHERE id=?", (new.id,))
-                self.conn.execute("COMMIT")
-                return new
-            if now < live.ends_at:
-                # Another caller already rolled us into a live cycle.
-                self.conn.execute("COMMIT")
-                return live
-
-            # 1. archive the ended cycle
-            self.conn.execute("UPDATE cycles SET status='archived' WHERE id=?", (live.id,))
-
-            # 2. open the cycle for the month containing `now`
             new = self._month_cycle(now)
-            existing = self.store.get_cycle(new.id)
-            if existing is None:
-                self.store.add_cycle(new)
-            elif existing.id != live.id:
-                # Revisited a month whose cycle row already exists (e.g. dormancy
-                # edge): reactivate it rather than inserting a duplicate id.
-                self.conn.execute("UPDATE cycles SET status='active' WHERE id=?", (new.id,))
-
-            # 3. seed giver_cycles from connected PATs: full entitlement as the
-            #    new quota (GitHub resets the real quota at the boundary too),
-            #    prior pledge carried forward and clamped to the new quota.
-            for row in self.conn.execute("SELECT user_id, entitlement FROM giver_pats"):
-                ent = row["entitlement"]
-                if not ent or ent <= 0:
-                    continue
-                quota = int(ent) * NANO_PER_AIU
-                prev_gc = self.store.get_giver_cycle(live.id, row["user_id"])
-                pledge = min(prev_gc.pledge, quota) if prev_gc else 0
-                self.store.upsert_giver_cycle(GiverCycle(new.id, row["user_id"], quota, pledge))
-
+            if live is not None:
+                if now < live.ends_at:
+                    # Another caller already rolled us into a live cycle.
+                    self.conn.execute("COMMIT")
+                    return live
+                if new.id == live.id:
+                    # Legacy inclusive-end row in its last second: the target
+                    # month cycle is the live one. Don't archive/orphan it.
+                    self.conn.execute("COMMIT")
+                    return live
+                self.conn.execute("UPDATE cycles SET status='archived' WHERE id=?", (live.id,))
+            opened = self._open_month_cycle(now, live.id if live is not None else None)
             self.conn.execute("COMMIT")
-            return new
+            return opened
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise

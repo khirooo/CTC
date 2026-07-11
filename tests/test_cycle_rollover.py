@@ -7,12 +7,17 @@ import datetime
 
 from ctc.accounting.engine import AccountingEngine
 from ctc.domain.config import NANO_PER_AIU
+from ctc.domain.types import Cycle
 from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
 
 
 def _ts(y, m, d, hh=12):
     return int(datetime.datetime(y, m, d, hh, tzinfo=datetime.timezone.utc).timestamp())
+
+
+def _sec(y, m, d, hh, mm, ss):
+    return int(datetime.datetime(y, m, d, hh, mm, ss, tzinfo=datetime.timezone.utc).timestamp())
 
 
 JUNE = _ts(2026, 6, 9)
@@ -138,3 +143,92 @@ def test_rollover_skips_pats_without_entitlement():
 
     assert eng.store.get_giver_cycle("cycle-2026-07", "g1") is None
     assert eng.store.get_giver_cycle("cycle-2026-07", "g2") is None
+
+
+# --------------------------------------------------------------------------- #
+# P0-1: exclusive month-end boundary — no orphaned cycle at the last second.
+# --------------------------------------------------------------------------- #
+
+def test_last_second_of_month_is_still_live():
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    last = _sec(2026, 6, 30, 23, 59, 59)      # final real second of June (UTC)
+    c = eng.ensure_active_cycle(last)
+    assert c.id == "cycle-2026-06"            # still live — no orphaning rollover
+    assert eng.current_cycle().id == "cycle-2026-06"
+    assert eng.store.get_cycle("cycle-2026-06").status == "active"
+    # the first second of the next month rolls over cleanly
+    rolled = eng.ensure_active_cycle(last + 1)
+    assert rolled.id == "cycle-2026-07"
+    assert eng.current_cycle().id == "cycle-2026-07"
+    assert eng.store.get_cycle("cycle-2026-06").status == "archived"
+
+
+def test_double_call_at_rollover_boundary_no_integrity_error():
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    first_july = _sec(2026, 7, 1, 0, 0, 0)
+    a = eng.ensure_active_cycle(first_july)   # rolls over
+    b = eng.ensure_active_cycle(first_july)   # second call in the same second
+    assert a.id == b.id == "cycle-2026-07"
+    rows = eng.store.conn.execute(
+        "SELECT id, status FROM cycles ORDER BY starts_at"
+    ).fetchall()
+    assert [(r["id"], r["status"]) for r in rows] == [
+        ("cycle-2026-06", "archived"),
+        ("cycle-2026-07", "active"),
+    ]
+
+
+def test_legacy_inclusive_end_row_tolerated_at_last_second():
+    # A cycle row persisted with the OLD inclusive 23:59:59 end. A request landing
+    # in that exact second must not archive the cycle onto itself (P0-1 root cause).
+    eng = _engine()
+    last_sec = _sec(2026, 6, 30, 23, 59, 59)
+    start = _sec(2026, 6, 1, 0, 0, 0)
+    eng.store.add_cycle(Cycle("cycle-2026-06", "June 2026", start, last_sec, "active"))
+
+    c = eng.ensure_active_cycle(last_sec)
+    assert c.id == "cycle-2026-06"
+    assert eng.current_cycle().id == "cycle-2026-06"       # still active, not archived
+    # a second request in the same second is stable (the P0-1 500/gap path)
+    c2 = eng.ensure_active_cycle(last_sec)
+    assert c2.id == "cycle-2026-06"
+    assert eng.store.get_cycle("cycle-2026-06").status == "active"
+    n = eng.store.conn.execute("SELECT COUNT(*) AS n FROM cycles").fetchone()["n"]
+    assert n == 1
+
+
+def test_gap_path_seeds_giver_cycles_from_pats():
+    # Fresh DB: PATs connected before any cycle exists. The no-cycle gap path must
+    # seed giver_cycles too (the old bare start_cycle gap path did not).
+    eng = _engine()
+    _add_pat(eng, "g1", entitlement=100)
+    c = eng.ensure_active_cycle(JUNE)          # gap path via _roll_over
+    assert c.id == "cycle-2026-06"
+    gc = eng.store.get_giver_cycle("cycle-2026-06", "g1")
+    assert gc is not None
+    assert gc.quota == 100 * NANO_PER_AIU
+    assert gc.pledge == 0
+
+
+def test_fresh_db_first_ensure_opens_current_month():
+    eng = _engine()
+    c = eng.ensure_active_cycle(JUNE)
+    assert c.id == "cycle-2026-06" and c.status == "active"
+    # end is exclusive: first second of July
+    assert c.ends_at == _sec(2026, 7, 1, 0, 0, 0)
+
+
+def test_init_db_normalizes_legacy_inclusive_ends_at():
+    conn = connect(":memory:"); init_db(conn)
+    s = AccountingStore(conn)
+    last_sec = _sec(2026, 6, 30, 23, 59, 59)
+    s.add_cycle(Cycle("cycle-2026-06", "June", _sec(2026, 6, 1, 0, 0, 0), last_sec, "active"))
+    init_db(conn)   # re-run migration → bumps the legacy inclusive end by +1
+    row = conn.execute("SELECT ends_at FROM cycles WHERE id='cycle-2026-06'").fetchone()
+    assert row["ends_at"] == last_sec + 1
+    # idempotent: running again does not shift it further
+    init_db(conn)
+    row2 = conn.execute("SELECT ends_at FROM cycles WHERE id='cycle-2026-06'").fetchone()
+    assert row2["ends_at"] == last_sec + 1
