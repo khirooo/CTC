@@ -28,10 +28,12 @@ flowchart TB
         Quota --> Pledge["Pledge<br/>(slice they put in the pool)"]
         Quota --> Retained["Retained<br/>(kept for themselves + to donate)"]
     end
-    Pledge --> Pool([💧 Shared Pool = everyone's pledges])
-    Pool -->|"requester fills their own request"| Request["📮 A marketplace request"]
-    Retained -.->|"direct chip-in to a request"| Request
-    Request --> Consumer["🙋 Requester"]
+    Pledge --> Pool([💧 Shared Pool])
+    Retained -.->|"chip-in"| Request["📮 A marketplace request"]
+    Pool -->|"requester fills own request"| Request
+    Request --> Recv["🙋 Requester's<br/>received credit"]
+    Recv -.->|"re-donate: chip-in to someone else"| Request
+    Recv -.->|"return to pool"| Pool
 ```
 
 - A **giver** has a **quota** (read from GitHub when they hand in their token).
@@ -42,12 +44,20 @@ flowchart TB
   automatic background routing. To get credit you post a **request**, then it's
   covered one of two ways:
   - a **giver chips in** from their retained credit (a "grant"), or
-  - **you fill your own request from the pool** — anyone with an open request can
-    top it up from the shared pool, first-come-first-served, no per-person cap.
-    The amount you drew shows on the request.
-- A pool fill is attributed to the real giver(s) with the most spare pledge, so
-  the credit is still served by a concrete giver's token — it just isn't a
-  personal gift from them.
+  - **you fill your own request from the pool** — only the requester can top up
+    their *own* request from the shared pool, first-come-first-served, no
+    per-person cap. The amount you drew shows on the request.
+- A pool fill is attributed to a real giver (the origin donor of a returned
+  contribution, or the giver with the most spare pledge), so the credit is always
+  served by a concrete giver's token — it just isn't a personal gift from them.
+- **Credit routed to you isn't a dead end.** Credit others put on your requests
+  (or that you pulled from the pool) that you haven't burned yet, you can either:
+  - **re-donate** it — chip in to *someone else's* request from your received
+    credit, or
+  - **return** it to the shared pool for anyone to fill a request with.
+  Either way it keeps flowing to whoever needs it. To keep the books simple this
+  is **one hop only**: credit that itself arrived via a re-donation or a pool
+  draw can't be passed on again.
 
 Everything resets each **cycle** (a billing period, e.g. a month).
 
@@ -64,10 +74,17 @@ their own Copilot use *or* donate to a request.
 
 ### What's left in the pool
 
-Each giver's pledge minus what's already been drawn from it (both by legacy
-auto-routing from earlier cycles and by marketplace pool fills). Add those up
-across all givers → the **pool available** for filling requests right now. It's
-shown on the marketplace so people can see how much is there.
+The pool has two sources:
+- **Pledges** — each giver's pledge minus what's already been drawn from it (by
+  legacy auto-routing from earlier cycles and by marketplace pool fills).
+- **Returned contributions** — credit that was routed to someone and they pushed
+  back into the pool (charged to the original giver, so it's still served by a
+  real token).
+
+Add those up → the **pool available** for filling requests right now, shown on
+the marketplace. When a request is filled, **returned contributions drain first**
+(oldest-first) before anyone's pledge is touched, so recycled credit moves on
+before fresh pledges are spent.
 
 ### The order credit is spent in
 
@@ -94,11 +111,18 @@ flowchart TB
 ### The marketplace (requests, chip-ins & pool fills)
 
 Anyone can post a **request** ("I need ~90 AIU to finish a PR"). It gets covered
-two ways, both creating **grants**:
+by creating **grants**, from any of these sources:
 
-- **Chip-in** — another giver funds it from their retained credit.
+- **Chip-in (retained)** — another giver funds it from their own retained credit.
+- **Chip-in (received / re-donate)** — someone funds it from credit that was
+  routed to *them* and they haven't burned. The grant still forwards the original
+  donor's token; the re-donor is recorded as the human "supporter" on the card.
 - **Pool fill** — the **requester** tops up their *own* request from the shared
   pool (only the owner can do this; you can't pool-fill someone else's request).
+
+When you chip in and you hold **both** kinds of credit (your own retained *and*
+some routed to you), the marketplace asks which to spend. Otherwise it uses
+whichever you have.
 
 The owner can also **delete** their request; it soft-cancels (kept for history,
 hidden from the board) and any unspent grant credit returns to its donor or the
@@ -165,8 +189,16 @@ lets two programs read/write safely). The tables:
 | `cycle_reports` | frozen snapshot (JSON) of each archived cycle's history report |
 | `giver_cycles` | per giver per cycle: their `quota` and `pledge` |
 | `requests` | marketplace asks (amount needed, reason, target, expiry, cancelled-at) |
-| `grants` | funding (donor, recipient, amount, source: `personal`/`pool`) |
+| `grants` | funding (donor, recipient, amount, source: `personal`/`pool`; plus the re-donation chain: `origin_grant_id`, `via_user_id`, `contribution_id`) |
+| `pool_contributions` | credit a recipient returned to the pool (contributor, origin grant, original donor, amount) |
 | `consumption_events` | every spend: who, from which giver, which bucket (own/pool/grant), how many credits |
+
+The re-donation chain columns on `grants` keep the books honest: a re-donated or
+pool-drawn grant sets `origin_grant_id` to the parent grant it was funded from
+(so `donor_id` stays the original token holder for routing), `via_user_id` to the
+human who passed it on, and `contribution_id` when it was drawn from a returned
+pool contribution. Re-donation depth is capped at 1 — a grant with an
+`origin_grant_id` can't itself be re-donated or returned.
 
 ### Enforcement is atomic
 
