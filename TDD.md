@@ -304,7 +304,10 @@ copilot
 | `REAL_PAT` | _(required)_ | Real PAT swapped in for GHE requests |
 | `PORT` | `8080` | Proxy listen port |
 | `UPSTREAM_CA_BUNDLE` | _(unset)_ | Path to a CA bundle for verifying GHE's TLS cert (e.g. corporate CA); if unset, system CAs are used |
-| `UPSTREAM_INSECURE` | _(unset / `0`)_ | Set to `1` to skip upstream cert verification entirely (logs a warning; for broken environments only) |
+| `UPSTREAM_INSECURE` | _(unset / `0`)_ | Request to skip upstream cert verification. **On its own it does nothing** — verification stays ON and the proxy logs an ERROR — unless `UPSTREAM_INSECURE_CONFIRM` is also set. Disabling verification exposes the real PAT to an on-path attacker. |
+| `UPSTREAM_INSECURE_CONFIRM` | _(unset / `0`)_ | Confirmation flag. Upstream TLS verification is disabled **only when both** `UPSTREAM_INSECURE` and this are truthy. |
+| `CTC_RESTRICT_CONNECT` | _(unset / `0`)_ | Set to `1` when the proxy is reachable from an untrusted network: **both** CONNECT tunnels and direct (non-CONNECT) plain-HTTP proxy requests are then honored only for the GitHub/GHE/Copilot host set, closing the open-relay/SSRF path on both dispatch branches. Default off keeps VPN/localhost-only deployments unchanged. |
+| `CTC_EXTRA_ALLOWED_HOSTS` | _(unset)_ | Comma-separated extra hostnames allowed through when `CTC_RESTRICT_CONNECT=1` (e.g. an internal Jira/Confluence host an MCP server needs). Case-insensitive, exact host match only (no wildcard/suffix). |
 | `LOG_BODY_CAP` | `8192` | Maximum bytes buffered/logged per request or response body |
 | `CTC_DB_PATH` | _(unset)_ | Shared SQLite path. Set (with `CTC_SECRET_KEY`) to enable **multi-tenant mode** (Layer 10): per-request attribution/metering/failover. Unset → legacy single-`REAL_PAT` mode. |
 | `CTC_SECRET_KEY` | _(unset)_ | Key for decrypting stored giver PATs from the shared DB. Required alongside `CTC_DB_PATH` for multi-tenant mode. |
@@ -369,7 +372,9 @@ Previously listed as future work, now resolved:
   `Content-Length ≤ LOG_BODY_CAP` are buffered and logged in full. ✅
 - **Upstream TLS verification** — `build_upstream_ssl_context` now verifies
   GHE's cert by default (system CAs). Use `UPSTREAM_CA_BUNDLE` for a
-  corporate CA, or `UPSTREAM_INSECURE=1` to opt out with a logged warning. ✅
+  corporate CA, or opt out with **both** `UPSTREAM_INSECURE=1` **and**
+  `UPSTREAM_INSECURE_CONFIRM=1` (a bare `UPSTREAM_INSECURE` keeps verification ON
+  and logs an ERROR — disabling it exposes the real PAT to an on-path attacker). ✅
 
 ---
 
@@ -573,7 +578,7 @@ Steps map to the layers below.
 - **What:** one shared `aiohttp` session forwards to `https://<upstream_host><path>`
   with a verified upstream SSL context (default: system CAs; see `UPSTREAM_CA_BUNDLE`
   / `UPSTREAM_INSECURE` in §6.3) and `allow_redirects=False`. Timeouts are
-  `sock_connect=10 s`, `sock_read=30 s` (no `total`, so long streams survive).
+  `sock_connect=10 s`, `sock_read=120 s` (no `total`, so long streams survive).
   Timeout errors return `504 Gateway Timeout`; other forward errors return
   `502 Bad Gateway`.
 - **Response relay (`_relay_response`):** strips

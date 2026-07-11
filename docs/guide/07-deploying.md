@@ -236,7 +236,10 @@ one is the real proof — the tests cover the parts, not the live wiring.
       reveal any giver's PAT in cleartext, so treat it like a secret and keep the list short.
 - [ ] **Proxy locked down** — `PROXY_BIND` on the VPN/internal interface and port
       **8080 firewalled** from the public internet. It blind-tunnels unknown hosts,
-      so a public proxy is an open relay.
+      so a public proxy is an open relay. If the proxy port *must* be reachable from
+      an untrusted network, also set **`CTC_RESTRICT_CONNECT=1`** — it restricts both
+      CONNECT tunnels and direct plain-HTTP requests to the GitHub/GHE/Copilot host
+      set (add internal hosts your tooling needs via `CTC_EXTRA_ALLOWED_HOSTS`).
 - [ ] **Cert trust sorted** — real domain: nothing to do (Let's Encrypt). Raw IP /
       internal name: distribute Caddy's internal CA to the team (see the raw-IP
       section above) so the browser and the install `curl` trust the site.
@@ -302,6 +305,11 @@ See [02 · The `ctc` command](02-the-cli-launcher.md) for that side.
 - **The proxy must never be public.** It's an HTTP `CONNECT` proxy; for hosts it
   doesn't inspect it blind-tunnels, which on the open internet is an **open
   relay**. Keep `PROXY_BIND` on a VPN/internal interface and firewall port 8080.
+  Where public reachability is unavoidable, **`CTC_RESTRICT_CONNECT=1`** is the
+  defense-in-depth backstop: it allowlists both the CONNECT and the plain-HTTP
+  dispatch paths to the GitHub/GHE/Copilot hosts (plus `CTC_EXTRA_ALLOWED_HOSTS`),
+  closing the open-relay/SSRF path on both branches. It is **not** a substitute for
+  firewalling — keep the port private too.
 - **`CTC_SECRET_KEY` and `.env` are secrets.** `.env` is gitignored; keep it off
   git and out of images. Treat the `ctcdata` volume as sensitive (it contains
   encrypted PATs — encrypted, but still).

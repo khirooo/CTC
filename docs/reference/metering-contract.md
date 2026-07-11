@@ -127,7 +127,11 @@ ex19 reconciliation: input `3×330000` + cache_read `18725×33000` + cache_write
 
 This is the endpoint the proxy reads when a **giver uploads a PAT** to learn that
 giver's quota (attack-plan #1/#3). It must be **forwarded + PAT-swapped**, never
-mocked (per `CLAUDE.md` — the CLI needs the real response for token exchange).
+mocked (per `CLAUDE.md` — the CLI reads the real response to decide it's entitled
+and how to proceed). There is **no token-exchange step** in this flow: the captures
+show no `/copilot_internal/v2/token` call; `copilot-api.*` accepts the swapped PAT
+directly as `Bearer`. Copilot keeps one token throughout and the proxy swaps it to
+the PAT on every call.
 
 The `chat` and `completions` snapshots also appear here with `entitlement: -1,
 unlimited: true` — ignore them for credit purposes.
@@ -206,6 +210,39 @@ the **last** `message_delta` event as bytes flow (a small running "last-usage"
 extractor over the SSE stream), independent of `LOG_BODY_CAP`. This does **not**
 require buffering the whole body; it requires scanning to the end-of-stream
 usage event. Capacity/latency neutral if implemented as a streaming scan.
+
+### `POST /models/session` — auto-mode giver pinning + 401 self-heal
+
+`POST /models/session` (`copilot-api.example.ghe.com`,
+`contract.SESSION_BOOTSTRAP_PATH`) is **not billable/metered**, but it is where the
+multi-giver routing gets subtle. It resolves the client's `auto_mode` selection to a
+concrete model **and** returns a `copilot-session-token` that upstream binds to
+**whichever giver identity requested it**. The client then sends that session token on
+its *next* billable call. If the proxy served `/models/session` from giver A but the
+independent per-call source selection lands the billable call on giver B, upstream
+rejects the mismatched token with **`401 "Invalid auto-mode selector"`**.
+
+The proxy (`proxy.py` `_serve`, `is_session_bootstrap`) handles this in two parts:
+
+1. **Pinning.** On a successful (`200`) `/models/session`, the proxy pins the chosen
+   source keyed by `(consumer.user_id, x-client-session-id)`, carrying the session
+   token's `expires_at`. On the next **billable** call with the same key, it reuses
+   that pinned source (via `pinned_source`, which **re-checks bucket headroom + PAT
+   health** before honoring the pin) instead of running an independent `select_source`.
+   The pin falls back to normal selection when there is no pin (client skipped
+   auto-mode / pinned a specific model) or the pinned giver has expired/gone dead.
+
+2. **401 self-heal.** If a billable call that carries a `copilot-session-token` gets a
+   `401` matching the "Invalid auto-mode selector" shape
+   (`is_invalid_auto_mode_selector_401`), the proxy excludes the current giver, selects
+   the next candidate, **re-bootstraps a fresh session token through that giver**
+   (`_bootstrap_session_token` → an internal `/models/session` call), swaps the new
+   `copilot-session-token` into the forwarded headers (and patches the request body's
+   `model` field if the healed session resolved to a different model), re-pins the
+   healed giver, and retries — the same failover pattern used for the `402` quota case.
+
+Neither step charges credit: `/models/session` is non-billable, and the healed retry is
+debited exactly once on its eventual `200` like any billable call.
 
 ---
 

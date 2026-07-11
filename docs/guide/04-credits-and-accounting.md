@@ -241,12 +241,15 @@ always stable (they derive from frozen events); freezing fixes only the labels.
 (`ctc/accounting/reports.py` `build_history`.)
 
 ### Where the numbers come from
-- A giver's **quota** for the cycle is the credit they have *left*, read from
-  GitHub's `/copilot_internal/user` response when they submit their PAT (the
-  `premium_interactions.remaining` field). The `entitlement` (monthly maximum) is
-  stored too, for display. If GitHub omits `remaining`, CTC seeds the quota at
-  **0** (assume spent), not at the full entitlement — a later live read corrects
-  it upward. (`ctc/auth/onboarding.py`.)
+- A giver's **quota** for the cycle is set to their **entitlement** (the monthly
+  maximum), read from GitHub's `/copilot_internal/user` response when they submit
+  their PAT. Any usage that already happened before they connected to CTC
+  (`entitlement − remaining`) is booked immediately as *their own* use, so the
+  credit they can actually spend nets out to what GitHub reports as
+  `premium_interactions.remaining`. If GitHub omits `remaining`, CTC treats the PAT
+  as fully spent (remaining 0), not as untouched — a later live read corrects it
+  upward. The entitlement and remaining are also stored in a snapshot for display.
+  (`ctc/auth/onboarding.py`.)
 - A consumption event's **cost** is the `copilot_usage.total_nano_aiu` the Proxy
   read from GitHub's reply ([01](01-the-proxy.md)), charged on every billable
   endpoint (`/chat/completions`, `/v1/messages`, `/responses`).
