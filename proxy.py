@@ -542,7 +542,9 @@ async def reconcile_candidate(engine, live_cache, cycle_id, giver_id):
     if v is None:
         return None
     try:
-        engine.reconcile_giver(cycle_id, giver_id, v)
+        # Hot path: stays debounced (two-observation confirm) + throttled so an
+        # in-flight cost isn't double-booked as BYPASS and the loop isn't stalled.
+        engine.reconcile_giver(cycle_id, giver_id, v, ts=_now())
     except Exception as exc:
         log.warning("[reconcile] candidate %s failed: %s", giver_id, exc)
     r = v.get("remaining")
@@ -558,8 +560,11 @@ async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id) -> None:
         v = await live_cache.get(giver_id) if live_cache is not None else None
         ent = v.get("entitlement") if v else None
         if ent is not None and int(ent) >= 0:
+            # Confirmed 402 (quota exhausted upstream): book the outstanding burn
+            # immediately, no debounce — the giver really is spent.
             engine.reconcile_giver(cycle_id, giver_id,
-                                   {"entitlement": int(ent), "remaining": 0})
+                                   {"entitlement": int(ent), "remaining": 0},
+                                   ts=_now(), immediate=True)
     except Exception as exc:
         log.warning("[failover] reconcile failed for %s: %s", giver_id, exc)
     if live_cache is not None:

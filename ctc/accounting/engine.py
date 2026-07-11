@@ -11,12 +11,26 @@ from ..domain.types import (Bucket, Cycle, Event, Grant, GiverCycle, PoolContrib
 from ..store.accounting_store import AccountingStore
 from .errors import InsufficientCredit, InvalidConsumption, InvalidPledge, RequestClosed
 
+# reconcile_giver debounce/throttle tuning (module constants).
+# A positive drift must persist across two observations at least CONFIRM_MIN_S
+# apart before it is booked as BYPASS (fixes the watermark race that double-booked
+# in-flight cost, P1-2). An observation older than CONFIRM_WINDOW_MAX is stale and
+# restarts the debounce. The in-memory throttle skips repeat reconciles of the same
+# (cycle, giver) within THROTTLE_S unless the caller passes immediate=True.
+RECONCILE_CONFIRM_MIN_S = 90
+RECONCILE_CONFIRM_WINDOW_MAX = 900
+RECONCILE_THROTTLE_S = 60
+
 
 class AccountingEngine:
     def __init__(self, store: AccountingStore, config=None):
         self.store = store
         self.conn = store.conn
         self.config = config if config is not None else _env_config
+        # Per-engine in-memory throttle: (cycle_id, giver_id) -> last reconcile ts.
+        # Best-effort; not shared across processes (proxy vs control plane each keep
+        # their own), which is fine — it only suppresses redundant hot-path work.
+        self._reconcile_seen: dict[tuple[str, str], int] = {}
 
     # --- balance reads ---
     def personal_remaining(self, cycle_id: str, giver_id: str) -> int:
@@ -426,28 +440,145 @@ class AccountingEngine:
             self.conn.execute("ROLLBACK")
             raise
 
+    def _tracked_burn(self, cycle_id: str, giver_id: str) -> int:
+        """Total burn CTC has already attributed to this giver this cycle (own +
+        pool + all grant draws from their PAT + already-booked bypass)."""
+        return (self.store.own_consumed(cycle_id, giver_id)
+                + self.store.pool_consumed_from(cycle_id, giver_id)
+                + self.store.grants_consumed_from(cycle_id, giver_id)
+                + self.store.bypass_consumed(cycle_id, giver_id))
+
     def reconcile_giver(self, cycle_id: str, giver_id: str,
-                        live: dict | None, ts: int = 0) -> Event | None:
+                        live: dict | None, ts: int = 0,
+                        immediate: bool = False) -> Event | None:
         """Book a giver's out-of-band (non-proxied) GitHub burn as a self-sourced
-        BYPASS event so every events-based surface reflects reality. Idempotent:
-        only the positive delta over already-booked bypass is written (watermark =
-        sum of existing bypass events). No-op on unusable/unlimited/unknown quota
-        or when CTC has tracked at least as much as GitHub reports. The read of the
-        four sums and the insert run in one BEGIN IMMEDIATE so concurrent callers
-        (proxy + control plane) cannot double-write."""
+        BYPASS event so every events-based surface reflects reality.
+
+        Drift is measured against a per-giver `burn_baseline` (captured lazily on
+        the first observation; absorbs the GitHub reset lag that used to re-book a
+        whole prior month at rollover, P1-3) rather than against zero. A positive
+        drift is confirmed across two observations >= CONFIRM_MIN_S apart before it
+        is booked (a single in-flight cost no longer double-books as BYPASS, P1-2).
+
+        The common case — drift <= 0 with a baseline already set — takes NO write
+        lock (P1-11): only baseline capture, the debounce record, and the final
+        booking open a short BEGIN IMMEDIATE, each re-reading state in-txn so
+        concurrent callers (proxy + control plane) cannot double-write.
+
+        immediate=True skips the debounce and books confirmed drift right away
+        (onboarding books pre-connect burn; the proxy books a confirmed 402). An
+        immediate call also bypasses the in-memory throttle."""
         if not live:
             return None
         ent, rem = live.get("entitlement"), live.get("remaining")
         if ent is None or rem is None or int(ent) < 0 or int(rem) < 0:  # unknown / unlimited(-1) / corrupt
             return None
         github_burn = (int(ent) - int(rem)) * NANO_PER_AIU
+
+        # In-memory throttle: skip redundant hot-path reconciles of the same giver.
+        if not immediate:
+            key = (cycle_id, giver_id)
+            last = self._reconcile_seen.get(key)
+            if last is not None and 0 <= ts - last < RECONCILE_THROTTLE_S:
+                return None
+            self._reconcile_seen[key] = ts
+
+        # Lock-free read of current state.
+        gc = self.store.get_giver_cycle(cycle_id, giver_id)
+        tracked = self._tracked_burn(cycle_id, giver_id)
+        baseline = gc.burn_baseline if gc else None
+
+        # First observation with no baseline (and not the immediate book-everything
+        # path): capture the baseline and book nothing. This absorbs whatever GitHub
+        # already reported as burned before CTC started tracking this cycle.
+        if baseline is None and not immediate:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.store.set_burn_baseline(cycle_id, giver_id, max(0, github_burn - tracked))
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            return None
+
+        base = baseline if baseline is not None else 0
+
+        # GitHub burn fell below the baseline → quota reset upstream. Re-anchor the
+        # baseline and drop any pending observation; book nothing.
+        if github_burn < base:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.store.set_burn_baseline(cycle_id, giver_id, max(0, github_burn - tracked))
+                self.store.set_pending_drift(cycle_id, giver_id, None, None)
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            return None
+
+        drift = github_burn - base - tracked
+        if drift <= 0:
+            # Common case: nothing to book. No lock. Clear a stale pending only if
+            # one is set (rare), so a transient drift doesn't linger forever.
+            if gc is not None and gc.pending_drift is not None:
+                self.conn.execute("BEGIN IMMEDIATE")
+                try:
+                    self.store.set_pending_drift(cycle_id, giver_id, None, None)
+                    self.conn.execute("COMMIT")
+                except BaseException:
+                    self.conn.execute("ROLLBACK")
+                    raise
+            return None
+
+        if immediate:
+            return self._book_bypass(cycle_id, giver_id, github_burn, ts)
+
+        # Two-observation debounce (drift > 0).
+        pending, pending_at = (gc.pending_drift, gc.pending_drift_at) if gc else (None, None)
+        if pending is None or pending_at is None:
+            # First observation: record it, book nothing yet.
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.store.set_pending_drift(cycle_id, giver_id, drift, ts)
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            return None
+
+        age = ts - pending_at
+        if age < RECONCILE_CONFIRM_MIN_S:
+            # Too soon to confirm; keep the earlier observation (don't reset clock).
+            return None
+        if age > RECONCILE_CONFIRM_WINDOW_MAX:
+            # Stale observation: treat this as a fresh first observation.
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.store.set_pending_drift(cycle_id, giver_id, drift, ts)
+                self.conn.execute("COMMIT")
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            return None
+
+        # Confirmed across two observations: book the conservative min(obs1, obs2).
+        return self._book_bypass(cycle_id, giver_id, github_burn, ts, cap=min(pending, drift))
+
+    def _book_bypass(self, cycle_id: str, giver_id: str, github_burn: int, ts: int,
+                     cap: int | None = None) -> Event | None:
+        """Book confirmed out-of-band drift as a BYPASS event inside BEGIN
+        IMMEDIATE, recomputing drift in-txn so a concurrent writer that already
+        booked part of it can't be double-counted. Clears the pending observation.
+        `cap` bounds the amount booked (the debounced min of two observations)."""
         self.conn.execute("BEGIN IMMEDIATE")
         try:
-            tracked = (self.store.own_consumed(cycle_id, giver_id)
-                       + self.store.pool_consumed_from(cycle_id, giver_id)
-                       + self.store.grants_consumed_from(cycle_id, giver_id)
-                       + self.store.bypass_consumed(cycle_id, giver_id))
-            drift = github_burn - tracked
+            gc = self.store.get_giver_cycle(cycle_id, giver_id)
+            base = gc.burn_baseline if (gc and gc.burn_baseline is not None) else 0
+            tracked = self._tracked_burn(cycle_id, giver_id)
+            drift = github_burn - base - tracked
+            if cap is not None:
+                drift = min(drift, cap)
+            self.store.set_pending_drift(cycle_id, giver_id, None, None)
             if drift <= 0:
                 self.conn.execute("COMMIT")
                 return None

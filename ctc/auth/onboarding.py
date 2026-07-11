@@ -46,8 +46,13 @@ async def validate_and_store_pat(registry, engine, http_get_user, cycle_id, user
         engine.set_pledge(cycle_id, user_id, avail_nano * pct // 100)
         gc = engine.store.get_giver_cycle(cycle_id, user_id)
     # Book any burn that happened before they connected to CTC as their own use.
+    # Anchor the baseline at 0 so the pre-connect burn (entitlement - remaining) is
+    # attributed to the owner, and book it immediately (skip the two-observation
+    # debounce, which is only for steady-state out-of-band drift).
+    engine.store.set_burn_baseline(cycle_id, user_id, 0)
     engine.reconcile_giver(cycle_id, user_id,
-                           {"entitlement": int(ent), "remaining": avail})
+                           {"entitlement": int(ent), "remaining": avail},
+                           ts=now, immediate=True)
     pledged_nano = gc.pledge if gc else 0
     used_nano = engine.store.own_consumed(cycle_id, user_id) + engine.store.bypass_consumed(cycle_id, user_id)
     return {"ghe_login": ghe_login, "quota_aiu": avail,

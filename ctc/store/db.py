@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS giver_cycles (
   giver_id TEXT NOT NULL,
   quota INTEGER NOT NULL,
   pledge INTEGER NOT NULL,
+  burn_baseline INTEGER,
+  pending_drift INTEGER,
+  pending_drift_at INTEGER,
   PRIMARY KEY (cycle_id, giver_id)
 );
 CREATE TABLE IF NOT EXISTS requests (
@@ -141,6 +144,10 @@ def connect(path: str = ":memory:") -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
+    # synchronous=NORMAL is safe with WAL (a crash can lose the last few committed
+    # transactions but never corrupts the DB) and materially cuts fsync stalls that
+    # would otherwise freeze the proxy event loop under control-plane write load.
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 
@@ -161,6 +168,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     rcols = {r["name"] for r in conn.execute("PRAGMA table_info(requests)")}
     if "cancelled_at" not in rcols:
         conn.execute("ALTER TABLE requests ADD COLUMN cancelled_at INTEGER")
+    gccols = {r["name"] for r in conn.execute("PRAGMA table_info(giver_cycles)")}
+    for col in ("burn_baseline", "pending_drift", "pending_drift_at"):
+        if col not in gccols:
+            conn.execute(f"ALTER TABLE giver_cycles ADD COLUMN {col} INTEGER")
     gcols = {r["name"] for r in conn.execute("PRAGMA table_info(grants)")}
     if "source" not in gcols:
         conn.execute("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'personal'")

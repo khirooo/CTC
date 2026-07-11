@@ -59,15 +59,36 @@ class AccountingStore:
             (gc.cycle_id, gc.giver_id, gc.quota, gc.pledge),
         )
 
+    @staticmethod
+    def _giver_cycle_row(r) -> GiverCycle:
+        return GiverCycle(r["cycle_id"], r["giver_id"], r["quota"], r["pledge"],
+                          r["burn_baseline"], r["pending_drift"], r["pending_drift_at"])
+
     def get_giver_cycle(self, cycle_id: str, giver_id: str) -> GiverCycle | None:
         r = self.conn.execute(
             "SELECT * FROM giver_cycles WHERE cycle_id=? AND giver_id=?", (cycle_id, giver_id)
         ).fetchone()
-        return GiverCycle(r["cycle_id"], r["giver_id"], r["quota"], r["pledge"]) if r else None
+        return self._giver_cycle_row(r) if r else None
 
     def all_giver_cycles(self, cycle_id: str) -> list[GiverCycle]:
         rows = self.conn.execute("SELECT * FROM giver_cycles WHERE cycle_id=?", (cycle_id,)).fetchall()
-        return [GiverCycle(r["cycle_id"], r["giver_id"], r["quota"], r["pledge"]) for r in rows]
+        return [self._giver_cycle_row(r) for r in rows]
+
+    def set_burn_baseline(self, cycle_id: str, giver_id: str, baseline: int) -> None:
+        # Plain UPDATE (reconcile state only) — upsert_giver_cycle deliberately does
+        # not touch these columns so a quota/pledge change never resets reconcile state.
+        self.conn.execute(
+            "UPDATE giver_cycles SET burn_baseline=? WHERE cycle_id=? AND giver_id=?",
+            (baseline, cycle_id, giver_id),
+        )
+
+    def set_pending_drift(self, cycle_id: str, giver_id: str,
+                          drift: int | None, at: int | None) -> None:
+        self.conn.execute(
+            "UPDATE giver_cycles SET pending_drift=?, pending_drift_at=? "
+            "WHERE cycle_id=? AND giver_id=?",
+            (drift, at, cycle_id, giver_id),
+        )
 
     # --- requests ---
     @staticmethod

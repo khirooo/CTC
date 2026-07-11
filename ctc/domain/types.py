@@ -39,6 +39,15 @@ class GiverCycle:
     giver_id: str
     quota: int
     pledge: int
+    # Reconciliation state (see AccountingEngine.reconcile_giver):
+    # burn_baseline    = github_burn that corresponds to zero tracked CTC usage
+    #                    (captured lazily on first reconcile; absorbs reset lag).
+    # pending_drift    = first observation of positive drift awaiting a second
+    #                    confirming observation before it is booked as BYPASS.
+    # pending_drift_at = ts (epoch seconds) of that first observation.
+    burn_baseline: int | None = None
+    pending_drift: int | None = None
+    pending_drift_at: int | None = None
 
 
 @dataclass(frozen=True)

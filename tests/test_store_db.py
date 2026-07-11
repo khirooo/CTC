@@ -35,6 +35,30 @@ def test_autocommit_and_manual_transaction(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM cycles").fetchone()[0] == 1
 
 
+def test_synchronous_normal_for_file_db(tmp_path):
+    conn = connect(str(tmp_path / "ctc.db"))
+    # PRAGMA synchronous returns an int: 0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA.
+    assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
+
+
+def test_init_db_migrates_pre_reconcile_giver_cycles(tmp_path):
+    # A DB created before the reconcile columns existed must gain them on init_db.
+    conn = connect(str(tmp_path / "old.db"))
+    conn.execute(
+        "CREATE TABLE giver_cycles (cycle_id TEXT NOT NULL, giver_id TEXT NOT NULL, "
+        "quota INTEGER NOT NULL, pledge INTEGER NOT NULL, PRIMARY KEY (cycle_id, giver_id))"
+    )
+    conn.execute("INSERT INTO giver_cycles (cycle_id, giver_id, quota, pledge) VALUES ('c','g',10,0)")
+    init_db(conn)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(giver_cycles)")}
+    assert {"burn_baseline", "pending_drift", "pending_drift_at"} <= cols
+    r = conn.execute(
+        "SELECT burn_baseline, pending_drift, pending_drift_at FROM giver_cycles "
+        "WHERE cycle_id='c' AND giver_id='g'"
+    ).fetchone()
+    assert r["burn_baseline"] is None and r["pending_drift"] is None and r["pending_drift_at"] is None
+
+
 def test_init_db_migrates_pre_health_giver_pats(tmp_path):
     # A DB created before the health columns existed must gain them on init_db.
     conn = connect(str(tmp_path / "old.db"))

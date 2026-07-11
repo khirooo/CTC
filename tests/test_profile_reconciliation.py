@@ -153,7 +153,10 @@ async def test_used_is_events_sourced_not_stale_snapshot():
         # raises → stale.  We therefore drive the intermediate reconcile manually
         # to avoid coupling the test to the cache TTL.
         uid = store.get_user_by_login("octocat")["id"]
-        eng.reconcile_giver("c1", uid, {"entitlement": 4000, "remaining": 1000})
+        # immediate=True books the delta without the two-observation debounce (the
+        # onboarding baseline is 0, so this mirrors a confirmed live reconcile).
+        eng.reconcile_giver("c1", uid, {"entitlement": 4000, "remaining": 1000},
+                            ts=500, immediate=True)
         # Now bypass_consumed = 3000 N in the events table.
 
         # Profile GET: live fetch is now call 2 → raises → stale path activated.

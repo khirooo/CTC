@@ -297,7 +297,7 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         # so profile, leaderboard and dashboard all derive the same number. No-op
         # when stale (lq is None / entitlement None) or unlimited.
         if lq and lq.get("entitlement") is not None:
-            engine.reconcile_giver(cycle.id, uid, lq)
+            engine.reconcile_giver(cycle.id, uid, lq, ts=now())
 
         unlimited = ent_aiu == -1
         pledged = gc.pledge

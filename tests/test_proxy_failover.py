@@ -147,12 +147,17 @@ def test_reconcile_exhausted_none_cache_is_safe(_engine_quota_4000):
 # --------------------------------------------------------------------------- #
 # reconcile_candidate
 # --------------------------------------------------------------------------- #
-def test_reconcile_candidate_books_drift_and_returns_remaining(_engine_quota_4000):
+def test_reconcile_candidate_returns_remaining_and_debounces(_engine_quota_4000):
     eng = _engine_quota_4000  # fixture: cycle "c1", giver "g1", quota 4000*N, no events
     cache = _FakeCache({"entitlement": 4000, "remaining": 1500})
+    # Hot path is debounced: the first candidate reconcile captures the burn
+    # baseline and books nothing (avoids double-booking in-flight cost, P1-2/3),
+    # but still returns the giver's live remaining for the health gate.
     rem = asyncio.run(proxy.reconcile_candidate(eng, cache, "c1", "g1"))
     assert rem == 1500
-    assert eng.store.bypass_consumed("c1", "g1") > 0
+    assert eng.store.bypass_consumed("c1", "g1") == 0
+    gc = eng.store.get_giver_cycle("c1", "g1")
+    assert gc.burn_baseline == 2500 * _N   # github_burn(4000-1500) - tracked(0)
 
 
 def test_reconcile_candidate_unknown_quota_returns_none(_engine_quota_4000):
