@@ -99,7 +99,7 @@ def _build_attribution():
             url = f"https://{REAL_GHE_HOST}/copilot_internal/user"
             async with _http.request(
                     "GET", url, headers=headers,
-                    ssl=build_upstream_ssl_context(UPSTREAM_INSECURE, UPSTREAM_CA_BUNDLE),
+                    ssl=upstream_ssl_context(),
                     timeout=aiohttp.ClientTimeout(sock_connect=5, sock_read=10)) as r:
                 if r.status != 200:
                     raise RuntimeError(f"/copilot_internal/user -> {r.status}")
@@ -230,6 +230,23 @@ def build_upstream_ssl_context(insecure: bool, ca_bundle):
     elif ca_bundle:
         ctx.load_verify_locations(ca_bundle)
     return ctx
+
+
+# Process-wide upstream SSLContext, built lazily once. A fresh context per
+# connection (the old behavior) parsed the CA bundle synchronously on the event
+# loop AND defeated aiohttp connection pooling — the pool is keyed by
+# SSLContext identity, so a new context per call meant every upstream tunnel
+# paid a full TCP+TLS handshake to GHE. Resettable (set _upstream_ssl = None)
+# so tests that monkeypatch UPSTREAM_INSECURE / UPSTREAM_CA_BUNDLE after import
+# force a rebuild.
+_upstream_ssl: Optional[ssl.SSLContext] = None
+
+
+def upstream_ssl_context() -> ssl.SSLContext:
+    global _upstream_ssl
+    if _upstream_ssl is None:
+        _upstream_ssl = build_upstream_ssl_context(UPSTREAM_INSECURE, UPSTREAM_CA_BUNDLE)
+    return _upstream_ssl
 
 _HOP_BY_HOP = {"host", "authorization", "content-length",
                "transfer-encoding", "connection", "proxy-connection"}
@@ -510,7 +527,7 @@ async def _bootstrap_session_token(source, hdrs, auth) -> Optional[dict]:
             f"https://{contract.BILLABLE_HOST}{contract.SESSION_BOOTSTRAP_PATH}",
             headers=fwd,
             data=contract.SESSION_BOOTSTRAP_BODY,
-            ssl=build_upstream_ssl_context(UPSTREAM_INSECURE, UPSTREAM_CA_BUNDLE),
+            ssl=upstream_ssl_context(),
             allow_redirects=False,
             timeout=aiohttp.ClientTimeout(sock_connect=10, sock_read=15),
         ) as resp:
@@ -579,7 +596,7 @@ async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id) -> None:
 # ---------------------------------------------------------------------------
 async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                  upstream_host: str, port: int = 443):
-    upstream_ssl = build_upstream_ssl_context(UPSTREAM_INSECURE, UPSTREAM_CA_BUNDLE)
+    upstream_ssl = upstream_ssl_context()
 
     while True:
         raw = await _read_head(reader)
@@ -1015,6 +1032,10 @@ async def main():
     _server_ssl.set_alpn_protocols(["http/1.1"])
 
     _http = aiohttp.ClientSession(connector=aiohttp.TCPConnector())
+    # Build the shared upstream SSLContext once, up front, so the first request
+    # doesn't pay the CA-parse cost on the loop and every request reuses the
+    # same context (aiohttp pools connections keyed by SSLContext identity).
+    upstream_ssl_context()
     if UPSTREAM_INSECURE:
         log.warning("UPSTREAM_INSECURE=1 — upstream GHE certificate will NOT be verified")
 

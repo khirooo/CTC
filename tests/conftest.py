@@ -100,6 +100,11 @@ async def running_proxy(test_cert, mock_upstream):
     proxy_mod.SWAP_HOSTS = {TEST_HOST}
     proxy_mod.UPSTREAM_CA_BUNDLE = cert
     proxy_mod.UPSTREAM_INSECURE = False
+    # The upstream SSLContext is cached lazily (B2); reset so it rebuilds from
+    # the test CA/insecure globals we just monkeypatched instead of reusing a
+    # context built at import time.
+    orig_upstream_ssl = proxy_mod._upstream_ssl
+    proxy_mod._upstream_ssl = None
 
     sctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     sctx.load_cert_chain(cert, key)
@@ -123,6 +128,7 @@ async def running_proxy(test_cert, mock_upstream):
     proxy_mod.SWAP_HOSTS = orig_swap_hosts
     proxy_mod.UPSTREAM_CA_BUNDLE = orig_upstream_ca_bundle
     proxy_mod.UPSTREAM_INSECURE = orig_upstream_insecure
+    proxy_mod._upstream_ssl = orig_upstream_ssl
     proxy_mod._server_ssl = orig_server_ssl
     proxy_mod._http = orig_http
     if orig_http is not None:
