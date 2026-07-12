@@ -4,6 +4,25 @@ import time
 
 from aiohttp import web
 
+
+def client_ip(req) -> str:
+    """Best-effort real client IP for rate-limit keying.
+
+    Behind the shipped Caddy front (`reverse_proxy` appends the peer IP to
+    `X-Forwarded-For`), `req.remote` is always Caddy's address — so keying on it
+    collapses every user into one bucket. The rightmost `X-Forwarded-For` entry is
+    the client as Caddy observed it; it's spoof-resistant with a single trusted hop
+    (a client-injected value is pushed left by Caddy's appended peer IP). With no
+    proxy (http/LAN transport) the header is absent and we fall back to `req.remote`.
+    """
+    xff = req.headers.get("X-Forwarded-For", "")
+    if xff:
+        last = xff.split(",")[-1].strip()
+        if last:
+            return last
+    return req.remote or "unknown"
+
+
 # Per-scope limits (requests per WINDOW_S). Module constants so callers and tests
 # agree on the numbers.
 WINDOW_S = 60

@@ -48,3 +48,15 @@ def test_legacy_name_valued_target_renders_verbatim():
     users = {"u_ada": {"display_name": "Ada Lovelace"}}
     dto = build_public_request(store, lambda uid: users.get(uid), store.get_request("r1"), now=10)
     assert dto.model_dump(by_alias=True)["target"] == "Ada Lovelace"
+
+
+def test_directed_target_deleted_user_renders_unknown():
+    conn = connect(":memory:"); init_db(conn); store = AccountingStore(conn)
+    # A uuid-shaped target that no longer resolves = since-deleted user; render a
+    # friendly label, not the raw 32-char hex id.
+    deleted_id = "0123456789abcdef0123456789abcdef"
+    store.add_request(Request("r1", "c1", "u_ada", Role.CONSUMER,
+                              100 * NANO_PER_AIU, "need", deleted_id, 1, 9999))
+    users = {"u_ada": {"display_name": "Ada Lovelace"}}
+    dto = build_public_request(store, lambda uid: users.get(uid), store.get_request("r1"), now=10)
+    assert dto.model_dump(by_alias=True)["target"] == "Unknown user"

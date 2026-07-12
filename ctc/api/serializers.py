@@ -173,12 +173,15 @@ def build_public_request(store, get_user, r: Request, now: int, viewer_id: str |
     status = derive_status(funded, r.amount_needed, r.expires_at, now, r.cancelled_at)
     # Directed requests store the target as a user id (the client sends userId);
     # resolve it to a display name for rendering. Legacy rows that stored a raw
-    # name (no matching user) render verbatim.
+    # name (no matching user) render verbatim; an unresolved id-shaped target is a
+    # since-deleted user and renders as "Unknown user" rather than a raw uuid.
     target = r.target
     if target:
         target_user = get_user(target)
         if target_user:
             target = target_user["display_name"]
+        elif len(target) == 32 and all(c in "0123456789abcdef" for c in target):
+            target = "Unknown user"
     return PublicRequestDTO(
         id=r.id, requester_id=r.requester_id, requester_name=name, initials=initials(name),
         requester_role=ROLE_TO_REQUESTER[r.requester_role],

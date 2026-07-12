@@ -1,7 +1,25 @@
 import pytest
 from aiohttp import web
 
-from ctc.api.rate_limit import RateLimiter
+from ctc.api.rate_limit import RateLimiter, client_ip
+
+
+class _Req:
+    def __init__(self, headers=None, remote=None):
+        self.headers = headers or {}
+        self.remote = remote
+
+
+def test_client_ip_prefers_rightmost_forwarded_for():
+    # Behind Caddy, X-Forwarded-For ends with the real client as Caddy saw it;
+    # a client-injected value is pushed left, so the rightmost entry wins.
+    req = _Req({"X-Forwarded-For": "1.2.3.4, 10.0.0.9"}, remote="172.18.0.2")
+    assert client_ip(req) == "10.0.0.9"
+
+
+def test_client_ip_falls_back_to_remote_without_header():
+    assert client_ip(_Req(remote="203.0.113.7")) == "203.0.113.7"
+    assert client_ip(_Req()) == "unknown"
 
 
 def test_allows_up_to_limit_then_blocks():

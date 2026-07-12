@@ -13,7 +13,7 @@ from aiohttp import web
 from ctc.store.db import connect, init_db
 from ctc.store.auth_store import AuthStore
 from ctc.auth.crypto import derive_key, validate_secret
-from ctc.api.rate_limit import (RateLimiter, PAT_LIMIT, LOGIN_LIMIT,
+from ctc.api.rate_limit import (RateLimiter, client_ip, PAT_LIMIT, LOGIN_LIMIT,
                                 PROXY_TOKEN_LIMIT, MAX_ACTIVE_PROXY_TOKENS)
 from ctc.auth.registry import AuthRegistry
 from ctc.auth.sessions import SessionService
@@ -114,7 +114,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         return wrapped
 
     async def auth_login(req):
-        _rate.check("login", req.remote or "unknown", LOGIN_LIMIT)
+        _rate.check("login", client_ip(req), LOGIN_LIMIT)
         state = uuid.uuid4().hex
         resp = web.HTTPFound(oauth.authorize_url(state))
         secure = app_origin.startswith("https")
