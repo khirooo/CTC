@@ -54,10 +54,6 @@ CREATE TABLE IF NOT EXISTS pool_contributions (
   amount INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_pool_contrib_cycle ON pool_contributions (cycle_id);
-CREATE INDEX IF NOT EXISTS ix_pool_contrib_origin ON pool_contributions (origin_grant_id);
-CREATE INDEX IF NOT EXISTS ix_grants_origin ON grants (origin_grant_id);
-CREATE INDEX IF NOT EXISTS ix_grants_contribution ON grants (contribution_id);
 CREATE TABLE IF NOT EXISTS consumption_events (
   id TEXT PRIMARY KEY,
   cycle_id TEXT NOT NULL,
@@ -68,13 +64,6 @@ CREATE TABLE IF NOT EXISTS consumption_events (
   grant_id TEXT,
   credits INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_events_cycle ON consumption_events (cycle_id);
-CREATE INDEX IF NOT EXISTS ix_events_consumer ON consumption_events (cycle_id, consumer_id);
-CREATE INDEX IF NOT EXISTS ix_events_source ON consumption_events (cycle_id, source_giver_id);
-CREATE INDEX IF NOT EXISTS ix_events_grant ON consumption_events (grant_id);
-CREATE INDEX IF NOT EXISTS ix_grants_request ON grants (request_id);
-CREATE INDEX IF NOT EXISTS ix_grants_donor ON grants (cycle_id, donor_id);
-CREATE INDEX IF NOT EXISTS ix_grants_recipient ON grants (cycle_id, recipient_id);
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   ghe_login TEXT UNIQUE NOT NULL,
@@ -91,7 +80,6 @@ CREATE TABLE IF NOT EXISTS proxy_tokens (
   created_at INTEGER NOT NULL,
   revoked_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS ix_proxy_tokens_user ON proxy_tokens (user_id);
 CREATE TABLE IF NOT EXISTS giver_pats (
   user_id TEXT PRIMARY KEY,
   ciphertext BLOB NOT NULL,
@@ -125,12 +113,33 @@ CREATE TABLE IF NOT EXISTS admin_audit (
   target_user_id TEXT,
   ts             INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_admin_audit_ts ON admin_audit (ts);
 CREATE TABLE IF NOT EXISTS cycle_reports (
   cycle_id    TEXT PRIMARY KEY,
   report_json TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 );
+"""
+
+# Indexes are applied AFTER the ALTER-TABLE column migrations in init_db, never
+# inside the table-creation script. On a pre-existing DB `CREATE TABLE IF NOT
+# EXISTS` is a no-op, so a table may still be missing a migration-added column
+# (e.g. grants.origin_grant_id) when the schema script runs — creating an index
+# on that column there raises "no such column". Running indexes last, once the
+# ADD COLUMN migrations have caught the table up, keeps old DBs upgradable.
+INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_pool_contrib_cycle ON pool_contributions (cycle_id);
+CREATE INDEX IF NOT EXISTS ix_pool_contrib_origin ON pool_contributions (origin_grant_id);
+CREATE INDEX IF NOT EXISTS ix_grants_origin ON grants (origin_grant_id);
+CREATE INDEX IF NOT EXISTS ix_grants_contribution ON grants (contribution_id);
+CREATE INDEX IF NOT EXISTS ix_events_cycle ON consumption_events (cycle_id);
+CREATE INDEX IF NOT EXISTS ix_events_consumer ON consumption_events (cycle_id, consumer_id);
+CREATE INDEX IF NOT EXISTS ix_events_source ON consumption_events (cycle_id, source_giver_id);
+CREATE INDEX IF NOT EXISTS ix_events_grant ON consumption_events (grant_id);
+CREATE INDEX IF NOT EXISTS ix_grants_request ON grants (request_id);
+CREATE INDEX IF NOT EXISTS ix_grants_donor ON grants (cycle_id, donor_id);
+CREATE INDEX IF NOT EXISTS ix_grants_recipient ON grants (cycle_id, recipient_id);
+CREATE INDEX IF NOT EXISTS ix_proxy_tokens_user ON proxy_tokens (user_id);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_ts ON admin_audit (ts);
 """
 
 
@@ -183,3 +192,6 @@ def init_db(conn: sqlite3.Connection) -> None:
     # the whole final day (P0-1). Idempotent: once bumped, ends_at%86400==0 no longer
     # matches. Realistic cycle ends are exact UTC-midnight boundaries and unaffected.
     conn.execute("UPDATE cycles SET ends_at = ends_at + 1 WHERE ends_at % 86400 = 86399")
+    # Indexes last: the ADD COLUMN migrations above have now caught any pre-existing
+    # table up to the current schema, so indexing migration-added columns is safe.
+    conn.executescript(INDEXES)

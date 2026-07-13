@@ -59,6 +59,28 @@ def test_init_db_migrates_pre_reconcile_giver_cycles(tmp_path):
     assert r["burn_baseline"] is None and r["pending_drift"] is None and r["pending_drift_at"] is None
 
 
+def test_init_db_migrates_pre_redonation_grants(tmp_path):
+    # A DB whose `grants` table predates the re-donation columns must upgrade on
+    # init_db, not crash. Regression for "no such column: origin_grant_id": indexes
+    # on migration-added columns must run AFTER the ADD COLUMN migrations, never
+    # inside the CREATE-TABLE script (where CREATE TABLE IF NOT EXISTS is a no-op
+    # against the old table).
+    conn = connect(str(tmp_path / "old.db"))
+    conn.execute(
+        "CREATE TABLE grants (id TEXT PRIMARY KEY, cycle_id TEXT NOT NULL, "
+        "request_id TEXT NOT NULL, donor_id TEXT NOT NULL, recipient_id TEXT NOT NULL, "
+        "amount INTEGER NOT NULL, created_at INTEGER NOT NULL)"
+    )
+    conn.execute("INSERT INTO grants VALUES ('gr','c','r','d','rc',5,1)")
+    init_db(conn)  # must not raise
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(grants)")}
+    assert {"source", "origin_grant_id", "via_user_id", "contribution_id"} <= cols
+    # the index that used to fail now exists
+    idx = {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'")}
+    assert "ix_grants_origin" in idx
+
+
 def test_init_db_migrates_pre_health_giver_pats(tmp_path):
     # A DB created before the health columns existed must gain them on init_db.
     conn = connect(str(tmp_path / "old.db"))
