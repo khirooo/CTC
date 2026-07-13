@@ -573,12 +573,17 @@ export function ProfileScreen() {
           </>
         ) : (
           <>
-            {(tokens.data?.length ?? 0) > 0 && (
-              <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
-                You have {tokens.data!.length} active install token{tokens.data!.length === 1 ? '' : 's'}. The token is
-                shown only once when created — generate a new command if you no longer have it.
-              </p>
-            )}
+            {(() => {
+              // Count only genuinely-active tokens: the API returns revoked rows too
+              // (they're kept for history), so `tokens.data.length` would overcount.
+              const activeCount = (tokens.data ?? []).filter(t => !t.revoked).length;
+              return activeCount > 0 ? (
+                <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
+                  You have {activeCount} active install token{activeCount === 1 ? '' : 's'}. The token is
+                  shown only once when created — generate a new command if you no longer have it.
+                </p>
+              ) : null;
+            })()}
             <button
               type="button"
               onClick={handleGenerateCli}

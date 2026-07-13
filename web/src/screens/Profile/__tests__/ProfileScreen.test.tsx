@@ -157,4 +157,21 @@ describe('ProfileScreen CLI setup: mint only on explicit action', () => {
     await userEvent.click(btn);
     await waitFor(() => expect(api.getCliCredentials).toHaveBeenCalledTimes(1));
   });
+
+  it('counts only non-revoked tokens as active (revoked rows are kept for history)', async () => {
+    // 2 active + 3 revoked → the message must say "2", not "5".
+    const api = makeApi({
+      listProxyTokens: vi.fn(async () => [
+        { id: 'a', fingerprint: 'f1', createdAt: 1, revoked: false },
+        { id: 'b', fingerprint: 'f2', createdAt: 2, revoked: true },
+        { id: 'c', fingerprint: 'f3', createdAt: 3, revoked: true },
+        { id: 'd', fingerprint: 'f4', createdAt: 4, revoked: false },
+        { id: 'e', fingerprint: 'f5', createdAt: 5, revoked: true },
+      ]),
+    });
+    renderProfile(api);
+    const msg = await screen.findByText(/active install token/i);
+    expect(msg.textContent).toMatch(/2 active install tokens/);
+    expect(msg.textContent).not.toMatch(/5 active/);
+  });
 });
