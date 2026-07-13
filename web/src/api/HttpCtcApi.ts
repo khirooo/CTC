@@ -166,6 +166,9 @@ export class HttpCtcApi implements CtcApi {
       id: t.id, fingerprint: t.fingerprint, createdAt: t.created_at, revoked: Boolean(t.revoked),
     }));
   }
+  async revokeProxyToken(id: string): Promise<void> {
+    await apiFetch(this.base, `/proxy-token/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
 
   // --- Public profiles ---
   async getUserProfile(id: string): Promise<PublicProfile> {

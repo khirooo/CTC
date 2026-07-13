@@ -83,6 +83,9 @@ export interface CtcApi {
   /** List the caller's existing proxy tokens (read-only; safe on mount). The
    *  raw token value is shown only once at mint time, so these carry fingerprints. */
   listProxyTokens(): Promise<{ id: string; fingerprint: string; createdAt: number; revoked: boolean }[]>;
+  /** Revoke one of the caller's proxy tokens by id (idempotent; scoped to the
+   *  caller — a foreign/unknown id is a no-op). Any CLI using it stops working. */
+  revokeProxyToken(id: string): Promise<void>;
 
   // Public profiles
   getUserProfile(id: string): Promise<PublicProfile>;

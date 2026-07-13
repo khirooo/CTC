@@ -158,20 +158,49 @@ describe('ProfileScreen CLI setup: mint only on explicit action', () => {
     await waitFor(() => expect(api.getCliCredentials).toHaveBeenCalledTimes(1));
   });
 
-  it('counts only non-revoked tokens as active (revoked rows are kept for history)', async () => {
-    // 2 active + 3 revoked → the message must say "2", not "5".
+  it('lists only non-revoked tokens as active (revoked rows are kept for history)', async () => {
+    // 2 active + 3 revoked → header says "2", and 3 shown as hidden/revoked.
     const api = makeApi({
       listProxyTokens: vi.fn(async () => [
-        { id: 'a', fingerprint: 'f1', createdAt: 1, revoked: false },
-        { id: 'b', fingerprint: 'f2', createdAt: 2, revoked: true },
-        { id: 'c', fingerprint: 'f3', createdAt: 3, revoked: true },
-        { id: 'd', fingerprint: 'f4', createdAt: 4, revoked: false },
-        { id: 'e', fingerprint: 'f5', createdAt: 5, revoked: true },
+        { id: 'a', fingerprint: 'aaaa1111', createdAt: 1, revoked: false },
+        { id: 'b', fingerprint: 'bbbb2222', createdAt: 2, revoked: true },
+        { id: 'c', fingerprint: 'cccc3333', createdAt: 3, revoked: true },
+        { id: 'd', fingerprint: 'dddd4444', createdAt: 4, revoked: false },
+        { id: 'e', fingerprint: 'eeee5555', createdAt: 5, revoked: true },
       ]),
     });
     renderProfile(api);
     const msg = await screen.findByText(/active install token/i);
     expect(msg.textContent).toMatch(/2 active install tokens/);
     expect(msg.textContent).not.toMatch(/5 active/);
+    // active fingerprints listed, revoked ones not
+    expect(screen.getByText('aaaa1111')).toBeTruthy();
+    expect(screen.getByText('dddd4444')).toBeTruthy();
+    expect(screen.queryByText('bbbb2222')).toBeNull();
+    expect(screen.getByText(/3 revoked tokens \(hidden\)/)).toBeTruthy();
+  });
+
+  it('revokes a token and drops it from the active list', async () => {
+    const revokeProxyToken = vi.fn(async () => {});
+    let listCall = 0;
+    const api = makeApi({
+      revokeProxyToken,
+      // first load returns two active; after revoke, reload returns one
+      listProxyTokens: vi.fn(async () => {
+        listCall += 1;
+        return listCall === 1
+          ? [
+              { id: 'a', fingerprint: 'aaaa1111', createdAt: 1, revoked: false },
+              { id: 'd', fingerprint: 'dddd4444', createdAt: 4, revoked: false },
+            ]
+          : [{ id: 'd', fingerprint: 'dddd4444', createdAt: 4, revoked: false }];
+      }),
+    });
+    renderProfile(api);
+    const revokeBtn = await screen.findByRole('button', { name: /revoke token aaaa1111/i });
+    await userEvent.click(revokeBtn);
+    await waitFor(() => expect(revokeProxyToken).toHaveBeenCalledWith('a'));
+    await waitFor(() => expect(screen.queryByText('aaaa1111')).toBeNull());
+    expect(screen.getByText('dddd4444')).toBeTruthy();
   });
 });

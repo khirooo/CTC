@@ -431,6 +431,7 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       return { token: `github_pat_${body}`, proxyHost: 'ctc.local:8080', installCommand: `curl -fsSLk https://ctc.local/install.sh | sh -s -- --token github_pat_${body}`, caFingerprint: 'AA:BB:CC:DD' };
     },
     async listProxyTokens() { return proxyTokens.filter(t => !t.revoked); },
+    async revokeProxyToken(id: string) { proxyTokens = proxyTokens.map(t => t.id === id ? { ...t, revoked: true } : t); },
 
     async getUserProfile(id: string): Promise<PublicProfile> {
       const u = users.find(x => x.id === id);

@@ -75,6 +75,7 @@ export function ProfileScreen() {
   const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null } | null>(null);
   const [minting, setMinting] = useState(false);
   const [mintError, setMintError] = useState<string | null>(null);
+  const [revokingToken, setRevokingToken] = useState<string | null>(null);
 
   if (settings.loading) return <ScreenStatus message="Loading…" />;
   if (settings.error || !settings.data) {
@@ -163,6 +164,19 @@ export function ProfileScreen() {
       setMintError(e instanceof CtcApiError ? e.message : 'Could not generate the command — please try again.');
     } finally {
       setMinting(false);
+    }
+  }
+
+  async function handleRevokeToken(id: string) {
+    setRevokingToken(id);
+    setMintError(null);
+    try {
+      await api.revokeProxyToken(id);
+      tokens.reload();
+    } catch (e) {
+      setMintError(e instanceof CtcApiError ? e.message : 'Could not revoke the token — please try again.');
+    } finally {
+      setRevokingToken(null);
     }
   }
 
@@ -574,15 +588,46 @@ export function ProfileScreen() {
         ) : (
           <>
             {(() => {
-              // Count only genuinely-active tokens: the API returns revoked rows too
-              // (they're kept for history), so `tokens.data.length` would overcount.
-              const activeCount = (tokens.data ?? []).filter(t => !t.revoked).length;
-              return activeCount > 0 ? (
-                <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
-                  You have {activeCount} active install token{activeCount === 1 ? '' : 's'}. The token is
-                  shown only once when created — generate a new command if you no longer have it.
-                </p>
-              ) : null;
+              // The API returns revoked rows too (kept for history), so list only the
+              // genuinely-active ones (the cap keeps this at most 10) and summarize the
+              // rest. The raw token is shown only once at mint, hence fingerprints here.
+              const all = tokens.data ?? [];
+              const active = all.filter(t => !t.revoked);
+              const revokedCount = all.length - active.length;
+              if (active.length === 0) return null;
+              return (
+                <div style={{ marginBottom: 14 }}>
+                  <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 8 }}>
+                    You have {active.length} active install token{active.length === 1 ? '' : 's'} (max 10).
+                    Each authenticates the CLI as you — revoke any you no longer use.
+                  </p>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {active.map(t => (
+                      <li key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                        <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text)' }}>{t.fingerprint}</code>
+                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, padding: '2px 7px', borderRadius: 5, background: 'var(--give-soft)', color: 'var(--give)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>active</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-faint)', marginLeft: 'auto' }}>
+                          {new Date(t.createdAt * 1000).toLocaleDateString()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeToken(t.id)}
+                          disabled={revokingToken === t.id}
+                          aria-label={`Revoke token ${t.fingerprint}`}
+                          style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 12px', color: 'var(--consume)', fontFamily: 'inherit', fontWeight: 600, fontSize: 12, cursor: revokingToken === t.id ? 'default' : 'pointer', opacity: revokingToken === t.id ? 0.6 : 1 }}
+                        >
+                          {revokingToken === t.id ? '…' : 'Revoke'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {revokedCount > 0 && (
+                    <p style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 8 }}>
+                      {revokedCount} revoked token{revokedCount === 1 ? '' : 's'} (hidden)
+                    </p>
+                  )}
+                </div>
+              );
             })()}
             <button
               type="button"
