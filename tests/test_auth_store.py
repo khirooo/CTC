@@ -64,9 +64,11 @@ def test_proxy_token_lifecycle():
     assert s.get_active_proxy_token("hash_abc")["user_id"] == "u1"
     assert s.get_active_proxy_token("nope") is None
     assert [t["id"] for t in s.list_proxy_tokens("u1")] == ["t1"]
-    assert s.revoke_proxy_token("t1", "u1", 20) is True
-    assert s.get_active_proxy_token("hash_abc") is None  # revoked => inactive
-    assert s.revoke_proxy_token("t1", "u1", 30) is False  # already revoked / no-op
+    assert s.delete_proxy_token("t1", "u1") is True
+    assert s.get_active_proxy_token("hash_abc") is None  # deleted => inactive
+    assert s.list_proxy_tokens("u1") == []               # row gone, no tombstone
+    assert s.delete_proxy_token("t1", "u1") is False      # already gone / no-op
+    assert s.delete_proxy_token("t1", "u2") is False      # foreign id / no-op
 
 
 def test_giver_pat_store_and_list():

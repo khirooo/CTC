@@ -73,10 +73,15 @@ class AuthStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def revoke_proxy_token(self, id, user_id, now):
+    def delete_proxy_token(self, id, user_id):
+        """Hard-delete a proxy token (scoped to its owner). Install tokens keep no
+        tombstone — a revoked token can never authenticate again (the proxy only
+        accepts revoked_at IS NULL), so there's nothing worth retaining, and the
+        row would otherwise accumulate forever. Returns True if a row was removed.
+        Idempotent: deleting an unknown/foreign/already-gone id is a no-op → False."""
         cur = self.conn.execute(
-            "UPDATE proxy_tokens SET revoked_at=? WHERE id=? AND user_id=? AND revoked_at IS NULL",
-            (now, id, user_id),
+            "DELETE FROM proxy_tokens WHERE id=? AND user_id=?",
+            (id, user_id),
         )
         return cur.rowcount > 0
 

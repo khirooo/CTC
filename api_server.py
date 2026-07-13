@@ -246,7 +246,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         active = [t for t in store.list_proxy_tokens(user["id"]) if t["revoked_at"] is None]
         while len(active) >= MAX_ACTIVE_PROXY_TOKENS:
             oldest = min(active, key=lambda t: t["created_at"])
-            registry.store.revoke_proxy_token(oldest["id"], user["id"], now())
+            registry.store.delete_proxy_token(oldest["id"], user["id"])
             active.remove(oldest)
         tid, token, fp = registry.issue_proxy_token(user["id"], now())
         return web.json_response({"id": tid, "token": token, "fingerprint": fp,
@@ -267,7 +267,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         user = await current_user(req)
         if not user:
             raise web.HTTPUnauthorized(text="no session")
-        registry.store.revoke_proxy_token(req.match_info["id"], user["id"], now())
+        registry.store.delete_proxy_token(req.match_info["id"], user["id"])
         return web.Response(status=204)
 
     async def api_onboarding_complete(req):
