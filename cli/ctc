@@ -22,6 +22,7 @@ CTC — launch GitHub Copilot CLI through the CTC credit proxy.
 Usage:
   ctc            Launch Copilot through CTC (run after 'ctc login')
   ctc login      Authenticate, trust the CA cert, cache config
+  ctc ide        Run the VS Code identity shim (route the Copilot extension via CTC)
   ctc status     Show whether CTC is set up
   ctc logout     Remove cached CTC config
   ctc --help     Show this help
@@ -116,6 +117,54 @@ cmd_logout() {
   echo "CTC config removed. Your normal 'copilot' is unaffected."
   echo "To also untrust the CA cert: sudo security delete-certificate -c copilot-proxy-ca /Library/Keychains/System.keychain"
 }
+cmd_ide() {
+  # Run the local identity shim so the VS Code Copilot extension can route
+  # through CTC. VS Code drops credentials embedded in http.proxy on its
+  # Copilot CONNECTs, so the shim is the reliable place to inject the CTC token.
+  local cfg env shim listen
+  cfg="$(_config_dir)"; env="$cfg/env"
+  if [ ! -f "$env" ]; then
+    echo "ctc: not set up yet. Run 'ctc login' first." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  . "$env"   # exports COPILOT_GITHUB_TOKEN + HTTPS_PROXY (http://host:port)
+
+  local phost pport
+  phost="${HTTPS_PROXY#http://}"; phost="${phost#https://}"
+  pport="${phost##*:}"; phost="${phost%%:*}"
+  [ "$pport" = "$phost" ] && pport=8080
+  listen="${CTC_IDE_LISTEN_PORT:-8899}"
+
+  # Locate the shim: dev checkout next to this launcher, else cached copy
+  # (downloaded from the CTC host on first use, like the CA cert).
+  local self_dir
+  self_dir="$(cd "$(dirname "$0")" >/dev/null 2>&1 && pwd)"
+  if [ -f "$self_dir/../tools/ctc_ide_shim.py" ]; then
+    shim="$self_dir/../tools/ctc_ide_shim.py"
+  else
+    shim="$cfg/ctc_ide_shim.py"
+    if [ ! -f "$shim" ]; then
+      echo "Downloading identity shim from $CTC_SCHEME://$CTC_HOST/ctc_ide_shim.py ..." >&2
+      if ! curl -fsSLk "$CTC_SCHEME://$CTC_HOST/ctc_ide_shim.py" -o "$shim"; then
+        echo "ctc: failed to download the identity shim." >&2; exit 1
+      fi
+    fi
+  fi
+
+  echo "Add these to your VS Code settings.json, then reload the window:" >&2
+  echo "" >&2
+  echo "  \"http.proxy\": \"http://127.0.0.1:$listen\"," >&2
+  echo "  \"http.proxyStrictSSL\": false," >&2
+  echo "  \"http.proxySupport\": \"on\"" >&2
+  echo "" >&2
+  echo "The CA cert is already trusted in your System keychain by 'ctc login'" >&2
+  echo "(VS Code uses the system trust store — no NODE_EXTRA_CA_CERTS needed)." >&2
+  echo "" >&2
+
+  CTC_TOKEN="$COPILOT_GITHUB_TOKEN" CTC_PROXY_HOST="$phost" CTC_PROXY_PORT="$pport" \
+    CTC_IDE_LISTEN_PORT="$listen" exec python3 "$shim"
+}
 cmd_launch() {
   local env real_home disc; env="$(_config_dir)/env"
   if [ ! -f "$env" ]; then
@@ -153,6 +202,7 @@ cmd_launch() {
 main() {
   case "${1:-}" in
     login)  shift; cmd_login "$@";;
+    ide)    shift; cmd_ide "$@";;
     status) shift; cmd_status "$@";;
     logout) shift; cmd_logout "$@";;
     -h|--help|help) ctc_usage; exit 0;;

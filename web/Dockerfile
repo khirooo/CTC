@@ -32,6 +32,8 @@ COPY --from=build /web/dist /srv/www
 # launcher's `ctc login` cert download work.
 COPY cli/install.sh /srv/www/install.sh
 COPY cli/ctc /srv/www/ctc
+# The VS Code identity shim, downloaded by `ctc ide` on first use.
+COPY tools/ctc_ide_shim.py /srv/www/ctc_ide_shim.py
 # Bake the deployment hosts into the served launcher scripts. Their in-repo
 # defaults are placeholders: `ctc.local` (the CTC host) and `example.ghe.com`
 # (the GitHub Enterprise host `ctc login` writes as GH_HOST). Without the
