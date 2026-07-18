@@ -1,0 +1,60 @@
+{
+  "name": "ctc-copilot",
+  "displayName": "CTC Copilot",
+  "description": "Toggle GitHub Copilot Chat through the CTC credit proxy (bill the shared pool instead of your own seat).",
+  "version": "0.1.0",
+  "publisher": "ctc",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "ctc.toggle",
+        "title": "CTC: Toggle CTC mode on/off"
+      },
+      {
+        "command": "ctc.setToken",
+        "title": "CTC: Set proxy token"
+      }
+    ],
+    "configuration": {
+      "title": "CTC Copilot",
+      "properties": {
+        "ctc.proxyHost": {
+          "type": "string",
+          "default": "",
+          "description": "Host of the central CTC proxy (e.g. ctc.internal). Falls back to HTTPS_PROXY from ~/.config/ctc/env if empty."
+        },
+        "ctc.proxyPort": {
+          "type": "number",
+          "default": 8080,
+          "description": "Port of the central CTC proxy."
+        },
+        "ctc.listenPort": {
+          "type": "number",
+          "default": 8899,
+          "description": "Local port the CTC identity shim listens on (VS Code's http.proxy points here while CTC is on)."
+        },
+        "ctc.gheDomain": {
+          "type": "string",
+          "default": "",
+          "description": "Your GitHub Enterprise domain (e.g. sita.ghe.com). Only *.<domain> traffic is routed through CTC; everything else goes direct. Empty routes all traffic through CTC."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "copy-shim": "mkdir -p media && cp ../../tools/ctc_ide_shim.py media/ctc_ide_shim.py",
+    "compile": "tsc -p .",
+    "vscode:prepublish": "npm run copy-shim && npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

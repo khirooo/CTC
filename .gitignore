@@ -30,6 +30,12 @@ web/vite.config.js
 web/vite.config.d.ts
 web/*.tsbuildinfo
 
+# VS Code extension (ide/ctc-vscode)
+ide/ctc-vscode/node_modules/
+ide/ctc-vscode/out/
+ide/ctc-vscode/media/ctc_ide_shim.py
+*.vsix
+
 # Superpowers SDD scratch (briefs, reports, ledger, review diffs)
 .superpowers/
 
