@@ -17,13 +17,14 @@ Run:
   REAL_GHE_HOST=api.example.ghe.com REAL_PAT=github_pat_xxx python proxy.py
 """
 
-import asyncio, ssl, os, json, logging, time
+import asyncio, ssl, os, json, logging, time, base64
 from typing import Optional, Dict
 import aiohttp
 from ctc.metering.capture import record_exchange, redact_text, redact_headers, close_captures
 from ctc.metering.extract import extract_total_nano_aiu
 from ctc import contract
 from ctc import sentinel
+from ctc.routing.mock_exchange import build_token_response
 
 # ---------------------------------------------------------------------------
 # Config
@@ -280,8 +281,11 @@ def upstream_ssl_context() -> ssl.SSLContext:
         _upstream_ssl = build_upstream_ssl_context(UPSTREAM_INSECURE, UPSTREAM_CA_BUNDLE)
     return _upstream_ssl
 
-_HOP_BY_HOP = {"host", "authorization", "content-length",
+_HOP_BY_HOP = {"host", "authorization", "proxy-authorization", "content-length",
                "transfer-encoding", "connection", "proxy-connection"}
+
+# Request headers whose values are secrets — masked in logs, never printed.
+_MASKED_HEADERS = {"authorization", "proxy-authorization"}
 
 
 def _compute_accept_encoding() -> str:
@@ -333,11 +337,76 @@ def is_session_bootstrap(upstream_host: str, method: str, path: str) -> bool:
             and path.split("?", 1)[0] == contract.SESSION_BOOTSTRAP_PATH)
 
 
+def is_token_exchange(upstream_host: str, method: str, path: str) -> bool:
+    """The VS Code Copilot extension's mandatory token exchange. The CLI never
+    calls it; the endpoint accepts no PAT, so we answer it locally."""
+    return (should_swap(upstream_host)
+            and method.upper() == "GET"
+            and path.split("?", 1)[0] == contract.TOKEN_EXCHANGE_PATH)
+
+
+def _mock_token_exchange_response() -> bytes:
+    payload = json.dumps(build_token_response(int(time.time()))).encode()
+    head = (f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Content-Length: {len(payload)}\r\n"
+            f"Connection: keep-alive\r\n\r\n").encode()
+    return head + payload
+
+
+def apply_copilot_api_identity(fwd: dict, upstream_host: str) -> dict:
+    """On copilot-api, rewrite the client-identity headers to the CLI's
+    allowlisted values so the swapped PAT is accepted (copilot-api rejects the
+    PAT for the extension's copilot-integration-id: vscode-chat). No-op on other
+    hosts and a no-op for the CLI (it already sends these values). Mutates+returns
+    fwd."""
+    if upstream_host == contract.BILLABLE_HOST:
+        fwd.update(contract.COPILOT_API_IDENTITY_HEADERS)
+    return fwd
+
+
 def strip_bearer(auth: str) -> str:
     for p in ("Bearer ", "bearer ", "token ", "Token "):
         if auth.startswith(p):
             return auth[len(p):].strip()
     return auth.strip()
+
+
+def parse_proxy_authorization(headers: dict) -> str | None:
+    """Extract the CTC token from a `Proxy-Authorization: Basic <b64>` header.
+    Returns the non-empty credential, preferring the password field then the
+    username, so the token resolves whether the user wrote http://<token>@host
+    (token as username) or http://ctc:<token>@host (token as password). Returns
+    None for a missing, malformed, or non-Basic header."""
+    raw = headers.get("proxy-authorization", "")
+    if not raw:
+        return None
+    parts = raw.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "basic":
+        return None
+    try:
+        decoded = base64.b64decode(parts[1].strip(), validate=True).decode("utf-8", "replace")
+    except Exception:
+        return None
+    user, _, pw = decoded.partition(":")
+    return (pw.strip() or user.strip()) or None
+
+
+def proxy_auth_from_head(raw: bytes) -> str | None:
+    """Parse a request head's Proxy-Authorization (used on the CONNECT line)."""
+    head = raw.split(b"\r\n\r\n", 1)[0]
+    hdrs: dict = {}
+    for line in head.split(b"\r\n")[1:]:
+        if b":" in line:
+            k, _, v = line.partition(b":")
+            hdrs[k.decode().strip().lower()] = v.decode().strip()
+    return parse_proxy_authorization(hdrs)
+
+
+def select_identity_token(proxy_auth_token: str | None, bearer_auth: str) -> str:
+    """Identity precedence: a Proxy-Authorization CTC token (VS Code) is
+    authoritative; otherwise fall back to the request bearer (CLI)."""
+    return proxy_auth_token or strip_bearer(bearer_auth)
 
 
 _HTTP_REASON = {401: "Unauthorized", 402: "Payment Required", 503: "Service Unavailable"}
@@ -793,7 +862,7 @@ async def reconcile_exhausted(engine, live_cache, cycle_id, giver_id) -> None:
 # HTTP request loop (runs after TLS is up)
 # ---------------------------------------------------------------------------
 async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
-                 upstream_host: str, port: int = 443):
+                 upstream_host: str, port: int = 443, identity_token: str | None = None):
     upstream_ssl = upstream_ssl_context()
 
     while True:
@@ -829,13 +898,25 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         auth    = hdrs.get("authorization", "")
         session = _tag(auth)
 
-        # NOTE: We deliberately do NOT mock /user or /copilot_internal/*
-        # endpoints. The PAT we swap in is valid for all of them on GHE, and
+        # Mock the IDE token exchange: answer locally, never forward (the endpoint
+        # rejects every PAT). The VS Code extension REQUIRES this exchange (the CLI
+        # never makes it) and replays the fabricated token to copilot-api.*, where
+        # we swap ALL auth to the PAT — so it only needs to be replayable.
+        if is_token_exchange(upstream_host, method, path):
+            log.info("[→ MOCK]    session=%-12s GET %s (fabricated token exchange)",
+                     session, path)
+            writer.write(_mock_token_exchange_response())
+            await writer.drain()
+            continue
+
+        # NOTE: We deliberately do NOT mock /user or other /copilot_internal/*
+        # endpoints (the /v2/token exchange above is the sole exception, for the
+        # IDE path). The PAT we swap in is valid for all of them on GHE, and
         # Copilot reads the real /user response to decide it's entitled + how to
-        # proceed. There is NO token-exchange step in this flow: the captures show
-        # no /copilot_internal/v2/token call, and copilot-api accepts the swapped
-        # PAT directly as Bearer (verified by tools/verify_token_rewrite.py).
-        # Copilot keeps one token throughout; we swap it to the PAT on every call.
+        # proceed. There is no token-exchange step in the CLI flow: its captures
+        # show no /copilot_internal/v2/token call, and copilot-api accepts the
+        # swapped PAT directly as Bearer (verified by tools/verify_token_rewrite.py).
+        # The CLI keeps one token throughout; we swap it to the PAT on every call.
 
         # ── Forward everything else ────────────────────────────────────────
         tag = "[→ COPILOT] " if "copilot" in path.lower() else "[→ REQUEST] "
@@ -874,7 +955,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             # between its BEGIN IMMEDIATE and COMMIT — so it respects the no-await
             # invariant documented below for select_source/debit.
             cycle = ATTRIBUTION.engine.ensure_active_cycle(_now())
-            consumer = ATTRIBUTION.resolve_consumer(strip_bearer(auth)) if cycle else None
+            consumer = ATTRIBUTION.resolve_consumer(
+                select_identity_token(identity_token, auth)) if cycle else None
             if consumer and client_session_id:
                 pin_key = (consumer.user_id, client_session_id)
             # Live-quota health gate: pre-fetch each candidate giver's real GitHub
@@ -909,7 +991,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                     log.warning("[401] unknown consumer token (session=%s)", session)
                     resp = _ctc_block_response(
                         path, 401,
-                        "Your CTC proxy token was not recognized. Run `ctc login` to refresh it.")
+                        "Your CTC proxy token was not recognized. CLI: run `ctc login`. "
+                        "VS Code: set http.proxy to http://<your-CTC-token>@<ctc-host>:<port>.")
                 else:
                     log.warning("[402] no eligible credit for session=%s", session)
                     resp = _ctc_block_response(
@@ -947,12 +1030,14 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         # are already gated above; this closes the same hole on non-billable ones.
         if not pat_to_use and ATTRIBUTION is not None and should_swap(upstream_host):
             if consumer is None:
-                consumer = ATTRIBUTION.resolve_consumer(strip_bearer(auth))
+                consumer = ATTRIBUTION.resolve_consumer(
+                    select_identity_token(identity_token, auth))
             if consumer is None:
                 log.warning("[401] unrecognized token on non-billable GHE call (session=%s)", session)
                 resp = _ctc_block_response(
                     path, 401,
-                    "Your CTC proxy token was not recognized. Run `ctc login` to refresh it.")
+                    "Your CTC proxy token was not recognized. CLI: run `ctc login`. "
+                    "VS Code: set http.proxy to http://<your-CTC-token>@<ctc-host>:<port>.")
                 writer.write(resp)
                 await writer.drain()
                 continue
@@ -978,6 +1063,7 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 if billable and source is not None:
                     pat_to_use = source.pat
                 fwd = build_upstream_headers(hdrs, upstream_host, auth, len(body), pat_to_use)
+                fwd = apply_copilot_api_identity(fwd, upstream_host)
                 async with _http.request(
                     method   = method,
                     url      = f"https://{upstream_host}{path}",
@@ -1213,8 +1299,10 @@ async def _dispatch(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
                 log.warning("[CONNECT]   TLS MITM failed (%s): %s", host, exc)
                 return
 
+            identity_token = proxy_auth_from_head(raw)
             tls_w = asyncio.StreamWriter(tls_t, protocol, reader, loop)
-            await _serve(reader, tls_w, tunnel_host, tunnel_port)
+            await _serve(reader, tls_w, tunnel_host, tunnel_port,
+                         identity_token=identity_token)
 
         # ── Direct plain HTTP (no CONNECT) ─────────────────────────────────
         else:
@@ -1243,7 +1331,8 @@ async def _dispatch(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
             replay.feed_eof()  # single one-shot request; without EOF _serve's next
                                # _read_head blocks until the 30s timeout before close.
             _, up_host, _ = decide_route(host, 443, REAL_GHE_HOST)
-            await _serve(replay, writer, up_host)
+            await _serve(replay, writer, up_host,
+                         identity_token=parse_proxy_authorization(hdrs))
 
     except Exception as exc:
         log.exception("Dispatch error: %s", exc)

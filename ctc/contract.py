@@ -71,6 +71,64 @@ SENTINEL_WATCH_SUFFIXES: tuple[str, ...] = (GHE_DOMAIN, "githubcopilot.com")
 _SENTINEL_WATCH_EXACT: frozenset[str] = frozenset({"api.github.com"})
 
 
+# --- VS Code Copilot extension integration (see spec 2026-06-28) ---------------
+# The extension REQUIRES this token exchange (the CLI never makes it) and the
+# endpoint accepts no PAT (fine-grained 403, classic 404). The proxy answers it
+# locally with MOCK_TOKEN_TEMPLATE; the fabricated token is opaque to the
+# extension (it only replays it as Bearer to copilot-api, where we swap it out).
+TOKEN_EXCHANGE_PATH: str = "/copilot_internal/v2/token"
+
+# TTL/refresh for the fabricated token (seconds), matching the real capture.
+MOCK_TOKEN_TTL_SECONDS: int = 1800
+MOCK_TOKEN_REFRESH_SECONDS: int = 1500
+
+# Field set the extension reads from /v2/token (captured 2026-06-28, token
+# redacted). `token`/`expires_at`/`refresh_in` are overwritten per request by
+# build_token_response(); the rest are static. endpoints.* are derived from
+# GHE_DOMAIN so they track the deployment.
+MOCK_TOKEN_TEMPLATE: dict = {
+    "agent_mode_auto_approval": True,
+    "annotations_enabled": False,
+    "azure_only": False,
+    "chat_enabled": True,
+    "chat_jetbrains_enabled": True,
+    "code_quote_enabled": False,
+    "code_review_enabled": False,
+    "codesearch": True,
+    "copilotignore_enabled": False,
+    "endpoints": {
+        "api": f"https://copilot-api.{GHE_DOMAIN}",
+        "origin-tracker": f"https://origin-tracker.{GHE_DOMAIN}",
+        "proxy": f"https://copilot-proxy.{GHE_DOMAIN}",
+        "telemetry": f"https://copilot-telemetry-service.{GHE_DOMAIN}",
+    },
+    "individual": False,
+    "limited_user_quotas": None,
+    "limited_user_reset_date": None,
+    "public_suggestions": "enabled",
+    "refresh_in": 0,            # overwritten per request
+    "sku": "copilot_for_business_seat_quota",
+    "telemetry": "disabled",
+    "token": "",               # overwritten per request
+    "expires_at": 0,           # overwritten per request
+    "tracking_id": "ctc-fabricated",
+    "xcode": True,
+    "xcode_chat": False,
+}
+
+# copilot-api gates PAT acceptance on copilot-integration-id: it accepts the PAT
+# for the CLI's id (copilot-developer-cli) but rejects it for the extension's
+# (vscode-chat) with "Personal Access Tokens are not supported for this endpoint".
+# The proxy rewrites these on copilot-api requests to the CLI's allowlisted
+# identity so the swapped PAT is accepted on every endpoint the extension uses
+# (R1, capture 3). Lowercase keys so they overwrite the client's own headers.
+COPILOT_API_IDENTITY_HEADERS: dict[str, str] = {
+    "copilot-integration-id": "copilot-developer-cli",
+    "editor-version": "copilot/1.0.63",
+    "user-agent": "GitHubCopilotChat/copilot/1.0.63",
+}
+
+
 def is_github_ish(host: str) -> bool:
     """True if `host` should be MITM'd rather than blind-tunneled.
 

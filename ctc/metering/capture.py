@@ -48,8 +48,8 @@ _JSON_TOKEN_RE = re.compile(
     re.IGNORECASE,
 )
 
-_SENSITIVE_HEADERS = {"authorization", "x-access-token", "cookie", "set-cookie",
-                      "copilot-session-token"}
+_SENSITIVE_HEADERS = {"authorization", "proxy-authorization", "x-access-token",
+                      "cookie", "set-cookie", "copilot-session-token"}
 
 
 def redact_text(text: str) -> str:

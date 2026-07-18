@@ -38,6 +38,17 @@ def test_redact_headers_fully_masks_sensitive_headers():
     assert out["Content-Type"] == "application/json"
 
 
+def test_redact_headers_masks_proxy_authorization():
+    # the VS Code shim carries the CTC token in Proxy-Authorization; captures
+    # must never persist it in the clear.
+    import base64
+    cred = base64.b64encode(b"ctc:github_pat_secret").decode()
+    out = redact_headers({"Proxy-Authorization": f"Basic {cred}"})
+    assert out["Proxy-Authorization"] == "***REDACTED***"
+    assert "github_pat_secret" not in str(out)
+    assert cred not in str(out)
+
+
 def test_redact_headers_redacts_token_in_non_sensitive_value():
     out = redact_headers({"X-Custom": "ghp_" + "a" * 25})
     assert "ghp_" not in out["X-Custom"]
