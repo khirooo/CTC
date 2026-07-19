@@ -60,7 +60,6 @@ async function effectiveConfig(): Promise<EffConfig> {
 // globalState keys
 const K_ENABLED = "ctc.enabled";
 const K_SAVED_PROXY = "ctc.savedHttpProxy"; // { existed: boolean, value?: string }
-const K_SAVED_AUTHPROVIDER = "ctc.savedAuthProvider"; // { existed: boolean, value?: string }
 const SECRET_TOKEN = "ctc.token";
 
 let statusItem: vscode.StatusBarItem;
@@ -155,38 +154,14 @@ function copilotInstalled(): boolean {
   );
 }
 
-/** Best-effort: is there a GitHub / GHE auth session Copilot would use? A false
- * result is treated as a soft warning (the user can override), because a missing
- * session can be a scope/provider mismatch rather than a real sign-out. */
-async function copilotSignedIn(): Promise<boolean> {
-  for (const provider of ["github", "github-enterprise"]) {
-    try {
-      const s = await vscode.authentication.getSession(provider, [], { silent: true });
-      if (s) {
-        return true;
-      }
-    } catch {
-      // provider not registered in this window — ignore
-    }
-  }
-  return false;
-}
-
-/** Gate enabling on Copilot being present + signed in. Returns true to proceed.
- * Never hard-blocks: each check offers "Enable anyway" so a false negative can't
- * lock out a user who really is signed in. */
+/** Gate enabling on the Copilot Chat extension being installed (a reliable check).
+ * We deliberately do NOT try to detect "signed in": there's no dependable public
+ * API for a GHE Copilot session, and the previous check produced false negatives
+ * that warned users who were in fact signed in. Returns true to proceed. */
 async function ensureCopilotReady(): Promise<boolean> {
   if (!copilotInstalled()) {
     const pick = await vscode.window.showWarningMessage(
       "GitHub Copilot Chat isn't installed. Install it and sign in, then enable CTC.",
-      "Enable anyway");
-    return pick === "Enable anyway";
-  }
-  if (!(await copilotSignedIn())) {
-    const pick = await vscode.window.showWarningMessage(
-      "VS Code doesn't detect a Copilot sign-in. Sign into Copilot first "
-      + "(Accounts menu, bottom-left), then enable CTC.",
-      { modal: true },
       "Enable anyway");
     return pick === "Enable anyway";
   }
@@ -225,48 +200,34 @@ async function enable() {
     eff = await effectiveConfig();
   }
 
-  // Gate on Copilot being installed + signed in (soft — "Enable anyway" escapes).
+  // Gate on Copilot being installed (soft — "Enable anyway" escapes).
   if (!(await ensureCopilotReady())) {
     return;
   }
 
   const listenPort = eff.listenPort;
+  const shimUrl = `http://127.0.0.1:${listenPort}`;
 
-  // Save the user's current http.proxy so we can restore it on disable.
+  // Save the user's current http.proxy so we can restore it on disable — but
+  // never save our OWN shim URL as if it were theirs (a double-enable or a stale
+  // state would otherwise make "off" restore a dead-shim proxy).
   const httpCfg = vscode.workspace.getConfiguration("http");
   const curProxy = httpCfg.inspect<string>("proxy");
-  await ctx.globalState.update(K_SAVED_PROXY, {
-    existed: curProxy?.globalValue !== undefined,
-    value: curProxy?.globalValue,
-  });
+  const cur = curProxy?.globalValue;
+  if (cur !== shimUrl) {
+    await ctx.globalState.update(K_SAVED_PROXY, {
+      existed: cur !== undefined,
+      value: cur,
+    });
+  }
 
-  await httpCfg.update("proxy", `http://127.0.0.1:${listenPort}`, vscode.ConfigurationTarget.Global);
+  await httpCfg.update("proxy", shimUrl, vscode.ConfigurationTarget.Global);
   await httpCfg.update("proxyStrictSSL", false, vscode.ConfigurationTarget.Global);
   await httpCfg.update("proxySupport", "on", vscode.ConfigurationTarget.Global);
 
-  // Clear the github-enterprise authProvider conflict (breaks the CTC path).
-  // Best-effort: writing another extension's config can fail if it isn't
-  // registered — never let that abort the toggle.
-  try {
-    const copilotCfg = vscode.workspace.getConfiguration("github.copilot");
-    const adv = copilotCfg.inspect<any>("advanced");
-    const advVal = adv?.globalValue;
-    const authProvider = advVal && typeof advVal === "object" ? advVal.authProvider : undefined;
-    if (authProvider === "github-enterprise") {
-      await ctx.globalState.update(K_SAVED_AUTHPROVIDER, { existed: true, value: authProvider });
-      const next = { ...advVal };
-      delete next.authProvider;
-      await copilotCfg.update("advanced", next, vscode.ConfigurationTarget.Global);
-    } else {
-      await ctx.globalState.update(K_SAVED_AUTHPROVIDER, { existed: false });
-    }
-  } catch {
-    await ctx.globalState.update(K_SAVED_AUTHPROVIDER, { existed: false });
-    vscode.window.showWarningMessage(
-      "CTC couldn't adjust github.copilot.advanced automatically. If Copilot chat "
-      + "says \"Authorization failed\", remove \"authProvider\": \"github-enterprise\" "
-      + "from github.copilot.advanced in settings.json.");
-  }
+  // NOTE: we do NOT touch github.copilot.advanced.authProvider. On a GHE
+  // deployment `authProvider: "github-enterprise"` is correct and required; the
+  // proxy path works with it set.
 
   await ctx.globalState.update(K_ENABLED, true);
   await reload("CTC mode ON — reloading. After reload, use Copilot normally; it bills the pool.");
@@ -283,19 +244,6 @@ async function disable() {
   // Remove our strictSSL/proxySupport overrides.
   await httpCfg.update("proxyStrictSSL", undefined, vscode.ConfigurationTarget.Global);
   await httpCfg.update("proxySupport", undefined, vscode.ConfigurationTarget.Global);
-
-  // Restore the authProvider we cleared, if any (best-effort).
-  const savedAp = ctx.globalState.get<{ existed: boolean; value?: string }>(K_SAVED_AUTHPROVIDER);
-  if (savedAp?.existed) {
-    try {
-      const copilotCfg = vscode.workspace.getConfiguration("github.copilot");
-      const adv = copilotCfg.inspect<any>("advanced");
-      const next = { ...(adv?.globalValue || {}), authProvider: savedAp.value };
-      await copilotCfg.update("advanced", next, vscode.ConfigurationTarget.Global);
-    } catch {
-      // ignore — user can restore manually
-    }
-  }
 
   await ctx.globalState.update(K_ENABLED, false);
   stopShim();
