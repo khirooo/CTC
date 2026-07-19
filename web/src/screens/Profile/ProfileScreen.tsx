@@ -72,7 +72,7 @@ export function ProfileScreen() {
   const [patInput, setPatInput] = useState('');
   const [rotating, setRotating] = useState(false);
   const [revoking, setRevoking] = useState(false);
-  const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null } | null>(null);
+  const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; vscodeInstallCommand: string; caFingerprint: string | null } | null>(null);
   const [minting, setMinting] = useState(false);
   const [mintError, setMintError] = useState<string | null>(null);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
@@ -577,6 +577,14 @@ export function ProfileScreen() {
             <TerminalBlock
               command={cli.installCommand}
               caption="Paste in a terminal and press Enter, then type ctc to start Copilot through CTC."
+            />
+            <h3 style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, margin: '20px 0 8px' }}>Set up VS Code</h3>
+            <p style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
+              Routes the Copilot extension through CTC. Paste in a terminal, then in VS Code sign into Copilot and click the ◆ CTC button (bottom-right).
+            </p>
+            <TerminalBlock
+              command={cli.vscodeInstallCommand}
+              caption="Installs the CTC Copilot extension and configures it automatically — nothing to edit in VS Code settings."
             />
             <p style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 12 }}>Proxy: {cli.proxyHost}</p>
             {cli.caFingerprint && (

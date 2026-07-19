@@ -79,7 +79,7 @@ export interface CtcApi {
   // CLI setup
   /** Mint a NEW proxy token and compose the install one-liner. Minting is a
    *  write — call it only on an explicit user action, never on mount. */
-  getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null }>;
+  getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; vscodeInstallCommand: string; caFingerprint: string | null }>;
   /** List the caller's existing proxy tokens (read-only; safe on mount). The
    *  raw token value is shown only once at mint time, so these carry fingerprints. */
   listProxyTokens(): Promise<{ id: string; fingerprint: string; createdAt: number; revoked: boolean }[]>;
