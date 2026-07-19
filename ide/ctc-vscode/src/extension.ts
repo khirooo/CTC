@@ -236,11 +236,15 @@ async function enable() {
 async function disable() {
   const httpCfg = vscode.workspace.getConfiguration("http");
   const saved = ctx.globalState.get<{ existed: boolean; value?: string }>(K_SAVED_PROXY);
-  await httpCfg.update(
-    "proxy",
-    saved?.existed ? saved.value : undefined,
-    vscode.ConfigurationTarget.Global,
-  );
+  let restore = saved?.existed ? saved.value : undefined;
+  // Self-heal: earlier versions could have saved our own shim URL as the
+  // "original" proxy. Never restore a loopback proxy — clear it so OFF is a truly
+  // clean state (a real user proxy is not on 127.0.0.1/localhost).
+  if (restore && /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/i.test(restore)) {
+    restore = undefined;
+    await ctx.globalState.update(K_SAVED_PROXY, { existed: false });
+  }
+  await httpCfg.update("proxy", restore, vscode.ConfigurationTarget.Global);
   // Remove our strictSSL/proxySupport overrides.
   await httpCfg.update("proxyStrictSSL", undefined, vscode.ConfigurationTarget.Global);
   await httpCfg.update("proxySupport", undefined, vscode.ConfigurationTarget.Global);

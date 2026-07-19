@@ -2,7 +2,7 @@
   "name": "ctc-copilot",
   "displayName": "CTC Copilot",
   "description": "Toggle GitHub Copilot Chat through the CTC credit proxy (bill the shared pool instead of your own seat).",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "ctc",
   "engines": {
     "vscode": "^1.85.0"
