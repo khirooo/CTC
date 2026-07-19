@@ -116,17 +116,27 @@ async function enable() {
   await httpCfg.update("proxySupport", "on", vscode.ConfigurationTarget.Global);
 
   // Clear the github-enterprise authProvider conflict (breaks the CTC path).
-  const copilotCfg = vscode.workspace.getConfiguration("github.copilot");
-  const adv = copilotCfg.inspect<any>("advanced");
-  const advVal = adv?.globalValue;
-  const authProvider = advVal && typeof advVal === "object" ? advVal.authProvider : undefined;
-  if (authProvider === "github-enterprise") {
-    await ctx.globalState.update(K_SAVED_AUTHPROVIDER, { existed: true, value: authProvider });
-    const next = { ...advVal };
-    delete next.authProvider;
-    await copilotCfg.update("advanced", next, vscode.ConfigurationTarget.Global);
-  } else {
+  // Best-effort: writing another extension's config can fail if it isn't
+  // registered — never let that abort the toggle.
+  try {
+    const copilotCfg = vscode.workspace.getConfiguration("github.copilot");
+    const adv = copilotCfg.inspect<any>("advanced");
+    const advVal = adv?.globalValue;
+    const authProvider = advVal && typeof advVal === "object" ? advVal.authProvider : undefined;
+    if (authProvider === "github-enterprise") {
+      await ctx.globalState.update(K_SAVED_AUTHPROVIDER, { existed: true, value: authProvider });
+      const next = { ...advVal };
+      delete next.authProvider;
+      await copilotCfg.update("advanced", next, vscode.ConfigurationTarget.Global);
+    } else {
+      await ctx.globalState.update(K_SAVED_AUTHPROVIDER, { existed: false });
+    }
+  } catch {
     await ctx.globalState.update(K_SAVED_AUTHPROVIDER, { existed: false });
+    vscode.window.showWarningMessage(
+      "CTC couldn't adjust github.copilot.advanced automatically. If Copilot chat "
+      + "says \"Authorization failed\", remove \"authProvider\": \"github-enterprise\" "
+      + "from github.copilot.advanced in settings.json.");
   }
 
   await ctx.globalState.update(K_ENABLED, true);
@@ -145,13 +155,17 @@ async function disable() {
   await httpCfg.update("proxyStrictSSL", undefined, vscode.ConfigurationTarget.Global);
   await httpCfg.update("proxySupport", undefined, vscode.ConfigurationTarget.Global);
 
-  // Restore the authProvider we cleared, if any.
+  // Restore the authProvider we cleared, if any (best-effort).
   const savedAp = ctx.globalState.get<{ existed: boolean; value?: string }>(K_SAVED_AUTHPROVIDER);
   if (savedAp?.existed) {
-    const copilotCfg = vscode.workspace.getConfiguration("github.copilot");
-    const adv = copilotCfg.inspect<any>("advanced");
-    const next = { ...(adv?.globalValue || {}), authProvider: savedAp.value };
-    await copilotCfg.update("advanced", next, vscode.ConfigurationTarget.Global);
+    try {
+      const copilotCfg = vscode.workspace.getConfiguration("github.copilot");
+      const adv = copilotCfg.inspect<any>("advanced");
+      const next = { ...(adv?.globalValue || {}), authProvider: savedAp.value };
+      await copilotCfg.update("advanced", next, vscode.ConfigurationTarget.Global);
+    } catch {
+      // ignore — user can restore manually
+    }
   }
 
   await ctx.globalState.update(K_ENABLED, false);

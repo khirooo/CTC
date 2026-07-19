@@ -14,6 +14,7 @@ Usage:
   python3 tools/seed_local_ide_test.py
 """
 import os
+import sqlite3
 import sys
 
 # Allow `python3 tools/seed_local_ide_test.py` (sys.path[0] would otherwise be
@@ -50,7 +51,10 @@ def main() -> None:
     # Far-future cycle so ensure_active_cycle() returns it without rolling over;
     # generous OWN quota so routing picks the PAT (real billing still happens on
     # GHE against the PAT — this quota is CTC's display/gate only).
-    eng.start_cycle(CYCLE, "local-ide", 0, 9_999_999_999)
+    try:
+        eng.start_cycle(CYCLE, "local-ide", 0, 9_999_999_999)
+    except sqlite3.IntegrityError:
+        pass  # already seeded on a prior run; reuse it and mint a fresh token
     eng.set_quota(CYCLE, GIVER, 100_000_000_000)
     store.upsert_user(GIVER, "local-ide-tester", "Local IDE Tester", "giver", 1)
 
