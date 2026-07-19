@@ -98,10 +98,29 @@ function isEnabled(): boolean {
 
 function refreshStatus() {
   const on = isEnabled();
-  statusItem.text = on ? "$(circle-filled) CTC" : "$(circle-outline) CTC";
-  statusItem.tooltip = on
-    ? "CTC mode is ON — Copilot bills the shared pool. Click to turn off."
-    : "CTC mode is OFF — normal Copilot. Click to route Copilot through CTC.";
+  // ON: broadcast icon + orange "active mode" background (the only non-default
+  // background an extension may set). OFF: neutral, default colors.
+  statusItem.text = on ? "$(broadcast) CTC" : "$(circle-outline) CTC";
+  statusItem.backgroundColor = on
+    ? new vscode.ThemeColor("statusBarItem.warningBackground")
+    : undefined;
+
+  const md = new vscode.MarkdownString(undefined, true); // allow codicons
+  if (on) {
+    md.appendMarkdown("$(broadcast) **CTC is ON**\n\n");
+    md.appendMarkdown("Copilot in this window bills the shared credit pool.\n\n");
+    const env = readCtcEnvFile();
+    const host = vscode.workspace.getConfiguration().get<string>("ctc.proxyHost") || env.host;
+    if (host) {
+      md.appendMarkdown(`Proxy: \`${host}\`\n\n`);
+    }
+    md.appendMarkdown("_Click to turn off._");
+  } else {
+    md.appendMarkdown("$(circle-outline) **CTC is OFF**\n\n");
+    md.appendMarkdown("Normal Copilot (your own seat).\n\n");
+    md.appendMarkdown("_Click to route Copilot through CTC._");
+  }
+  statusItem.tooltip = md;
   statusItem.show();
 }
 
