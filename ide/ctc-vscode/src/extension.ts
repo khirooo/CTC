@@ -1,6 +1,61 @@
 import * as vscode from "vscode";
 import { ChildProcess, spawn } from "child_process";
 import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+
+// Config read from ~/.config/ctc/env (written by `ctc login`) so a user who ran
+// the installer needs zero manual VS Code setup — token, proxy, and GHE domain
+// all come from there. VS Code settings / SecretStorage override it when present.
+interface CtcEnv {
+  token?: string;
+  host?: string;
+  port?: number;
+  domain?: string;
+}
+
+function readCtcEnvFile(): CtcEnv {
+  try {
+    const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+    const text = fs.readFileSync(path.join(base, "ctc", "env"), "utf8");
+    const get = (k: string): string | undefined => {
+      const m = text.match(new RegExp(`^\\s*export\\s+${k}="?([^"\\n]*)"?\\s*$`, "m"));
+      return m ? m[1] : undefined;
+    };
+    const out: CtcEnv = { token: get("COPILOT_GITHUB_TOKEN"), domain: get("GH_HOST") };
+    const hp = get("HTTPS_PROXY");
+    if (hp) {
+      const m = hp.match(/https?:\/\/([^:/]+)(?::(\d+))?/);
+      if (m) {
+        out.host = m[1];
+        out.port = m[2] ? parseInt(m[2], 10) : 8080;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+interface EffConfig {
+  token?: string;
+  host?: string;
+  port: number;
+  listenPort: number;
+  domain: string;
+}
+
+async function effectiveConfig(): Promise<EffConfig> {
+  const env = readCtcEnvFile();
+  const cfg = vscode.workspace.getConfiguration();
+  return {
+    token: (await ctx.secrets.get(SECRET_TOKEN)) || env.token,
+    host: (cfg.get<string>("ctc.proxyHost") || "") || env.host,
+    port: cfg.get<number>("ctc.proxyPort") ?? env.port ?? 8080,
+    listenPort: cfg.get<number>("ctc.listenPort") ?? 8899,
+    domain: (cfg.get<string>("ctc.gheDomain") || "") || env.domain || "",
+  };
+}
 
 // globalState keys
 const K_ENABLED = "ctc.enabled";
@@ -75,33 +130,36 @@ async function setToken() {
 // ── enable / disable ─────────────────────────────────────────────────────────
 
 async function enable() {
-  const token = await ctx.secrets.get(SECRET_TOKEN);
-  if (!token) {
+  let eff = await effectiveConfig();
+
+  if (!eff.token) {
     const pick = await vscode.window.showWarningMessage(
-      "No CTC token set. Set it now?", "Set token");
+      "No CTC token found (run the installer / `ctc login`, or set it here).",
+      "Set token");
     if (pick === "Set token") {
       await setToken();
     }
-    if (!(await ctx.secrets.get(SECRET_TOKEN))) {
+    eff = await effectiveConfig();
+    if (!eff.token) {
       return; // still none — abort
     }
   }
 
-  const cfg = vscode.workspace.getConfiguration();
-  let proxyHost = cfg.get<string>("ctc.proxyHost") || "";
-  if (!proxyHost) {
-    proxyHost = (await vscode.window.showInputBox({
+  if (!eff.host) {
+    const cfg = vscode.workspace.getConfiguration();
+    const host = (await vscode.window.showInputBox({
       prompt: "Central CTC proxy host (e.g. ctc.internal)",
       ignoreFocusOut: true,
     })) || "";
-    if (!proxyHost) {
+    if (!host) {
       vscode.window.showWarningMessage("CTC not enabled: no proxy host.");
       return;
     }
-    await cfg.update("ctc.proxyHost", proxyHost, vscode.ConfigurationTarget.Global);
+    await cfg.update("ctc.proxyHost", host, vscode.ConfigurationTarget.Global);
+    eff = await effectiveConfig();
   }
 
-  const listenPort = cfg.get<number>("ctc.listenPort") ?? 8899;
+  const listenPort = eff.listenPort;
 
   // Save the user's current http.proxy so we can restore it on disable.
   const httpCfg = vscode.workspace.getConfiguration("http");
@@ -182,28 +240,24 @@ async function reload(message: string) {
 // ── shim lifecycle ───────────────────────────────────────────────────────────
 
 async function startShim() {
-  const token = await ctx.secrets.get(SECRET_TOKEN);
-  if (!token) {
+  const eff = await effectiveConfig();
+  if (!eff.token) {
     statusItem.text = "$(warning) CTC";
-    statusItem.tooltip = "CTC is on but no token is set. Run \"CTC: Set proxy token\".";
+    statusItem.tooltip = "CTC is on but no token found. Run the installer / `ctc login`, "
+      + "or \"CTC: Set proxy token\".";
     return;
   }
-  const cfg = vscode.workspace.getConfiguration();
-  const proxyHost = cfg.get<string>("ctc.proxyHost") || "";
-  const proxyPort = String(cfg.get<number>("ctc.proxyPort") ?? 8080);
-  const listenPort = String(cfg.get<number>("ctc.listenPort") ?? 8899);
-  const gheDomain = cfg.get<string>("ctc.gheDomain") || "";
 
   const shimPath = path.join(ctx.extensionPath, "media", "ctc_ide_shim.py");
   stopShim();
   shim = spawn("python3", [shimPath], {
     env: {
       ...process.env,
-      CTC_TOKEN: token,
-      CTC_PROXY_HOST: proxyHost,
-      CTC_PROXY_PORT: proxyPort,
-      CTC_IDE_LISTEN_PORT: listenPort,
-      CTC_GHE_DOMAIN: gheDomain,
+      CTC_TOKEN: eff.token,
+      CTC_PROXY_HOST: eff.host || "",
+      CTC_PROXY_PORT: String(eff.port),
+      CTC_IDE_LISTEN_PORT: String(eff.listenPort),
+      CTC_GHE_DOMAIN: eff.domain,
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
