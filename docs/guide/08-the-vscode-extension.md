@@ -25,6 +25,12 @@ can't sandbox the official Copilot extension — they share one window and one
 It's a **mode**: when ON, that window's Copilot bills the pool; when OFF, it's normal
 Copilot. Not two Copilots side by side.
 
+Enabling is **gated on Copilot readiness**: if the Copilot Chat extension isn't
+installed, or VS Code detects no GitHub/GHE sign-in
+(`vscode.authentication.getSession`), the toggle warns first. The check is
+best-effort — each warning offers "Enable anyway" so a scope/provider mismatch can't
+lock out a user who really is signed in.
+
 ## Configuration (zero-touch)
 
 The extension reads the token, proxy host/port, and GHE domain from

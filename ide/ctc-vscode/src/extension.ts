@@ -127,6 +127,53 @@ async function setToken() {
   }
 }
 
+// ── Copilot readiness ────────────────────────────────────────────────────────
+
+function copilotInstalled(): boolean {
+  return !!(
+    vscode.extensions.getExtension("GitHub.copilot") ||
+    vscode.extensions.getExtension("GitHub.copilot-chat")
+  );
+}
+
+/** Best-effort: is there a GitHub / GHE auth session Copilot would use? A false
+ * result is treated as a soft warning (the user can override), because a missing
+ * session can be a scope/provider mismatch rather than a real sign-out. */
+async function copilotSignedIn(): Promise<boolean> {
+  for (const provider of ["github", "github-enterprise"]) {
+    try {
+      const s = await vscode.authentication.getSession(provider, [], { silent: true });
+      if (s) {
+        return true;
+      }
+    } catch {
+      // provider not registered in this window — ignore
+    }
+  }
+  return false;
+}
+
+/** Gate enabling on Copilot being present + signed in. Returns true to proceed.
+ * Never hard-blocks: each check offers "Enable anyway" so a false negative can't
+ * lock out a user who really is signed in. */
+async function ensureCopilotReady(): Promise<boolean> {
+  if (!copilotInstalled()) {
+    const pick = await vscode.window.showWarningMessage(
+      "GitHub Copilot Chat isn't installed. Install it and sign in, then enable CTC.",
+      "Enable anyway");
+    return pick === "Enable anyway";
+  }
+  if (!(await copilotSignedIn())) {
+    const pick = await vscode.window.showWarningMessage(
+      "VS Code doesn't detect a Copilot sign-in. Sign into Copilot first "
+      + "(Accounts menu, bottom-left), then enable CTC.",
+      { modal: true },
+      "Enable anyway");
+    return pick === "Enable anyway";
+  }
+  return true;
+}
+
 // ── enable / disable ─────────────────────────────────────────────────────────
 
 async function enable() {
@@ -157,6 +204,11 @@ async function enable() {
     }
     await cfg.update("ctc.proxyHost", host, vscode.ConfigurationTarget.Global);
     eff = await effectiveConfig();
+  }
+
+  // Gate on Copilot being installed + signed in (soft — "Enable anyway" escapes).
+  if (!(await ensureCopilotReady())) {
+    return;
   }
 
   const listenPort = eff.listenPort;
