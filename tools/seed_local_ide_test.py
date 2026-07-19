@@ -36,8 +36,9 @@ def main() -> None:
     pat = os.environ.get("REAL_PAT", "")
     db = os.environ.get("CTC_DB_PATH", "")
     secret = os.environ.get("CTC_SECRET_KEY", "")
-    if not pat or not db or not secret:
-        print("ERROR: set REAL_PAT, CTC_DB_PATH, CTC_SECRET_KEY", file=sys.stderr)
+    if not db or not secret:
+        print("ERROR: set CTC_DB_PATH, CTC_SECRET_KEY (and REAL_PAT on first seed)",
+              file=sys.stderr)
         sys.exit(2)
     if len(secret) < 16:
         print("ERROR: CTC_SECRET_KEY must be >= 16 chars", file=sys.stderr)
@@ -59,8 +60,15 @@ def main() -> None:
     store.upsert_user(GIVER, "local-ide-tester", "Local IDE Tester", "giver", 1)
 
     reg = AuthRegistry(store, derive_key(secret))
+    # Store the PAT only when one is provided — never clobber an existing real PAT
+    # with an empty/placeholder value on a token-only re-seed.
+    if pat:
+        reg.store_pat(GIVER, pat, now=1)
+    elif reg.pat_for(GIVER) is None:
+        print("ERROR: no stored PAT for the giver yet — set REAL_PAT on the first seed",
+              file=sys.stderr)
+        sys.exit(2)
     _, token, fp = reg.issue_proxy_token(GIVER, now=1)
-    reg.store_pat(GIVER, pat, now=1)
 
     print("\n✓ Seeded throwaway DB:", db)
     print("  giver/consumer:", GIVER, "(OWN bucket, quota headroom)")
