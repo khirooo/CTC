@@ -25,11 +25,38 @@ can't sandbox the official Copilot extension — they share one window and one
 It's a **mode**: when ON, that window's Copilot bills the pool; when OFF, it's normal
 Copilot. Not two Copilots side by side.
 
-Enabling is **gated on Copilot readiness**: if the Copilot Chat extension isn't
-installed, or VS Code detects no GitHub/GHE sign-in
-(`vscode.authentication.getSession`), the toggle warns first. The check is
-best-effort — each warning offers "Enable anyway" so a scope/provider mismatch can't
-lock out a user who really is signed in.
+Enabling is **gated on Copilot being installed** (a reliable check). It deliberately
+does **not** try to detect "signed in" — there's no dependable public API for a GHE
+Copilot session, and an earlier `vscode.authentication.getSession` gate produced
+false negatives that warned users who were in fact signed in. If Copilot Chat isn't
+installed the toggle warns first, with an "Enable anyway" escape.
+
+## Critical: sign into Copilot *while CTC is on*
+
+**The Copilot sign-in must happen with CTC already ON, or chat silently bypasses the
+proxy and bills the user's own seat.** Turning CTC on for an *already-signed-in*
+Copilot is **not** enough — a window reload isn't either.
+
+Why (root cause, proven 2026-07-20 by socket inspection): the Copilot Chat client
+runs in the VS Code extension host (a Node process) and talks to
+`copilot-api.<GHE>` over a **persistent, keep-alive/pooled TLS connection** — one
+socket, opened once and reused across messages (confirmed with
+`lsof -nP -iTCP@<copilot-api-IP>` showing an ESTABLISHED direct socket held while
+idle, with **zero** traffic on the central proxy). Node binds a pooled connection's
+proxy route **when it creates the socket** (≈ at sign-in) and then keeps it open, so:
+
+- **Sign in with CTC on** → the pooled socket is created *to the shim*
+  (`127.0.0.1:8899`) → all chat routes through CTC. ✅
+- **Sign in with CTC off** → the pooled socket is created **direct** to the GHE IP and
+  held open → flipping `http.proxy` afterward never rebuilds it → chat keeps going
+  direct. ❌
+
+Short-lived control-plane calls (`/copilot_internal/user`, `/v2/token`) *are*
+re-created per request, so they pick up the toggle after a reload — but the pooled
+chat socket does not. **Operator/onboarding rule: turn CTC on first, then sign out +
+sign back into Copilot.** (Sign-in itself must be done with CTC on but *not* mid-MITM
+of the OAuth redirect — the shim only forwards `copilot-api`/GHE hosts, so OAuth to
+github.com is unaffected.)
 
 ## Configuration (zero-touch)
 
@@ -75,6 +102,41 @@ code --install-extension ctc-copilot-*.vsix
 
 `npm run copy-shim` (run automatically on package) copies the single-source shim
 from `tools/ctc_ide_shim.py` into `media/`.
+
+## Next step (planned): smart bypass detection → prompt re-sign-in
+
+The "sign in while CTC on" rule above is load-bearing and easy to get wrong, so the
+extension should **detect an actual bypass and prompt only then** — never nag a
+correctly-routing user. Design (validated by manual `lsof`, not yet built):
+
+- **The signal.** The extension runs *inside* the same extension-host process that
+  owns the bypassing socket, so `process.pid` **is** that process. Resolve
+  `copilot-api.<gheDomain>` (`dns.resolve4`, handle multiple IPs), then check the
+  extension's *own* sockets:
+
+  ```
+  lsof -nP -iTCP@<copilot-api-IP> -a -p <process.pid>   # count ESTABLISHED
+  ```
+
+  **count > 0 ⇒ a direct socket to copilot-api exists ⇒ chat is bypassing CTC.** This
+  has no false positives: when routing correctly the ext host connects to
+  `127.0.0.1:8899` (the shim), never to the GHE IP directly.
+
+- **Why poll, not one-shot.** The keep-alive pool **idle-closes** (observed live:
+  2 sockets → 0 after a short idle). A single check at enable time gives false
+  negatives. Instead **poll while CTC is on** (every few seconds); the socket
+  reappears whenever Copilot chats, so an active bypass is caught within one interval.
+
+- **The prompt.** The first time a direct socket is observed, show a warning —
+  *"Copilot is connecting directly and bypassing CTC — sign out and back in to route
+  it through the pool"* — with a **Sign out** action. Correctly-routing users never
+  see it; bypassing users are prompted exactly once.
+
+- **Caveats.** macOS-only (`lsof` on the own PID, no sudo needed — matches the shim's
+  current macOS-only constraint). Alternative robust fix that removes the sign-in-order
+  rule entirely = transparent MITM (`/etc/hosts` maps `copilot-api.<GHE>` → the proxy,
+  proxy listens on :443 and routes by TLS SNI, intercepting below `http.proxy`); bigger
+  change, tracked separately.
 
 ## Out of scope (future)
 
