@@ -238,6 +238,19 @@ def _make_handler(token: str, up_host: str, up_port: int, ghe_domain: str = ""):
     return handle
 
 
+async def _parent_death_watchdog() -> None:
+    """Exit when our launching process (the VS Code extension host) goes away, so
+    the shim never lingers as an orphan holding the listen port — otherwise the
+    next VS Code launch can't bind and the extension shows an error. On POSIX a
+    reparented process reports getppid()==1."""
+    start_ppid = os.getppid()
+    while True:
+        await asyncio.sleep(2)
+        ppid = os.getppid()
+        if ppid == 1 or ppid != start_ppid:
+            os._exit(0)
+
+
 async def _main() -> None:
     token, up_host, up_port, listen_port, ghe_domain = _resolve_config()
     if not token:
@@ -249,8 +262,17 @@ async def _main() -> None:
               "or ensure HTTPS_PROXY is set (run `ctc login`).", file=sys.stderr)
         sys.exit(2)
 
-    server = await asyncio.start_server(
-        _make_handler(token, up_host, up_port, ghe_domain), LISTEN_HOST, listen_port)
+    try:
+        server = await asyncio.start_server(
+            _make_handler(token, up_host, up_port, ghe_domain), LISTEN_HOST, listen_port)
+    except OSError as exc:
+        # Port already held (likely a stale shim). Exit non-zero; the extension
+        # surfaces it, and the watchdog on the stale one will soon free the port.
+        print(f"ctc-ide-shim: cannot bind {LISTEN_HOST}:{listen_port} ({exc}). "
+              "Another shim may still be running.", file=sys.stderr)
+        sys.exit(3)
+
+    asyncio.ensure_future(_parent_death_watchdog())
     route = f"only *.{ghe_domain} → CTC; else direct" if ghe_domain else "all → CTC"
     print(f"ctc-ide-shim: listening on http://{LISTEN_HOST}:{listen_port} "
           f"→ {up_host}:{up_port} ({route}). Ctrl-C to stop.",
