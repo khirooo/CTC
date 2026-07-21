@@ -57,6 +57,7 @@ would need a shared store.
 | GET | `/api/admin/users` | admin | [Admin](#admin) |
 | GET | `/api/admin/users/{id}` | admin | [Admin](#admin) |
 | POST | `/api/admin/users/{id}/reveal-pat` | admin | [Admin](#admin) |
+| POST | `/api/admin/users/{id}/pledge` | admin | [Admin](#admin) |
 | GET | `/api/admin/settings` | admin | [Admin](#admin) |
 | PATCH | `/api/admin/settings` | admin | [Admin](#admin) |
 
@@ -585,9 +586,10 @@ Admin routes require the caller's `ghe_login` to be in `CTC_ADMINS`. The auth mo
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/admin/users` | List all users with role, onboarded, PAT fingerprint/health, token count, and giver balances (quota/pledge/pledge-remaining). |
+| GET | `/api/admin/users` | List all users with role, onboarded, PAT fingerprint/health, token count, and giver balances (quota/pledge/pledge-remaining, plus `used`/`donated` so the admin pledge control can size its percentage presets against the shareable slice). |
 | GET | `/api/admin/users/{id}` | One user's detail: proxy tokens, PAT fingerprint, health, balances. `404` if unknown. |
 | POST | `/api/admin/users/{id}/reveal-pat` | Return a giver's PAT **in cleartext** (audited via `admin_audit`). **`403` unless `web_transport == "https"`** (never over plain HTTP). `404` if no PAT on file. |
+| POST | `/api/admin/users/{id}/pledge` | Route an idle giver's credit to the shared pool on their behalf (same primitive as the user's own pledge slider, `engine.set_pledge`). Body `{ "pledge": <nano-AIU int> }`. Audited via `admin_audit` (`action="set_pledge"`). `409` if the pool is off / user is not a giver / has no credit this cycle; `422` if the pledge is outside `[already-consumed, quota]`; `400` on a bad body; `404` if unknown. Returns the giver's updated balances. |
 | GET | `/api/admin/settings` | Effective runtime settings + boot config (`web_transport`, source). |
 | PATCH | `/api/admin/settings` | Update runtime settings. Body must be a JSON object (`400` otherwise); invalid values → `400` (`validate_patch`). Returns the new effective view. |
 

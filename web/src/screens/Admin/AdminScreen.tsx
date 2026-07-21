@@ -3,7 +3,8 @@ import { useApp } from '@/store/AppContext';
 import { NANO_PER_AIU } from '@/domain/credit';
 import { NumberInput } from '@/components/NumberInput';
 import { PatHealthBadge } from '@/components/PatHealthBadge';
-import type { AdminUser, AdminSettings, AdminSettingsPatch } from '@/domain/types';
+import { PledgePresets } from '@/components/CreditBar';
+import type { AdminUser, AdminBalances, AdminSettings, AdminSettingsPatch } from '@/domain/types';
 import { monoLabel, card } from '@/theme/styles';
 
 // Numeric-only keys of AdminSettingsPatch (for the existing SettingRow number inputs)
@@ -40,12 +41,20 @@ const btnBase: React.CSSProperties = {
 
 interface UserRowProps {
   user: AdminUser;
+  poolOn: boolean;
   onReveal: (id: string) => Promise<string>;
+  onSetPledge: (id: string, nano: number) => Promise<AdminBalances>;
 }
 
-function UserRow({ user, onReveal }: UserRowProps) {
+function UserRow({ user, poolOn, onReveal, onSetPledge }: UserRowProps) {
   const [revealed, setRevealed] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Live balances: seeded from the row, refreshed after each admin pledge so the
+  // Quota/Pledge cells and the editor bounds stay in sync without a full reload.
+  const [bal, setBal] = useState<AdminBalances>(user);
+  const [editing, setEditing] = useState(false);
+  const [pledgeMsg, setPledgeMsg] = useState<string | null>(null);
+  const [pledgeBusy, setPledgeBusy] = useState(false);
 
   async function handleReveal() {
     setLoading(true);
@@ -57,10 +66,33 @@ function UserRow({ user, onReveal }: UserRowProps) {
     }
   }
 
-  const quotaAiu = user.quota != null ? (user.quota / NANO_PER_AIU).toFixed(2) : '—';
-  const pledgeAiu = user.pledge != null ? (user.pledge / NANO_PER_AIU).toFixed(2) : '—';
+  async function commitPledge(nano: number) {
+    setPledgeBusy(true);
+    setPledgeMsg(null);
+    try {
+      const updated = await onSetPledge(user.id, nano);
+      setBal(updated);
+      setPledgeMsg(`Routed — ${(updated.pledge ?? 0) / NANO_PER_AIU} AIU now pledged to the pool.`);
+    } catch (err) {
+      setPledgeMsg(err instanceof Error ? err.message : 'Could not route credit.');
+    } finally {
+      setPledgeBusy(false);
+    }
+  }
+
+  const quotaAiu = bal.quota != null ? (bal.quota / NANO_PER_AIU).toFixed(2) : '—';
+  const pledgeAiu = bal.pledge != null ? (bal.pledge / NANO_PER_AIU).toFixed(2) : '—';
+
+  // A giver with credit this cycle can have their unused credit routed to the pool.
+  const canRoute = poolOn && user.role === 'giver' && user.hasPat && bal.quota != null;
+  // Pledge bounds mirror the Profile slider: floor at already-consumed pledge,
+  // cap at the shareable slice (quota - personally used - chipped in).
+  const pledgeUsed = Math.max(0, (bal.pledge ?? 0) - (bal.pledgeRemaining ?? 0));
+  const pledgeMin = pledgeUsed;
+  const pledgeMax = Math.max(pledgeMin, (bal.quota ?? 0) - (bal.used ?? 0) - (bal.donated ?? 0));
 
   return (
+    <>
     <tr>
       <td style={{ padding: '10px 12px', fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}>
         {user.gheLogin}
@@ -128,7 +160,55 @@ function UserRow({ user, onReveal }: UserRowProps) {
           <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>—</span>
         )}
       </td>
+      <td style={{ padding: '10px 12px' }}>
+        {canRoute ? (
+          <button
+            onClick={() => { setEditing((e) => !e); setPledgeMsg(null); }}
+            aria-expanded={editing}
+            aria-label={`Route pool credit for ${user.gheLogin}`}
+            style={{ ...btnBase,
+                     background: editing ? 'var(--pool-soft)' : 'var(--surface-2)',
+                     borderColor: editing ? 'var(--pool)' : 'var(--border)' }}
+          >
+            {editing ? 'Close' : 'Route to pool'}
+          </button>
+        ) : (
+          <span style={{ color: 'var(--text-faint)', fontSize: 12 }}
+                title={!poolOn ? 'The shared pool is off' : 'Only hosts with a license and credit this cycle'}>
+            —
+          </span>
+        )}
+      </td>
     </tr>
+    {editing && canRoute && (
+      <tr>
+        <td colSpan={10} style={{ padding: '0 12px 14px', background: 'var(--surface-1)' }}>
+          <div style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--surface-2)',
+                        border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 4 }}>
+              Route <strong style={{ color: 'var(--text)' }}>{user.gheLogin}</strong>'s unused
+              credit to the shared pool on their behalf. Currently pledged{' '}
+              <strong style={{ color: 'var(--text)' }}>{pledgeAiu} AIU</strong>; shareable up to{' '}
+              <strong style={{ color: 'var(--text)' }}>{(pledgeMax / NANO_PER_AIU).toFixed(2)} AIU</strong>.
+            </div>
+            <PledgePresets
+              value={bal.pledge ?? 0}
+              min={pledgeMin}
+              max={pledgeMax}
+              percents={[0.20, 0.50, 0.70]}
+              onChange={() => {}}
+              onCommit={commitPledge}
+            />
+            <div aria-live="polite" style={{ fontSize: 12, minHeight: 16,
+                  color: pledgeMsg && /could not|error|between|disabled|not a/i.test(pledgeMsg)
+                    ? 'var(--consume)' : 'var(--text-faint)' }}>
+              {pledgeBusy ? 'Routing…' : (pledgeMsg ?? 'This is logged with your admin identity.')}
+            </div>
+          </div>
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
@@ -212,6 +292,7 @@ export function AdminScreen() {
   }, [api]);
 
   const handleReveal = useCallback((id: string) => api.revealPat(id), [api]);
+  const handleSetPledge = useCallback((id: string, nano: number) => api.setUserPledge(id, nano), [api]);
 
   // Derive effective display value: local override > server value (numeric keys only)
   function effective(key: NumericSettingKey): number {
@@ -300,6 +381,10 @@ export function AdminScreen() {
     );
   }
 
+  // Gate routing on the SAVED pool setting — the backend enforces the same, so an
+  // unsaved local toggle must not offer an action the server would reject.
+  const poolOn = settings.sharedPoolEnabled.value;
+
   const thStyle: React.CSSProperties = {
     ...monoLabel,
     padding: '8px 12px',
@@ -340,11 +425,13 @@ export function AdminScreen() {
                 <th style={{ ...thStyle, textAlign: 'right' }}>Quota</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Pledge</th>
                 <th style={thStyle}>License</th>
+                <th style={thStyle}>Pool</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => (
-                <UserRow key={u.id} user={u} onReveal={handleReveal} />
+                <UserRow key={u.id} user={u} poolOn={poolOn}
+                         onReveal={handleReveal} onSetPledge={handleSetPledge} />
               ))}
             </tbody>
           </table>

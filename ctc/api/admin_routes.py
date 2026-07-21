@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from aiohttp import web
 
+from ..accounting.errors import AccountingError
 from ..auth.pat_health import display_status
 from ..domain.settings import effective_view, validate_patch
 
@@ -11,23 +12,35 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
                           effective_config, admin_only, now, deployment):
     acct = engine.store
 
+    _NO_BAL = {"quota": None, "pledge": None, "pledge_remaining": None,
+               "used": None, "donated": None}
+
     def _balances(user_id, role):
-        """Giver balances from the active cycle, or (None, None, None)."""
+        """Giver balances from the active cycle, or all-None for non-givers.
+
+        `used`/`donated` let the admin pledge control size its percentage
+        presets against the true shareable slice (quota - used - donated),
+        exactly like the Profile slider."""
         if role != "giver":
-            return None, None, None
+            return dict(_NO_BAL)
         cycle = engine.ensure_active_cycle(now())
         if cycle is None:
-            return None, None, None
+            return dict(_NO_BAL)
         gc = acct.get_giver_cycle(cycle.id, user_id)
         if gc is None:
-            return None, None, None
-        return gc.quota, gc.pledge, engine.pledge_remaining(cycle.id, user_id)
+            return dict(_NO_BAL)
+        used = acct.own_consumed(cycle.id, user_id) + acct.bypass_consumed(cycle.id, user_id)
+        return {
+            "quota": gc.quota, "pledge": gc.pledge,
+            "pledge_remaining": engine.pledge_remaining(cycle.id, user_id),
+            "used": used, "donated": acct.granted_out(cycle.id, user_id),
+        }
 
     @admin_only
     async def list_users(req, _admin):
         out = []
         for u in store.list_users_admin():
-            quota, pledge, pledge_rem = _balances(u["id"], u["role"])
+            bal = _balances(u["id"], u["role"])
             out.append({
                 "id": u["id"], "ghe_login": u["ghe_login"],
                 "display_name": u["display_name"], "role": u["role"],
@@ -40,7 +53,7 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
                 "pat_health_checked_at": u["pat_health_checked_at"],
                 "pat_health_error": u["pat_health_error"],
                 "token_count": u["token_count"],
-                "quota": quota, "pledge": pledge, "pledge_remaining": pledge_rem,
+                **bal,
             })
         return web.json_response(out)
 
@@ -57,7 +70,7 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
         pat = ({"fingerprint": pat_row["fingerprint"], "created_at": pat_row["created_at"]}
                if pat_row else None)
         health = store.get_pat_health(uid)
-        quota, pledge, pledge_rem = _balances(uid, u["role"])
+        bal = _balances(uid, u["role"])
         return web.json_response({
             "id": u["id"], "ghe_login": u["ghe_login"], "display_name": u["display_name"],
             "role": u["role"], "onboarded": bool(u["onboarded"]),
@@ -65,7 +78,7 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
             "pat_health_checked_at": health["checked_at"] if health else None,
             "pat_health_error": health["error"] if health else None,
             "proxy_tokens": tokens, "pat": pat,
-            "quota": quota, "pledge": pledge, "pledge_remaining": pledge_rem,
+            **bal,
         })
 
     @admin_only
@@ -81,6 +94,37 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
         store.add_admin_audit(uuid.uuid4().hex, admin["id"], admin["ghe_login"],
                               "reveal_pat", uid, now())
         return web.json_response({"pat": pat})
+
+    @admin_only
+    async def set_pledge(req, admin):
+        # Route an idle giver's remaining credit into the shared pool on their
+        # behalf. Same primitive as the user's own pledge slider
+        # (engine.set_pledge), just admin-initiated for another user, with an
+        # audit row so it's traceable who moved the credit.
+        if not getattr(engine.config, "shared_pool_enabled", True):
+            raise web.HTTPConflict(text="the shared pool is disabled")
+        uid = req.match_info["id"]
+        u = store.get_user_by_id(uid)
+        if u is None:
+            raise web.HTTPNotFound(text="unknown user")
+        if u["role"] != "giver":
+            raise web.HTTPConflict(text="user is not a giver (no credit to route)")
+        cycle = engine.ensure_active_cycle(now())
+        if cycle is None:
+            raise web.HTTPServiceUnavailable(text="no active cycle")
+        if acct.get_giver_cycle(cycle.id, uid) is None:
+            raise web.HTTPConflict(text="user has no credit this cycle")
+        body = await req.json()
+        pledge = body.get("pledge") if isinstance(body, dict) else None
+        if not isinstance(pledge, int) or isinstance(pledge, bool):
+            raise web.HTTPBadRequest(text="pledge (integer nano-AIU) required")
+        try:
+            engine.set_pledge(cycle.id, uid, pledge)
+        except AccountingError as e:
+            raise web.HTTPUnprocessableEntity(text=str(e))
+        store.add_admin_audit(uuid.uuid4().hex, admin["id"], admin["ghe_login"],
+                              "set_pledge", uid, now())
+        return web.json_response(_balances(uid, u["role"]))
 
     @admin_only
     async def get_settings(req, _admin):
@@ -109,6 +153,7 @@ def register_admin_routes(app, *, store, engine, registry, settings_store,
         web.get("/api/admin/users", list_users),
         web.get("/api/admin/users/{id}", user_detail),
         web.post("/api/admin/users/{id}/reveal-pat", reveal_pat),
+        web.post("/api/admin/users/{id}/pledge", set_pledge),
         web.get("/api/admin/settings", get_settings),
         web.patch("/api/admin/settings", patch_settings),
     ])

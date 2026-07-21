@@ -258,7 +258,16 @@ export interface OnboardingInput {
 }
 
 // Admin DTO types
-export interface AdminUser {
+/** Giver credit balances for the active cycle (null for non-givers). */
+export interface AdminBalances {
+  quota: number | null;
+  pledge: number | null;
+  pledgeRemaining: number | null;
+  used: number | null;
+  donated: number | null;
+}
+
+export interface AdminUser extends AdminBalances {
   id: string;
   gheLogin: string;
   displayName: string | null;
@@ -270,9 +279,6 @@ export interface AdminUser {
   patHealthCheckedAt: number | null;
   patHealthError: string | null;
   tokenCount: number;
-  quota: number | null;
-  pledge: number | null;
-  pledgeRemaining: number | null;
 }
 
 export interface AdminUserDetail extends AdminUser {

@@ -2,7 +2,7 @@ import type { CtcApi, DonationSource, ListRequestsResult } from './CtcApi';
 import type {
   PublicRequest, CreateRequestInput, DashboardData, Leaderboard, OwnProfile,
   SettingsData, SettingsPatch, Session, OnboardingInput, CycleReport,
-  AdminUser, AdminUserDetail, AdminSettings, AdminSettingsPatch, AdminBootConfig,
+  AdminUser, AdminBalances, AdminUserDetail, AdminSettings, AdminSettingsPatch, AdminBootConfig,
   PublicProfile, PublicUserHit,
 } from '@/domain/types';
 import { apiFetch, CtcApiError } from './http';
@@ -198,6 +198,16 @@ export class HttpCtcApi implements CtcApi {
     const r = await apiFetch(this.base, `/admin/users/${id}/reveal-pat`, { method: 'POST' });
     return r.pat;
   }
+  async setUserPledge(id: string, pledgeNano: number): Promise<AdminBalances> {
+    const d = await apiFetch(this.base, `/admin/users/${id}/pledge`, {
+      method: 'POST', body: JSON.stringify({ pledge: Math.round(pledgeNano) }),
+    });
+    return {
+      quota: d.quota ?? null, pledge: d.pledge ?? null,
+      pledgeRemaining: d.pledge_remaining ?? null,
+      used: d.used ?? null, donated: d.donated ?? null,
+    };
+  }
   async getAdminSettings(): Promise<AdminSettings> {
     return mapAdminSettings(await apiFetch(this.base, '/admin/settings'));
   }
@@ -226,6 +236,7 @@ function mapAdminUser(u: any): AdminUser {
     patHealthError: u.pat_health_error ?? null,
     tokenCount: u.token_count ?? 0,
     quota: u.quota ?? null, pledge: u.pledge ?? null, pledgeRemaining: u.pledge_remaining ?? null,
+    used: u.used ?? null, donated: u.donated ?? null,
   };
 }
 function field(f: any) { return { value: f.value, isOverride: Boolean(f.is_override) }; }

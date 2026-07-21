@@ -9,7 +9,7 @@ import type { CtcApi, DonationSource, ListRequestsResult } from '@/api/CtcApi';
 import type {
   PublicRequest, CreateRequestInput, DashboardData, Leaderboard, OwnProfile,
   SettingsData, SettingsPatch, Session, OnboardingInput, CycleReport,
-  ActivityEntry, LeaderboardEntry, AdminUser, AdminUserDetail, AdminSettings,
+  ActivityEntry, LeaderboardEntry, AdminUser, AdminBalances, AdminUserDetail, AdminSettings,
   AdminSettingsPatch, AdminBootConfig, PublicProfile, PublicUserHit, Role,
 } from '@/domain/types';
 import { deriveStatus, NANO_PER_AIU } from '@/domain/credit';
@@ -469,7 +469,8 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       return users.map(u => ({ id: u.id, gheLogin: loginOf(u), displayName: u.name, role: u.role, onboarded: true, hasPat: u.hasPat,
         patFingerprint: u.hasPat ? u.id.slice(0, 8) : null,
         patHealth: u.hasPat ? 'valid' as const : null, patHealthCheckedAt: u.hasPat ? 1_700_000_000 : null, patHealthError: null, tokenCount: 0,
-        quota: u.role === 'giver' ? u.totalCredit : null, pledge: u.role === 'giver' ? u.pledgedSurplus : null, pledgeRemaining: u.role === 'giver' ? u.pledgedSurplus : null }));
+        quota: u.role === 'giver' ? u.totalCredit : null, pledge: u.role === 'giver' ? u.pledgedSurplus : null, pledgeRemaining: u.role === 'giver' ? u.pledgedSurplus : null,
+        used: u.role === 'giver' ? 0 : null, donated: u.role === 'giver' ? 0 : null }));
     },
     async getUserDetail(id: string): Promise<AdminUserDetail> {
       const u = users.find(x => x.id === id);
@@ -478,9 +479,16 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
         patFingerprint: u.hasPat ? u.id.slice(0, 8) : null,
         patHealth: u.hasPat ? 'valid' as const : null, patHealthCheckedAt: u.hasPat ? 1_700_000_000 : null, patHealthError: null,
         tokenCount: 0, quota: u.totalCredit, pledge: u.pledgedSurplus, pledgeRemaining: u.pledgedSurplus,
+        used: 0, donated: 0,
         proxyTokens: [], pat: u.hasPat ? { fingerprint: u.id.slice(0, 8), createdAt: 0 } : null };
     },
     async revealPat(id: string): Promise<string> { if (!users.find(x => x.id === id)) throw new Error(`User not found: ${id}`); return `github_pat_mock_${id}`; },
+    async setUserPledge(id: string, pledgeNano: number): Promise<AdminBalances> {
+      const u = users.find(x => x.id === id);
+      if (!u) throw new Error(`User not found: ${id}`);
+      u.pledgedSurplus = pledgeNano;
+      return { quota: u.totalCredit, pledge: pledgeNano, pledgeRemaining: pledgeNano, used: 0, donated: 0 };
+    },
     async getAdminSettings(): Promise<AdminSettings> { return adminSettings; },
     async updateAdminSettings(patch: AdminSettingsPatch): Promise<AdminSettings> {
       const next = { ...adminSettings } as AdminSettings;

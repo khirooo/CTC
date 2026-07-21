@@ -11,6 +11,7 @@ import type {
   CycleReport,
   RoleCounts,
   AdminUser,
+  AdminBalances,
   AdminUserDetail,
   AdminSettings,
   AdminSettingsPatch,
@@ -95,6 +96,9 @@ export interface CtcApi {
   listAllUsers(): Promise<AdminUser[]>;
   getUserDetail(id: string): Promise<AdminUserDetail>;
   revealPat(id: string): Promise<string>;
+  /** Route a giver's credit to the shared pool on their behalf. `pledgeNano` is
+   *  the absolute pledge amount in nano-AIU. Returns the giver's updated balances. */
+  setUserPledge(id: string, pledgeNano: number): Promise<AdminBalances>;
   getAdminSettings(): Promise<AdminSettings>;
   updateAdminSettings(patch: AdminSettingsPatch): Promise<AdminSettings>;
 }
