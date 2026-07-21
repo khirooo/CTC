@@ -6,7 +6,7 @@ import { CtcApiError } from '@/api/http';
 import { aiu } from '@/domain/credit';
 import { Card, ColorKey, SecretInput } from '@/components';
 import { ScreenStatus } from '@/components/ScreenStatus';
-import { CreditBar, CreditLegend, type BarSegment } from '@/components/CreditBar';
+import { CreditBar, CreditLegend, PledgePresets, type BarSegment } from '@/components/CreditBar';
 import { TerminalBlock } from '@/components/TerminalBlock';
 import { InfoTip } from '@/components/InfoTip';
 import { PatHelp } from '@/components/PatHelp';
@@ -306,6 +306,17 @@ export function ProfileScreen() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 14, fontSize: 11, color: 'var(--text-faint)', fontFamily: "'JetBrains Mono', monospace" }}>
                   <span>Shared with the pool</span>
                   <InfoTip term="pledge" />
+                </div>
+              )}
+              {poolOn && (
+                <div style={{ marginTop: 8 }}>
+                  <PledgePresets
+                    value={pledgedValue}
+                    min={p.pledgedConsumed ?? 0}
+                    max={Math.max(p.pledgedConsumed ?? 0, E - (p.used ?? 0) - (p.donated ?? 0))}
+                    onChange={handlePledgedChange}
+                    onCommit={handlePledgedSave}
+                  />
                 </div>
               )}
               <div style={{ marginTop: poolOn ? 8 : 14 }}>

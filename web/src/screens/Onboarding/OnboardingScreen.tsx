@@ -4,7 +4,7 @@ import { useApp } from '@/store/AppContext';
 import { CtcApiError } from '@/api/http';
 import { NANO_PER_AIU, aiu } from '@/domain/credit';
 import { saveSetupState } from '@/domain/setupState';
-import { CreditBar, CreditLegend } from '@/components/CreditBar';
+import { CreditBar, CreditLegend, PledgePresets } from '@/components/CreditBar';
 import { TerminalBlock } from '@/components/TerminalBlock';
 import { PatHelp } from '@/components/PatHelp';
 import { SecretInput } from '@/components/SecretInput';
@@ -403,6 +403,13 @@ export function OnboardingScreen() {
                 {aiu(pledgedSurplus)}
               </span>
             </div>
+            <PledgePresets
+              value={pledgedSurplus}
+              min={0}
+              max={remainingNano}
+              onChange={setPledgedSurplus}
+              onCommit={setPledgedSurplus}
+            />
             <CreditBar
               max={entitlementNano}
               segments={[
