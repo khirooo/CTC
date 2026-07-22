@@ -140,7 +140,7 @@ export class HttpCtcApi implements CtcApi {
   // --- read screens over HTTP ---
   getDashboard(): Promise<DashboardData> { return this.getJson('/dashboard'); }
   getLeaderboard(): Promise<Leaderboard> { return this.getJson('/leaderboard'); }
-  getOwnProfile(): Promise<OwnProfile> { return this.getJson('/profile'); }
+  getOwnProfile(opts?: { fresh?: boolean }): Promise<OwnProfile> { return this.getJson(opts?.fresh ? '/profile?fresh=1' : '/profile'); }
   getHistory(): Promise<CycleReport[]> { return this.getJson('/history'); }
   async getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null }> {
     const minted = await apiFetch(this.base, '/proxy-token', { method: 'POST' });

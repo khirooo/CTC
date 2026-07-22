@@ -27,6 +27,8 @@ interface FakeUser {
   receivedFromPool?: number;  // nano-AIU of donationsReceived that came from the pool
   reDonated?: number;         // nano-AIU of received credit passed on to other requests
   returnedToPool?: number;    // nano-AIU of received credit moved into the shared pool
+  githubRemaining?: number;   // nano-AIU GitHub reports as remaining; when set, lets a
+                              // fixture diverge `remaining` from CTC's `left` (GitHub truth)
 }
 interface FakeRequest {
   id: string; requesterId?: string; requesterName: string; initials: string;
@@ -156,7 +158,12 @@ export interface FakeApiOpts {
   sharedPoolEnabled?: boolean;
 }
 
-export type FakeApi = CtcApi & { _users(): FakeUser[]; _setSession(s: Session | null): void };
+export type FakeApi = CtcApi & {
+  _users(): FakeUser[];
+  _setSession(s: Session | null): void;
+  /** Records each getOwnProfile invocation so tests can assert fresh-vs-cached reads. */
+  getOwnProfileCalls: Array<{ fresh?: boolean }>;
+};
 
 let _idCounter = 0;
 
@@ -213,8 +220,11 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       .map(u => ({ name: u.name, net: u.donatedSoFar - u.consumed, active: u.donatedSoFar > 0 || u.consumed > 0 }));
   }
 
+  const getOwnProfileCalls: Array<{ fresh?: boolean }> = [];
+
   const api: FakeApi = {
     _users: () => users,
+    getOwnProfileCalls,
     // Directly inject a session (bypassing signIn's seeded-user lookup) for tests
     // that need an arbitrary role/hasPat combo not present in the seed data.
     _setSession: (s: Session | null) => { session = s; },
@@ -368,7 +378,8 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       return { generous, topPro, topNoob, standings };
     },
 
-    async getOwnProfile(): Promise<OwnProfile> {
+    async getOwnProfile(opts?: { fresh?: boolean }): Promise<OwnProfile> {
+      getOwnProfileCalls.push({ fresh: opts?.fresh });
       const u = requireUser();
       const retained = u.totalCredit !== null && u.pledgedSurplus !== null ? u.totalCredit - u.pledgedSurplus : null;
       const d = new Date(getNow());
@@ -384,7 +395,9 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
         left = Math.max(0, entitlement - used - pledged - donated);
         pledgedConsumed = Math.min(pledged, u.poolConsumedFrom ?? 0);
         donatedConsumed = Math.min(donated, u.grantsConsumed ?? 0);
-        remaining = left;
+        // GitHub's own remaining (entitlement − burned on the plan) can diverge from
+        // CTC's `left` when out-of-band burn hasn't been reconciled; a fixture may pin it.
+        remaining = u.githubRemaining ?? left;
       }
       let tier: string | null = null, net: number | null = null, netToNext: number | null = null;
       if (u.role === 'giver') {

@@ -70,7 +70,9 @@ export interface CtcApi {
   getLeaderboard(): Promise<Leaderboard>;
 
   // Profile & settings
-  getOwnProfile(): Promise<OwnProfile>;
+  /** `fresh: true` forces an uncached upstream quota read (bypasses the 60s
+   *  LiveQuotaCache) — call it only on an explicit refresh, never on mount. */
+  getOwnProfile(opts?: { fresh?: boolean }): Promise<OwnProfile>;
   getSettings(): Promise<SettingsData>;
   updateSettings(patch: SettingsPatch): Promise<SettingsData>;
 

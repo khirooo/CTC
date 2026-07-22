@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { useAsync } from '@/store/useAsync';
@@ -58,7 +58,14 @@ export function ProfileScreen() {
   const { api, signOut, session, refresh } = useApp();
   const navigate = useNavigate();
   const settings = useAsync(() => api.getSettings(), []);
-  const profile = useAsync(() => api.getOwnProfile(), []);
+  // Only an explicit Refresh click bypasses the cache; mount and reloads triggered
+  // by other actions (pledge save, PAT rotate) read the normal cached profile.
+  const freshRef = useRef(false);
+  const profile = useAsync(() => {
+    const f = freshRef.current;
+    freshRef.current = false;
+    return api.getOwnProfile(f ? { fresh: true } : undefined);
+  }, []);
   // List existing tokens on mount (read-only). Minting a token is a write, so it
   // happens only when the user clicks "Generate install command" below — not on
   // every Profile view (which used to spawn a fresh token each time).
@@ -285,6 +292,21 @@ export function ProfileScreen() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span style={monoLabel}>Your monthly credits</span>
               <InfoTip term="cycle" />
+              <button
+                type="button"
+                data-refresh-profile
+                disabled={profile.loading}
+                onClick={() => { freshRef.current = true; profile.reload(); }}
+                title="Re-check your live quota from GitHub"
+                style={{
+                  background: 'transparent', border: 'none', padding: '0 4px',
+                  color: 'var(--text-faint)', fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 11, cursor: profile.loading ? 'default' : 'pointer',
+                  opacity: profile.loading ? 0.5 : 1,
+                }}
+              >
+                ↻ Refresh
+              </button>
             </span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 18, color: 'var(--text)' }}>
               {p.unlimited ? '∞' : aiu(poolOn && localPledged !== null ? pledgedValue : (p.left ?? 0))}
@@ -346,6 +368,11 @@ export function ProfileScreen() {
                   // Read backend field; only use local derivation while slider is actively being dragged.
                   { label: 'kept', value: aiu(localPledged !== null ? Math.max(0, E - (p.used ?? 0) - (p.donated ?? 0) - effPledged) : (p.left ?? 0)), color: 'var(--own)' },
                 ]} />
+                {p.remaining != null && p.entitlement != null && (
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)', marginTop: 6, opacity: 0.7 }}>
+                    Burned on your plan this cycle (per GitHub): {aiu(p.entitlement - p.remaining)}{p.quotaStale ? ' · as of last sync' : ''}
+                  </div>
+                )}
                 {p.quotaStale && (
                   <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-faint)', marginTop: 6, opacity: 0.7 }}>
                     figures as of last sync

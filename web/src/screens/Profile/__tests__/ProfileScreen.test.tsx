@@ -137,6 +137,61 @@ describe('ProfileScreen credit figures', () => {
   });
 });
 
+describe('ProfileScreen GitHub-truth burn line + refresh', () => {
+  it('shows GitHub burned = entitlement − remaining (3,100 AIU), distinct from used', async () => {
+    renderProfile();
+    // entitlement 4000 − remaining 900 = 3100 burned on the plan per GitHub
+    const line = await screen.findByText(/Burned on your plan this cycle \(per GitHub\)/);
+    expect(line.textContent).toMatch(/3,100\.00 AIU/);
+    // not the stale suffix (quotaStale is false)
+    expect(line.textContent).not.toMatch(/as of last sync/);
+  });
+
+  it('hides the GitHub burned line when remaining is null', async () => {
+    const api = makeApi({
+      getOwnProfile: vi.fn(async () => ({ ...giverProfile, remaining: null })),
+    });
+    renderProfile(api);
+    await screen.findByTestId('credit-legend');
+    expect(screen.queryByText(/Burned on your plan this cycle \(per GitHub\)/)).toBeNull();
+  });
+
+  it('appends the "as of last sync" suffix when the quota is stale', async () => {
+    const api = makeApi({
+      getOwnProfile: vi.fn(async () => ({ ...giverProfile, quotaStale: true })),
+    });
+    renderProfile(api);
+    const line = await screen.findByText(/Burned on your plan this cycle \(per GitHub\)/);
+    expect(line.textContent).toMatch(/3,100\.00 AIU · as of last sync/);
+  });
+
+  it('Refresh reloads with { fresh: true } exactly once and re-renders updated numbers', async () => {
+    let call = 0;
+    const getOwnProfile = vi.fn(async (_opts?: { fresh?: boolean }) => {
+      call += 1;
+      // first (mount) load: 900 remaining → 3100 burned; refreshed load: 400 remaining → 3600 burned
+      return call === 1 ? giverProfile : { ...giverProfile, remaining: 400 * N };
+    });
+    const api = makeApi({ getOwnProfile });
+    renderProfile(api);
+
+    const line = await screen.findByText(/Burned on your plan this cycle \(per GitHub\)/);
+    expect(line.textContent).toMatch(/3,100\.00 AIU/);
+    // mount read was the cached (non-fresh) one
+    expect(getOwnProfile).toHaveBeenCalledTimes(1);
+    expect(getOwnProfile).toHaveBeenNthCalledWith(1, undefined);
+
+    await userEvent.click(screen.getByRole('button', { name: /refresh/i }));
+
+    // exactly one fresh read, and the figure updates
+    await waitFor(() =>
+      expect(screen.getByText(/Burned on your plan this cycle \(per GitHub\)/).textContent).toMatch(/3,600\.00 AIU/),
+    );
+    const freshCalls = getOwnProfile.mock.calls.filter((c) => c[0]?.fresh === true);
+    expect(freshCalls).toHaveLength(1);
+  });
+});
+
 describe('ProfileScreen CLI setup: mint only on explicit action', () => {
   it('does not mint a proxy token on mount, and mints exactly once per click', async () => {
     const api = makeApi();

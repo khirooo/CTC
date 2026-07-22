@@ -167,6 +167,34 @@ describe('ProfileScreen (merged profile + settings)', () => {
   });
 });
 
+describe('ProfileScreen GitHub-truth burn line + refresh (fakeApi)', () => {
+  it('shows GitHub burned (entitlement − remaining) distinct from used when remaining diverges', async () => {
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'prof.gh' });
+    await api.signIn('ada@example.com', 'x'); // seed giver: entitlement 5200, used 200
+    // GitHub reports more burned than CTC has attributed (out-of-band burn): remaining 1000
+    const ada = api._users().find(u => u.id === 'u_ada')!;
+    ada.githubRemaining = 1000 * 1_000_000_000;
+    renderProfile(api);
+    // entitlement 5200 − remaining 1000 = 4200 burned per GitHub — distinct from the
+    // 200 AIU CTC attributes as "used" (the whole point of the GitHub-truth line).
+    const line = await screen.findByText(/Burned on your plan this cycle \(per GitHub\)/);
+    expect(line.textContent).toMatch(/4,200\.00 AIU/);
+  });
+
+  it('Refresh triggers a fresh (uncached) profile read', async () => {
+    const api = makeFakeApi({ now: () => 1_700_000_000_000, latencyMs: 0, storageKey: 'prof.refresh' });
+    await api.signIn('ada@example.com', 'x'); // seed giver
+    renderProfile(api);
+    await screen.findByText(/Burned on your plan this cycle \(per GitHub\)/);
+    // mount read is cached (fresh undefined)
+    expect(api.getOwnProfileCalls.every(c => !c.fresh)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+    await waitFor(() => expect(api.getOwnProfileCalls.some(c => c.fresh === true)).toBe(true));
+    // exactly one fresh read from the single click
+    expect(api.getOwnProfileCalls.filter(c => c.fresh === true)).toHaveLength(1);
+  });
+});
+
 describe('ProfileScreen license health badge', () => {
   it('Host with a valid license: shows the Valid badge and a checked-time line', async () => {
     const api = makeFakeApi({ latencyMs: 0, storageKey: 'prof.health.ok' });
