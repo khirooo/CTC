@@ -175,6 +175,39 @@ async def test_used_is_events_sourced_not_stale_snapshot():
 
 
 @pytest.mark.asyncio
+async def test_profile_fresh_query_invalidates_live_cache(monkeypatch):
+    """GET /api/profile?fresh=1 bypasses the LiveQuotaCache TTL (one extra
+    /copilot_internal/user read); a plain GET stays cached."""
+    from ctc.metering import live_quota as lqmod
+    invalidated = []
+    orig = lqmod.LiveQuotaCache.invalidate
+
+    def spy(self, gid):
+        invalidated.append(gid)
+        return orig(self, gid)
+    monkeypatch.setattr(lqmod.LiveQuotaCache, "invalidate", spy)
+
+    calls = {"n": 0}
+
+    async def counting(pat):
+        calls["n"] += 1
+        return {"login": "octocat", "quota_reset_date": "2026-07-01",
+                "quota_snapshots": {"premium_interactions":
+                                    {"entitlement": 4000, "remaining": 1200}}}
+
+    app = await _client(http_get_user=counting)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "github_pat_X"})   # submit (direct fetch)
+        await cli.get("/api/profile")                              # cold → cached
+        warm = calls["n"]
+        await cli.get("/api/profile")                             # plain → served cached
+        assert calls["n"] == warm and invalidated == []          # no refetch, fresh=False
+        await cli.get("/api/profile?fresh=1")                    # invalidate → refetch
+        assert calls["n"] == warm + 1 and len(invalidated) == 1
+
+
+@pytest.mark.asyncio
 async def test_profile_exposes_remaining_segment_fields():
     app = await _client(http_get_user=_user_4000_1200)
     async with TestClient(TestServer(app)) as cli:

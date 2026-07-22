@@ -281,8 +281,10 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
                 reset_date=_iso_date(cycle.ends_at), **common)
             return web.json_response(dto.model_dump(by_alias=True))
 
-        # giver: live reconcile (fallback to submit-time snapshot)
-        lq = await live_quota(uid)
+        # giver: live reconcile (fallback to submit-time snapshot). `?fresh=1`
+        # bypasses the LiveQuotaCache TTL so a manual refresh reads GitHub now.
+        fresh = req.query.get("fresh") in ("1", "true")
+        lq = await live_quota(uid, fresh=fresh)
         stale = False
         if lq and lq.get("entitlement") is not None:
             ent_aiu, rem_aiu, reset = lq["entitlement"], lq["remaining"], lq["reset_date"]

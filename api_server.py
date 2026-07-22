@@ -279,7 +279,9 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
 
     from ctc.metering.live_quota import LiveQuotaCache
     _live = LiveQuotaCache(registry.pat_for, http_get_user, ttl=60)
-    async def live_quota(giver_id):       # back-compat shape for get_profile
+    async def live_quota(giver_id, fresh: bool = False):  # shape for get_profile
+        if fresh:
+            _live.invalidate(giver_id)
         return await _live.get(giver_id)
 
     from ctc.api.web_routes import register_web_routes
@@ -372,7 +374,8 @@ def build_from_env(session) -> web.Application:
     from ctc.auth.pat_health import PatHealthChecker
     checker = PatHealthChecker(store, registry.pat_for, http_get_user_raw,
                                now=lambda: int(time.time()),
-                               interval_s=int(os.environ.get("CTC_PAT_HEALTH_INTERVAL_S", "1200")))
+                               interval_s=int(os.environ.get("CTC_PAT_HEALTH_INTERVAL_S", "1200")),
+                               engine=engine)
 
     async def _pat_health_ctx(app):
         task = asyncio.create_task(checker.run_forever())

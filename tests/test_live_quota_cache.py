@@ -41,6 +41,14 @@ def test_none_when_no_pat():
     assert _run(c.get("g1")) is None
     assert calls == []
 
+def test_invalidate_then_get_refetches_within_ttl():
+    calls=[]; c,_ = make(calls)
+    _run(c.get("g1")); _run(c.get("g1"))
+    assert calls == ["pat1"]              # cached within TTL
+    c.invalidate("g1")
+    _run(c.get("g1"))                     # invalidated → refetch despite TTL
+    assert calls == ["pat1","pat1"]
+
 def test_set_exhausted_serves_zero_without_fetch():
     calls=[]; c,_ = make(calls)
     c.set_exhausted("g1")
