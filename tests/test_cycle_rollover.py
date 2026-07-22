@@ -7,7 +7,7 @@ import datetime
 
 from ctc.accounting.engine import AccountingEngine
 from ctc.domain.config import NANO_PER_AIU
-from ctc.domain.types import Cycle
+from ctc.domain.types import Bucket, Cycle, GiverCycle, Grant
 from ctc.store.accounting_store import AccountingStore
 from ctc.store.db import connect, init_db
 
@@ -218,6 +218,97 @@ def test_fresh_db_first_ensure_opens_current_month():
     assert c.id == "cycle-2026-06" and c.status == "active"
     # end is exclusive: first second of July
     assert c.ends_at == _sec(2026, 7, 1, 0, 0, 0)
+
+
+# --------------------------------------------------------------------------- #
+# Baseline carry at rollover (D2): the new cycle's burn_baseline is seeded with
+# the prev cycle's LAST-KNOWN GitHub burn (its baseline + everything CTC tracked),
+# so early-cycle out-of-band burn isn't swallowed by the lazy first-reconcile
+# capture (the incident: GitHub 2600 AIU, CTC 800).
+# --------------------------------------------------------------------------- #
+
+def test_rollover_carries_baseline_as_prev_last_known_github_burn():
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    _add_pat(eng, "g1", entitlement=4000)
+    eng.set_quota("cycle-2026-06", "g1", 4000 * NANO_PER_AIU)
+    eng.store.set_burn_baseline("cycle-2026-06", "g1", 500 * NANO_PER_AIU)
+    eng.record_consumption("cycle-2026-06", "g1", "g1", Bucket.OWN, 200 * NANO_PER_AIU, ts=JUNE)
+    eng.record_consumption("cycle-2026-06", "g1", "g1", Bucket.BYPASS, 100 * NANO_PER_AIU, ts=JUNE)
+
+    eng.ensure_active_cycle(JULY)
+
+    gc = eng.store.get_giver_cycle("cycle-2026-07", "g1")
+    # carried = prev baseline(500) + tracked own(200) + bypass(100)
+    assert gc.burn_baseline == 800 * NANO_PER_AIU
+
+
+def test_rollover_no_carry_when_prev_baseline_none():
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    _add_pat(eng, "g1", entitlement=100)
+    eng.set_quota("cycle-2026-06", "g1", 100 * NANO_PER_AIU)   # baseline never set
+
+    eng.ensure_active_cycle(JULY)
+
+    gc = eng.store.get_giver_cycle("cycle-2026-07", "g1")
+    assert gc.burn_baseline is None
+
+
+def test_rollover_carry_includes_all_tracked_buckets():
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    _add_pat(eng, "g1", entitlement=4000)
+    eng.set_quota("cycle-2026-06", "g1", 4000 * NANO_PER_AIU)
+    eng.store.set_burn_baseline("cycle-2026-06", "g1", 500 * NANO_PER_AIU)
+    # own + pool + grant + bypass all feed _tracked_burn.
+    eng.record_consumption("cycle-2026-06", "g1", "g1", Bucket.OWN, 200 * NANO_PER_AIU, ts=JUNE)
+    eng.record_consumption("cycle-2026-06", "c1", "g1", Bucket.POOL, 300 * NANO_PER_AIU,
+                           ts=JUNE, allow_overshoot=True)
+    eng.store.add_grant(Grant("grant1", "cycle-2026-06", "req1", "g1", "c1", 400 * NANO_PER_AIU, JUNE))
+    eng.record_consumption("cycle-2026-06", "c1", "g1", Bucket.GRANT, 400 * NANO_PER_AIU,
+                           grant_id="grant1", ts=JUNE, allow_overshoot=True)
+    eng.record_consumption("cycle-2026-06", "g1", "g1", Bucket.BYPASS, 100 * NANO_PER_AIU, ts=JUNE)
+
+    eng.ensure_active_cycle(JULY)
+
+    gc = eng.store.get_giver_cycle("cycle-2026-07", "g1")
+    # carried = baseline(500) + own(200) + pool(300) + grant(400) + bypass(100)
+    assert gc.burn_baseline == 1500 * NANO_PER_AIU
+
+
+def test_rollover_does_not_clobber_existing_target_row_baseline():
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    _add_pat(eng, "g1", entitlement=4000)
+    eng.set_quota("cycle-2026-06", "g1", 4000 * NANO_PER_AIU)
+    eng.store.set_burn_baseline("cycle-2026-06", "g1", 500 * NANO_PER_AIU)
+    # July row already exists with its own baseline (reactivation / re-entry path).
+    eng.store.add_cycle(Cycle("cycle-2026-07", "July 2026",
+                              _sec(2026, 7, 1, 0, 0, 0), _sec(2026, 8, 1, 0, 0, 0), "archived"))
+    eng.store.upsert_giver_cycle(GiverCycle("cycle-2026-07", "g1", 4000 * NANO_PER_AIU, 0))
+    eng.store.set_burn_baseline("cycle-2026-07", "g1", 999 * NANO_PER_AIU)
+
+    eng.ensure_active_cycle(JULY)
+
+    gc = eng.store.get_giver_cycle("cycle-2026-07", "g1")
+    assert gc.burn_baseline == 999 * NANO_PER_AIU   # untouched, not overwritten by carry
+
+
+def test_gap_months_carry_prev_baseline():
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    _add_pat(eng, "g1", entitlement=4000)
+    eng.set_quota("cycle-2026-06", "g1", 4000 * NANO_PER_AIU)
+    eng.store.set_burn_baseline("cycle-2026-06", "g1", 500 * NANO_PER_AIU)
+    eng.record_consumption("cycle-2026-06", "g1", "g1", Bucket.OWN, 300 * NANO_PER_AIU, ts=JUNE)
+
+    eng.ensure_active_cycle(AUGUST)   # dormancy gap: July skipped entirely
+
+    assert eng.store.get_cycle("cycle-2026-07") is None
+    gc = eng.store.get_giver_cycle("cycle-2026-08", "g1")
+    # carried from the months-old archived June cycle: baseline(500) + own(300)
+    assert gc.burn_baseline == 800 * NANO_PER_AIU
 
 
 def test_init_db_normalizes_legacy_inclusive_ends_at():

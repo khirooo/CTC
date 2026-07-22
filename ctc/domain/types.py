@@ -40,8 +40,10 @@ class GiverCycle:
     quota: int
     pledge: int
     # Reconciliation state (see AccountingEngine.reconcile_giver):
-    # burn_baseline    = github_burn that corresponds to zero tracked CTC usage
-    #                    (captured lazily on first reconcile; absorbs reset lag).
+    # burn_baseline    = github_burn that corresponds to zero tracked CTC usage.
+    #                    Carried at rollover from the prev cycle's last-known burn
+    #                    (_open_month_cycle); lazy first-reconcile capture remains
+    #                    only as a fallback for rows with no carryable history.
     # pending_drift    = first observation of positive drift awaiting a second
     #                    confirming observation before it is booked as BYPASS.
     # pending_drift_at = ts (epoch seconds) of that first observation.

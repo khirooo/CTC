@@ -165,6 +165,19 @@ class AccountingEngine:
                        if prev_cycle_id else None)
             pledge = min(prev_gc.pledge, quota) if prev_gc else 0
             self.store.upsert_giver_cycle(GiverCycle(new.id, row["user_id"], quota, pledge))
+            # Carry the burn baseline forward so early-cycle out-of-band burn isn't
+            # swallowed by the lazy first-observation capture (the incident: GitHub
+            # showed 2600 AIU burned, CTC only 800). The carried value is the prev
+            # cycle's LAST-KNOWN GitHub burn — its baseline plus everything CTC
+            # attributed there (own/pool/grant + already-booked bypass). While
+            # GitHub still reports the old (pre-rollover) window, drift ≈ 0 so
+            # nothing books; once GitHub resets its counter the existing
+            # `github_burn < base` branch in reconcile_giver re-anchors to ~0.
+            # Deliberately EXCLUDES prev pending_drift (unconfirmed — it may be
+            # in-flight proxied cost that will be debited in the new cycle).
+            if prev_gc is not None and prev_gc.burn_baseline is not None:
+                carried = prev_gc.burn_baseline + self._tracked_burn(prev_cycle_id, row["user_id"])
+                self.store.set_burn_baseline(new.id, row["user_id"], carried)
         return new
 
     def ensure_active_cycle(self, now: int) -> Cycle:
@@ -454,11 +467,15 @@ class AccountingEngine:
         """Book a giver's out-of-band (non-proxied) GitHub burn as a self-sourced
         BYPASS event so every events-based surface reflects reality.
 
-        Drift is measured against a per-giver `burn_baseline` (captured lazily on
-        the first observation; absorbs the GitHub reset lag that used to re-book a
-        whole prior month at rollover, P1-3) rather than against zero. A positive
-        drift is confirmed across two observations >= CONFIRM_MIN_S apart before it
-        is booked (a single in-flight cost no longer double-books as BYPASS, P1-2).
+        Drift is measured against a per-giver `burn_baseline` rather than against
+        zero. The baseline is carried at rollover from the previous cycle's
+        last-known GitHub burn (see `_open_month_cycle`), so early-cycle out-of-band
+        burn is no longer swallowed before the first reconcile fires. The lazy
+        first-observation capture remains only as a fallback for rows with no
+        carryable history (absorbs the GitHub reset lag that used to re-book a whole
+        prior month at rollover, P1-3). A positive drift is confirmed across two
+        observations >= CONFIRM_MIN_S apart before it is booked (a single in-flight
+        cost no longer double-books as BYPASS, P1-2).
 
         The common case — drift <= 0 with a baseline already set — takes NO write
         lock (P1-11): only baseline capture, the debounce record, and the final

@@ -205,3 +205,60 @@ def test_zero_drift_does_not_book_and_clears_stale_pending():
     gc = s.get_giver_cycle(CYC, "g1")
     assert gc.pending_drift is None
     assert s.bypass_consumed(CYC, "g1") == 0
+
+
+# --------------------------------------------------------------------------- #
+# Carried-baseline incident regressions (D2). At rollover the new cycle's
+# burn_baseline is seeded with the prev cycle's last-known GitHub burn instead of
+# being left None. These exercise reconcile_giver against such a carried baseline.
+# --------------------------------------------------------------------------- #
+def test_carried_baseline_stale_phase_books_nothing():
+    # Post-rollover, GitHub still reports the OLD (pre-reset) window. The carried
+    # baseline matches it exactly → drift 0 across both observations, nothing books.
+    e, s = seed()
+    s.set_burn_baseline(CYC, "g1", 2600 * N)          # carried last-known burn
+    ev1 = e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 1400}, ts=1000)  # burn 2600
+    ev2 = e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 1400}, ts=1100)
+    assert ev1 is None and ev2 is None
+    assert s.bypass_consumed(CYC, "g1") == 0
+    assert s.get_giver_cycle(CYC, "g1").pending_drift is None
+
+
+def test_carried_baseline_stale_phase_with_new_proxied_usage_no_double_count():
+    # During the stale phase the giver also burns 300 THROUGH the proxy: both
+    # github_burn and tracked rise by 300, so drift stays 0 — no double count.
+    e, s = seed()
+    s.set_burn_baseline(CYC, "g1", 2600 * N)
+    e.record_consumption(CYC, "g1", "g1", Bucket.OWN, 300 * N, ts=500)
+    ev1 = e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 1100}, ts=1000)  # burn 2900
+    ev2 = e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 1100}, ts=1100)
+    assert ev1 is None and ev2 is None
+    assert s.bypass_consumed(CYC, "g1") == 0
+
+
+def test_carried_baseline_reset_reanchors_then_attributes():
+    # GitHub finally resets its counter (burn drops below the carried baseline):
+    # the re-anchor branch fires, then later out-of-band burn confirms and books.
+    e, s = seed()
+    s.set_burn_baseline(CYC, "g1", 2600 * N)
+    # reset: burn drops to 50 (< carried 2600) → re-anchor to the new floor.
+    assert e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 3950}, ts=1000) is None
+    assert s.get_giver_cycle(CYC, "g1").burn_baseline == 50 * N
+    # 500 more burned out-of-band above the re-anchored baseline → confirm + book.
+    e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 3450}, ts=2000)   # obs1 drift 500
+    ev = e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 3450}, ts=2100)  # obs2
+    assert ev is not None
+    assert s.bypass_consumed(CYC, "g1") == 500 * N
+
+
+def test_early_cycle_oob_burn_no_longer_absorbed():
+    # THE BUG (incident: GitHub 2600, CTC 800). With a carried baseline of 800, the
+    # giver's 1800 AIU of early-cycle out-of-band burn shows up as drift and two
+    # debounced observations book it. Under the OLD lazy capture the first
+    # observation set baseline = github_burn and the 1800 vanished forever.
+    e, s = seed()
+    s.set_burn_baseline(CYC, "g1", 800 * N)           # carried last-known burn
+    e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 1400}, ts=1000)   # burn 2600, drift 1800
+    ev = e.reconcile_giver(CYC, "g1", {"entitlement": 4000, "remaining": 1400}, ts=1100)  # obs2 confirms
+    assert ev is not None
+    assert s.bypass_consumed(CYC, "g1") == 1800 * N
