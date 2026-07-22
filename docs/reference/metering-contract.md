@@ -262,3 +262,144 @@ debited exactly once on its eventual `200` like any billable call.
   charged independently (self-contained `copilot_usage`), so an agent turn that
   makes N model calls produces N charges — attribution is per-HTTP-call, which is
   the correct granularity.
+
+---
+
+## 8. Giver reconciliation & burn baseline
+
+Per-request `total_nano_aiu` (§2) only sees traffic that flows **through the
+proxy**. A giver can also burn their real GHE quota **out-of-band** — the same PAT
+used directly in an editor, the official Copilot CLI, a script — and that spend
+never produces a CTC event. Reconciliation closes the gap: it periodically reads
+the giver's real `/copilot_internal/user` quota (§3) and books the untracked
+difference as a self-sourced **BYPASS** event so every events-based surface
+(profile, leaderboard, ledger) reflects reality. Code: `reconcile_giver`,
+`_open_month_cycle`, `_book_bypass` in `ctc/accounting/engine.py`; the scheduled
+driver is `ctc/auth/pat_health.py`.
+
+### 8.1 The drift formula
+
+For a giver in the active cycle:
+
+```
+github_burn = (entitlement − remaining) × NANO_PER_AIU        # from the live snapshot
+tracked     = own + pool_consumed_from + grants_consumed_from + bypass_consumed
+drift       = github_burn − burn_baseline − tracked
+```
+
+`tracked` is the sum of everything CTC has **already attributed** to this giver
+this cycle across its four buckets (`_tracked_burn`); `burn_baseline` is the
+GitHub burn that predates CTC's tracking of this cycle (see §8.3). Only a
+**positive** drift books — a negative drift means CTC's ledger is momentarily
+ahead of GitHub's lagged snapshot (§4) and is never reversed. The booking is a
+BYPASS event for `drift` nano-AIU; BYPASS is self-sourced and **never
+headroom-checked** — the spend already happened upstream.
+
+### 8.2 Two-observation debounce (constants 90 / 900 / 60)
+
+A single live snapshot can race an in-flight proxied request: the snapshot already
+reflects a cost that the proxy is about to debit itself, so booking that snapshot's
+drift immediately would double-count it as BYPASS. A positive drift is therefore
+**confirmed across two observations** before it books:
+
+- `RECONCILE_CONFIRM_MIN_S = 90` — the two observations must be **≥ 90 s** apart.
+  That gap is the window the in-flight proxied cost needs to land in `tracked`, so
+  by the second read the debounce measures only genuinely out-of-band burn. The
+  amount booked is the conservative `min(obs1, obs2)`.
+- `RECONCILE_CONFIRM_WINDOW_MAX = 900` — an observation older than **900 s** is
+  stale (the world moved on) and restarts the debounce as a fresh first
+  observation rather than confirming against outdated numbers.
+- `RECONCILE_THROTTLE_S = 60` — an in-memory per-`(cycle, giver)` throttle skips
+  repeat reconciles within 60 s on hot paths (profile loads, proxy traffic). It is
+  best-effort and per-process. `immediate=True` (onboarding, a confirmed 402)
+  bypasses **both** the debounce and the throttle and books confirmed drift at once.
+
+### 8.3 Baseline carry at rollover
+
+At a cycle boundary GitHub resets `remaining` to `entitlement` on its own schedule,
+which does not coincide with CTC's calendar-month rollover. The **baseline** is how
+reconcile tolerates that skew. When `_open_month_cycle` seeds a new cycle's
+`giver_cycles` row, it carries the baseline forward:
+
+```
+new.burn_baseline = prev.burn_baseline + _tracked_burn(prev_cycle, giver)
+```
+
+i.e. the previous cycle's **last-known GitHub burn**. While GitHub still reports the
+old (pre-reset) window, `github_burn ≈ baseline` so `drift ≈ 0` and nothing books;
+proxied usage during that stale phase raises `github_burn` and `tracked` in lockstep,
+so it is sign-safe and never double-counts. The carry deliberately **excludes**
+`pending_drift`: an unconfirmed observation may be in-flight proxied cost that will
+be debited (as a real event) in the new cycle, and carrying it into the baseline
+would silence that cost forever.
+
+The lazy first-observation capture (`baseline is None` → `baseline := max(0,
+github_burn − tracked)`, book nothing) remains only as a **fallback** for rows with
+no carryable history (rare — a giver connected mid-cycle). This is the mechanism
+that used to swallow early-cycle out-of-band burn (the incident: GitHub showed 2600
+AIU burned, CTC 800 — the 1800 difference was absorbed into the baseline and lost);
+the carry is what fixes it.
+
+### 8.4 Empirical reset detection
+
+The GitHub reset is detected **empirically**, never from `quota_reset_date`. That
+field is a day-granularity string (`"2026-07-01"`) meant for display; it cannot
+pin the exact second GitHub flips the counter. Instead, when `github_burn` falls
+**below** the current baseline, the counter must have reset upstream, so
+`reconcile_giver` re-anchors `baseline := max(0, github_burn − tracked)` and drops
+any pending observation, booking nothing. After a reset there is a **bounded
+absorption window** of at most one sweep interval: burn between the reset and the
+next reconcile is folded into the re-anchored baseline. That window is bounded by
+`CTC_PAT_HEALTH_INTERVAL_S` (default 1200 s) precisely because the scheduled sweep
+(§8.5) runs regardless of activity.
+
+### 8.5 Two-phase scheduled sweep
+
+The 20-minute giver-PAT health sweep already fetches `/copilot_internal/user` per
+giver; feeding those numbers into `reconcile_giver` makes every giver's ledger at
+most one sweep stale regardless of proxy/profile activity. But the sweep interval
+(1200 s) **exceeds** `RECONCILE_CONFIRM_WINDOW_MAX` (900 s), so two consecutive
+periodic observations could never confirm a drift — the second would always be
+stale and restart the debounce forever. `PatHealthChecker.run_once` resolves this
+in two phases within a single sweep:
+
+1. **Phase 1** — sweep every giver (verdict + quota snapshot + a first reconcile
+   observation that may record `pending_drift`).
+2. **Phase 2** — read back the givers now carrying a pending drift, sleep
+   `confirm_delay_s` (default **95 s** = `CONFIRM_MIN_S + 5`), then do a **fresh**
+   `/copilot_internal/user` fetch and a second reconcile for just those givers. The
+   two observations are now 95 s apart — inside `[90, 900]` — so the drift confirms.
+   The fresh fetch is mandatory: the 95 s gap is exactly what lets in-flight
+   proxied cost catch up into `tracked` before the second read (§8.2). Phase 2 also
+   confirms pendings that were seeded by a profile load or proxy observation.
+
+Widening `CONFIRM_WINDOW_MAX` was rejected — it would weaken staleness protection
+for every caller. With `engine=None` the sweep is exactly the legacy display-only
+behaviour. A side effect (accepted, desirable): the sweep calls
+`ensure_active_cycle(now())`, so a calendar-month rollover now happens within one
+sweep of the boundary even under zero traffic.
+
+### 8.6 Known misattribution: pending at rollover
+
+If a giver's `pending_drift` (an unconfirmed observation) is still set at the exact
+moment of rollover, it is dropped rather than carried (§8.3). If that drift was
+genuine out-of-band burn — not in-flight proxied cost — it goes unbooked in the old
+cycle and is absorbed into the new cycle's baseline. This is a deliberate trade:
+carrying unconfirmed drift risks silencing real proxied cost, which is the worse
+error. The exposure is bounded (one debounce window straddling one rollover) and
+self-corrects the next cycle.
+
+### 8.7 One-time repair
+
+A giver whose baseline **already** swallowed real burn this cycle (before the carry
+fix shipped) needs a manual re-anchor — the automatic paths only prevent future
+loss, they cannot recover burn already folded into a live baseline. `python -m
+tools.repair_baseline` re-anchors the giver's baseline to 0 for the current cycle,
+clears pending, and runs an immediate reconcile so all untracked burn books as one
+BYPASS event. It is a **destructive, one-time ops script** (not an HTTP surface):
+`--giver <id-or-login>` (repeatable) or `--all`, `--dry-run`, `--yes`, and an
+offline `--entitlement/--remaining` override (single giver, skips the live fetch).
+It is safe to run with services up (WAL + one `BEGIN IMMEDIATE`; the reconcile is
+idempotent — a second run books 0). The control-plane `LiveQuotaCache` (60 s TTL)
+means the giver's profile reflects the repair within a minute, or instantly via the
+profile's Refresh button.

@@ -631,6 +631,19 @@ Steps map to the layers below.
   and consume no credit. A billable response that isn't `200` carries no
   `copilot_usage` → charge 0. Debit failures are logged, never surfaced (the
   response was already relayed).
+- **Scheduled out-of-band reconcile (control plane):** the giver-PAT health sweep
+  (`PatHealthChecker`, `ctc/auth/pat_health.py`) is no longer display-only — when
+  wired with the accounting engine it feeds each VALID giver's live quota into
+  `reconcile_giver`, so a giver's out-of-band burn (their PAT used directly, not
+  through the proxy) is booked as a BYPASS event even with zero proxy/profile
+  activity. Because the sweep interval (default 1200 s) exceeds the engine's
+  confirm window (900 s), `run_once` runs **two phases per sweep**: a first pass
+  that records pending drift, then a short (`confirm_delay_s`, default 95 s) sleep
+  and a fresh re-check of just the pending givers so the two observations land in
+  the confirm window and the drift books. The reset-aware **burn baseline** carried
+  at rollover keeps early-cycle out-of-band burn from being swallowed. Full
+  contract: `docs/reference/metering-contract.md` §8. One-time recovery of burn a
+  live baseline already absorbed: `python -m tools.repair_baseline` (§13 table).
 - **Why it's a mechanism, not load-bearing:** none of this is needed for Copilot
   to *work* — it's the CTC credit-accounting overlay. A bug here mis-bills or
   over/under-blocks, but the proxy/Copilot handshake (Layers 1–9) is unaffected.
@@ -732,6 +745,7 @@ All tests must pass before merging changes to `proxy.py`.
 | `test_proxy_db_registry.py` | DB-backed `_build_attribution` path (`CTC_DB_PATH` + `CTC_SECRET_KEY`) |
 | `test_canary_verdict.py` | `ctc.canary.evaluate` + `write_status` + `load_exchanges` — pure verdict logic over fixture exchanges |
 | `test_canary_cli.py` | `tools.canary.should_skip` — version-skip helper; no quota spent |
+| `test_repair_baseline.py` | `tools.repair_baseline.repair_giver` — one-time baseline re-anchor + BYPASS booking (incident scenario, dry-run, idempotency, offline override, stale-pending clear) |
 
 > The control plane (`api_server.py`, `ctc/auth/`, `ctc/store/`, `ctc/accounting/`)
 > has its own large test set (OAuth login, sessions, onboarding, accounting,
