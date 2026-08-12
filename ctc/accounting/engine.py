@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import uuid
 
+from ..auth.pat_health import DEAD_VERDICTS
 from ..domain.config import NANO_PER_AIU
 from ..domain.config import config as _env_config
 from ..domain.rules import derive_status
@@ -54,10 +55,30 @@ class AccountingEngine:
             return 0
         return max(0, gc.pledge - self.pledge_used(cycle_id, giver_id))
 
+    def dead_pat_givers(self) -> set[str]:
+        """Givers whose stored PAT carries a DEFINITIVE unhealthy verdict
+        (expired/revoked/forbidden/no entitlement — see pat_health.DEAD_VERDICTS).
+
+        Their pledge is unbackable: nothing can be forwarded upstream with a dead
+        PAT, so it must not count as pool capacity. Unknown is NOT dead — a missing
+        giver_pats row or a NULL health_status (never checked, legacy row, or a
+        transient "unreachable" that kept its last verdict) stays eligible, the same
+        convention as AttributionService._dead and any_giver_pat.
+        """
+        verdicts = sorted(DEAD_VERDICTS)
+        placeholders = ",".join("?" * len(verdicts))
+        return {r["user_id"] for r in self.conn.execute(
+            f"SELECT user_id FROM giver_pats WHERE health_status IN ({placeholders})",
+            tuple(verdicts))}
+
     def pool_available(self, cycle_id: str) -> int:
         # Pledged capacity plus received credit recipients returned to the pool.
+        # Givers with a definitively dead PAT are excluded: their pledge survives on
+        # the row (history, and it comes back if they reconnect) but cannot be drawn.
+        dead = self.dead_pat_givers()
         return (sum(self.pledge_remaining(cycle_id, gc.giver_id)
-                    for gc in self.store.all_giver_cycles(cycle_id))
+                    for gc in self.store.all_giver_cycles(cycle_id)
+                    if gc.giver_id not in dead)
                 + sum(cap for _, cap in self.store.contributions_with_capacity(cycle_id)))
 
     def grant_remaining(self, cycle_id: str, grant_id: str) -> int:
@@ -92,8 +113,14 @@ class AccountingEngine:
         return self.store.consumed_from_others(cycle_id, user_id)
 
     def givers_with_pool_capacity(self, cycle_id: str) -> list[tuple[str, int]]:
+        # Same dead-PAT exclusion as pool_available: a pool fill books grants against
+        # a concrete giver's PAT, so picking a dead one would mint credit that 401s
+        # at draw time and only recovers via the proxy's failover.
+        dead = self.dead_pat_givers()
         out = []
         for gc in self.store.all_giver_cycles(cycle_id):
+            if gc.giver_id in dead:
+                continue
             rem = self.pledge_remaining(cycle_id, gc.giver_id)
             if rem > 0:
                 out.append((gc.giver_id, rem))
@@ -154,6 +181,14 @@ class AccountingEngine:
         # forward and clamped. Skip PATs with no usable entitlement and rows that
         # already exist in this cycle. Seeding here (not only on the archive path)
         # is what fixes the gap path never seeding givers (P0-1).
+        #
+        # The pledge carry is gated on PAT health. `entitlement` is a last-known-good
+        # snapshot that is only refreshed on a VALID verdict and never cleared, so a
+        # dead PAT still passes the `ent > 0` filter with a stale quota — carrying its
+        # pledge advertised pool credit that nothing could draw (the phantom-pool
+        # incident). The row is still seeded (giver identity, quota, baseline carry all
+        # stay meaningful, and reconnecting re-applies the default pledge) with pledge=0.
+        dead = self.dead_pat_givers()
         for row in self.conn.execute("SELECT user_id, entitlement FROM giver_pats"):
             ent = row["entitlement"]
             if not ent or ent <= 0:
@@ -163,7 +198,7 @@ class AccountingEngine:
             quota = int(ent) * NANO_PER_AIU
             prev_gc = (self.store.get_giver_cycle(prev_cycle_id, row["user_id"])
                        if prev_cycle_id else None)
-            pledge = min(prev_gc.pledge, quota) if prev_gc else 0
+            pledge = 0 if row["user_id"] in dead else (min(prev_gc.pledge, quota) if prev_gc else 0)
             self.store.upsert_giver_cycle(GiverCycle(new.id, row["user_id"], quota, pledge))
             # Carry the burn baseline forward so early-cycle out-of-band burn isn't
             # swallowed by the lazy first-observation capture (the incident: GitHub
@@ -260,6 +295,27 @@ class AccountingEngine:
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
+
+    def retract_pledge(self, cycle_id: str, giver_id: str) -> int:
+        """Withdraw a giver's undrawn pledge for `cycle_id`; returns the nano-AIU
+        retracted (0 when there was nothing to retract).
+
+        The pledge is floored at what has ALREADY been drawn from it
+        (`pledge_used` — legacy POOL events plus booked pool fills), so the engine's
+        own invariants hold and history is never rewritten; only the undrawn
+        remainder goes away. Used by the PAT-health sweep when a giver's token dies
+        and by the disconnect path. Idempotent: a second call retracts 0.
+
+        Not a permanent demotion — reconnecting a working PAT re-applies the default
+        pledge (validate_and_store_pat treats pledge == 0 as unpledged).
+        """
+        floor = self.pledge_used(cycle_id, giver_id)
+        gc = self.store.get_giver_cycle(cycle_id, giver_id)
+        if gc is None or gc.pledge <= floor:
+            return 0
+        retracted = gc.pledge - floor
+        self.set_pledge(cycle_id, giver_id, floor)
+        return retracted
 
     # --- marketplace ---
     def create_request(self, cycle_id: str, requester_id: str, role: Role, amount_needed: int,

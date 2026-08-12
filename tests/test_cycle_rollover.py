@@ -323,3 +323,56 @@ def test_init_db_normalizes_legacy_inclusive_ends_at():
     init_db(conn)
     row2 = conn.execute("SELECT ends_at FROM cycles WHERE id='cycle-2026-06'").fetchone()
     assert row2["ends_at"] == last_sec + 1
+
+
+# --- dead-PAT pledge carry (phantom shared pool) --------------------------------
+# `giver_pats.entitlement` is a last-known-good snapshot that is only refreshed on a
+# VALID health verdict and never cleared, so an expired PAT still passes the
+# `ent > 0` seed filter with a stale quota. Carrying its pledge produced a pool
+# advertising 3,103 AIU of capacity that nothing could draw.
+
+def _set_health(eng, user_id, status):
+    eng.store.conn.execute("UPDATE giver_pats SET health_status=? WHERE user_id=?",
+                           (status, user_id))
+
+
+def test_rollover_drops_carried_pledge_for_dead_pat():
+    for status in ("expired", "forbidden", "no_entitlement"):
+        eng = _engine()
+        eng.ensure_active_cycle(JUNE)
+        _add_pat(eng, "g1", entitlement=100)
+        eng.set_quota("cycle-2026-06", "g1", 100 * NANO_PER_AIU)
+        eng.set_pledge("cycle-2026-06", "g1", 40 * NANO_PER_AIU)
+        _set_health(eng, "g1", status)
+
+        eng.ensure_active_cycle(JULY)
+
+        gc = eng.store.get_giver_cycle("cycle-2026-07", "g1")
+        # Row is still seeded (identity, quota and baseline carry stay meaningful),
+        # but it contributes no pool capacity.
+        assert gc is not None, status
+        assert gc.quota == 100 * NANO_PER_AIU, status
+        assert gc.pledge == 0, status
+        assert eng.pool_available("cycle-2026-07") == 0, status
+
+
+def test_rollover_carries_pledge_for_valid_and_unknown_health():
+    # "valid" is the normal case; NULL (never checked / legacy row) and a PAT whose
+    # last check merely errored (health_error set, verdict kept) are unknown, not
+    # dead — a GHE outage must not silently withdraw everyone's pledge.
+    eng = _engine()
+    eng.ensure_active_cycle(JUNE)
+    for uid in ("g1", "g2", "g3"):
+        _add_pat(eng, uid, entitlement=100)
+        eng.set_quota("cycle-2026-06", uid, 100 * NANO_PER_AIU)
+        eng.set_pledge("cycle-2026-06", uid, 40 * NANO_PER_AIU)
+    _set_health(eng, "g1", "valid")
+    # g2 keeps health_status NULL
+    eng.store.conn.execute(
+        "UPDATE giver_pats SET health_status='valid', health_error='502' WHERE user_id='g3'")
+
+    eng.ensure_active_cycle(JULY)
+
+    for uid in ("g1", "g2", "g3"):
+        assert eng.store.get_giver_cycle("cycle-2026-07", uid).pledge == 40 * NANO_PER_AIU, uid
+    assert eng.pool_available("cycle-2026-07") == 120 * NANO_PER_AIU

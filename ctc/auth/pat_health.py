@@ -38,6 +38,15 @@ NO_ENTITLEMENT = "no_entitlement"  # token fine, but no Copilot premium quota
 
 DEFINITIVE = {VALID, EXPIRED, FORBIDDEN, NO_ENTITLEMENT}
 
+# Definitive verdicts that mean the PAT cannot back credit any more: it can
+# neither be forwarded upstream nor reconciled against GitHub. A giver in this
+# state must not contribute pledged capacity to the shared pool (the phantom-pool
+# incident: two expired PATs carried 3,103 AIU of pledge across the rollover and
+# the pool advertised credit nothing could draw). An indefinitive check
+# ("unreachable" — GHE 502s during an outage) is deliberately NOT here: the last
+# definitive verdict survives underneath and keeps deciding.
+DEAD_VERDICTS = frozenset({EXPIRED, FORBIDDEN, NO_ENTITLEMENT})
+
 
 UNREACHABLE = "unreachable"  # display-only: last check errored; stored verdict kept
 
@@ -107,6 +116,15 @@ class PatHealthChecker:
                 giver_id, f"/copilot_internal/user -> {status}", self.now())
             return None
         self.store.set_pat_health_ok(giver_id, verdict, self.now())
+        if verdict in DEAD_VERDICTS and self.engine is not None:
+            # The PAT is definitively dead: withdraw its undrawn pledge so the shared
+            # pool stops advertising credit nothing can draw, and so the rollover has
+            # nothing left to carry into next month. Only the undrawn part goes — the
+            # floor is what was already drawn. A working PAT that merely became
+            # *unreachable* never reaches here (classify returns None for 5xx).
+            if cycle_id is None:
+                cycle_id = self.engine.ensure_active_cycle(self.now()).id
+            self._retract_dead_pledge(cycle_id, giver_id)
         if verdict == VALID:
             # Body is already in hand — refresh the quota snapshot so the
             # profile's stale-quota fallback shows recent numbers.
@@ -124,6 +142,17 @@ class PatHealthChecker:
                     cycle_id = self.engine.ensure_active_cycle(self.now()).id
                 self._reconcile_valid(cycle_id, giver_id, body)
         return verdict
+
+    def _retract_dead_pledge(self, cycle_id: str, giver_id: str) -> None:
+        # A retraction failure must never lose the health verdict already persisted.
+        try:
+            n = self.engine.retract_pledge(cycle_id, giver_id)
+            if n:
+                log.info("retracted %d nano-AIU of pledge from dead-PAT giver %s",
+                         n, giver_id)
+        except Exception:
+            log.exception("pledge retraction failed for giver %s (health verdict kept)",
+                          giver_id)
 
     def _reconcile_valid(self, cycle_id: str, giver_id: str, body: dict) -> None:
         pi = body.get("quota_snapshots", {}).get("premium_interactions", {})

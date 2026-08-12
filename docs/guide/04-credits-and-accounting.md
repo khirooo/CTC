@@ -230,6 +230,14 @@ too; each giver's prior pledge is carried forward and clamped to the new quota).
 Multiple dormant months jump straight to the current month — no empty
 in-between cycles. (`ctc/accounting/engine.py` `ensure_active_cycle` / `_roll_over`.)
 
+A pledge is only carried forward while the giver's PAT is still alive. A token
+that has expired or been revoked can't be forwarded upstream, so its pledge is
+capacity nobody can draw: the rollover seeds such a giver with **no** pledge, the
+shared-pool total ignores them, and no pool fill is ever routed to them. A token
+whose last check merely *failed* (GHE unreachable) is not treated as dead — the
+last definitive verdict is what counts. Reconnecting a working PAT restores the
+default pledge, so this is a pause, not a demotion.
+
 ### Archived reports are frozen
 
 A past cycle's history report (winners, top donors, totals) is computed **once**,

@@ -230,7 +230,11 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         # (no PAT ever connected) would misclassify them as a giver in dashboard
         # aggregates.
         if cycle is not None and engine.store.get_giver_cycle(cycle.id, user["id"]) is not None:
-            floor = engine.store.pool_consumed_from(cycle.id, user["id"])
+            # Floor on pledge_used (legacy POOL events AND booked pool fills), not on
+            # pool_consumed_from alone: a giver whose pledge had been drawn by a
+            # marketplace pool fill would otherwise trip the engine's own
+            # pledge/quota-below-consumed guards with an InvalidPledge 500.
+            floor = engine.pledge_used(cycle.id, user["id"])
             engine.set_pledge(cycle.id, user["id"], floor)
             engine.set_quota(cycle.id, user["id"], floor)
         store.set_user_role(user["id"], "consumer")

@@ -335,3 +335,76 @@ async def test_sweep_confirms_pending_seeded_by_other_caller():
     assert env["sleeps"] == [95]
     assert env["acct"].bypass_consumed("c1", "g1") == 2500 * N
     assert env["acct"].get_giver_cycle("c1", "g1").pending_drift is None
+
+
+# --- dead-verdict pledge retraction --------------------------------------------
+# A dead PAT can back nothing, so the sweep withdraws its undrawn pledge; without
+# this the pledge survives the month and the rollover carries it forward as phantom
+# shared-pool capacity (the 3,103-AIU phantom-pool incident).
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resp", [(401, None), (403, None), (200, BODY_NO_ENT)])
+async def test_sweep_retracts_pledge_on_dead_verdict(resp):
+    env = _engine_setup({"p1": resp})
+    _seed_giver(env, "g1", "p1")
+    env["engine"].set_pledge("c1", "g1", 1000 * N)
+
+    await env["make"]().run_once()
+
+    assert env["acct"].get_giver_cycle("c1", "g1").pledge == 0
+    assert env["engine"].pool_available("c1") == 0
+
+
+@pytest.mark.asyncio
+async def test_sweep_retraction_floors_at_already_drawn_pledge():
+    env = _engine_setup({"p1": (401, None)})
+    _seed_giver(env, "g1", "p1")
+    env["engine"].set_pledge("c1", "g1", 1000 * N)
+    # 400 AIU of the pledge was already drawn by a consumer.
+    env["acct"].add_event(Event("e1", "c1", 500, "consumer", "g1", Bucket.POOL, None, 400 * N))
+
+    await env["make"]().run_once()
+
+    # Only the undrawn 600 goes; history is never rewritten.
+    assert env["acct"].get_giver_cycle("c1", "g1").pledge == 400 * N
+    assert env["engine"].pledge_remaining("c1", "g1") == 0
+
+
+@pytest.mark.asyncio
+async def test_sweep_keeps_pledge_when_check_is_indefinitive():
+    # GHE 502s during an outage: verdict unknown, pledge must survive untouched.
+    env = _engine_setup({"p1": (502, None), "p2": ConnectionError("dns")})
+    for uid, pat in [("g1", "p1"), ("g2", "p2")]:
+        _seed_giver(env, uid, pat)
+        env["engine"].set_pledge("c1", uid, 1000 * N)
+
+    await env["make"]().run_once()
+
+    for uid in ("g1", "g2"):
+        assert env["acct"].get_giver_cycle("c1", uid).pledge == 1000 * N
+    assert env["engine"].pool_available("c1") == 2000 * N
+
+
+@pytest.mark.asyncio
+async def test_sweep_retraction_failure_still_persists_health():
+    env = _engine_setup({"p1": (401, None)})
+    _seed_giver(env, "g1", "p1")
+    env["engine"].set_pledge("c1", "g1", 1000 * N)
+
+    def boom(*a, **k):
+        raise RuntimeError("db locked")
+    env["engine"].retract_pledge = boom
+
+    assert await env["make"]().check_one("g1", cycle_id="c1") == "expired"
+    assert env["store"].get_pat_health("g1")["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_sweep_without_engine_leaves_pledge_alone():
+    env = _engine_setup({"p1": (401, None)})
+    _seed_giver(env, "g1", "p1")
+    env["engine"].set_pledge("c1", "g1", 1000 * N)
+
+    await env["make"](engine_arg=None).run_once()
+
+    assert env["acct"].get_giver_cycle("c1", "g1").pledge == 1000 * N
