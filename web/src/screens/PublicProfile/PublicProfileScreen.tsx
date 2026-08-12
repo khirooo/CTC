@@ -4,6 +4,7 @@ import { useAsync } from '@/store/useAsync';
 import { aiu, euros } from '@/domain/credit';
 import { tierMeta } from '@/domain/tiers';
 import { TierBadge } from '@/components/TierBadge';
+import { PatHealthBadge } from '@/components/PatHealthBadge';
 import { Avatar } from '@/components/Avatar';
 import { CreditBar, CreditLegend } from '@/components/CreditBar';
 import { monoLabel as monoLabelBase } from '@/theme/styles';
@@ -24,6 +25,26 @@ function tierBlurb(tier: string | null): string {
 
 // PublicProfile uses a slightly smaller (10px) mono caption than the shared 11px.
 const monoLabel: React.CSSProperties = { ...monoLabelBase, fontSize: 10 };
+
+/**
+ * What a broken license means for a visitor reading someone else's numbers.
+ * The public credit bar is built from the entitlement snapshot CTC captured the
+ * last time the license answered, so once the license dies the bar stops
+ * describing anything that can still be spent.
+ */
+const LICENSE_NOTE: Record<string, string> = {
+  expired:
+    "This host's Copilot license stopped working, so nothing can be routed through it right now.",
+  forbidden:
+    "This host's Copilot license is missing the permissions Copilot needs, so nothing can be routed through it.",
+  no_entitlement:
+    "This host's Copilot license has no Copilot quota attached, so nothing can be routed through it.",
+  unreachable:
+    "CTC couldn't reach GitHub to check this host's license just now, so these figures may have moved.",
+};
+
+/** The figures below are last-known rather than live for every dead-license state. */
+const STALE_NOTE = 'The figures below are the last state CTC could read.';
 
 export function PublicProfileScreen() {
   const { id } = useParams<{ id: string }>();
@@ -59,6 +80,9 @@ export function PublicProfileScreen() {
   const toneSoft = isGiver ? 'var(--give-soft)' : 'var(--consume-soft)';
   const meta = tierMeta(p.tier);
   const rate = session?.creditToEuroRate;
+  // Only a problem state is worth a pill on someone else's profile — a healthy
+  // license is the assumption, so saying so on every visit is just noise.
+  const brokenLicense = isGiver && p.patHealth && p.patHealth !== 'valid' ? p.patHealth : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 680, width: '100%' }}>
@@ -115,12 +139,27 @@ export function PublicProfileScreen() {
                 {isGiver ? 'Host' : 'Guest'}
               </span>
               {isGiver && <TierBadge tier={p.tier} />}
+              {brokenLicense && <PatHealthBadge health={brokenLicense} />}
             </div>
           </div>
         </div>
         {isGiver && (
           <div style={{ position: 'relative', marginTop: 16, fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
             {tierBlurb(p.tier)}
+          </div>
+        )}
+        {brokenLicense && (
+          <div
+            data-license-warning
+            style={{
+              position: 'relative', marginTop: 14, padding: '12px 14px', borderRadius: 12,
+              background: brokenLicense === 'unreachable' ? 'var(--surface-2)' : 'var(--consume-soft)',
+              color: brokenLicense === 'unreachable' ? 'var(--text-dim)' : 'var(--consume)',
+              fontSize: 13, lineHeight: 1.6,
+            }}
+          >
+            <div>{LICENSE_NOTE[brokenLicense]}</div>
+            <div style={{ opacity: 0.85 }}>{STALE_NOTE}</div>
           </div>
         )}
       </div>
@@ -187,7 +226,7 @@ export function PublicProfileScreen() {
           style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '22px 24px' }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
-            <span style={monoLabel}>Monthly credits</span>
+            <span style={monoLabel}>{brokenLicense ? 'Monthly credits · last known' : 'Monthly credits'}</span>
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>
               {aiu(p.entitlement)}
             </span>

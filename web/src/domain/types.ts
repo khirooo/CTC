@@ -25,6 +25,13 @@ export interface PublicProfile {
   net: number | null;        // nano-AIU
   donated: number | null;    // nano-AIU
   donationsMade: number | null;
+  /**
+   * Copilot-license state (givers only; null for guests or a never-checked
+   * license). A dead license means the credit numbers below describe the last
+   * known state rather than what the license can still do.
+   */
+  patHealth?: PatHealth | null;
+  patHealthCheckedAt?: number | null;
   // Credit-cycle breakdown (givers only; nano-AIU; null/absent for consumers
   // or unlimited entitlements). Powers the public credit bar.
   entitlement?: number | null;

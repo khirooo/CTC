@@ -295,6 +295,9 @@ PUBLIC_PROFILE_KEYS = {
     "id", "name", "login", "initials", "role", "tier", "net", "donated",
     "donationsMade", "entitlement", "used", "pledged", "pledgedConsumed",
     "pledgedRemaining", "donatedConsumed", "donatedRemaining", "left", "unlimited",
+    # License state, not a credit internal: a visitor reading the credit bar has to
+    # know whether the license behind those figures still works.
+    "patHealth", "patHealthCheckedAt",
 }
 
 

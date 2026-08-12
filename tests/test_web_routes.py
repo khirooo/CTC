@@ -380,3 +380,47 @@ async def test_pool_fund_rejected_when_pool_off_or_dry():
         rid = (await (await cli.post("/api/requests",
                json={"amountNeeded": 100, "reason": "x", "target": None})).json())["id"]
         assert (await cli.post(f"/api/requests/{rid}/pool-fund", json={"amount": 10})).status == 422
+
+
+@pytest.mark.asyncio
+async def test_public_profile_exposes_pat_health():
+    # A visitor reading someone else's credit bar has to be able to tell that the
+    # figures come from a license that no longer works (the bar is built from the
+    # entitlement snapshot, which outlives the token).
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)
+    app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   deployment=_DEFAULT_DEPLOYMENT)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})        # become a giver
+        uid = store.get_user_by_login("octocat")["id"]
+
+        # Just connected: definitively healthy.
+        p = await (await cli.get(f"/api/users/{uid}")).json()
+        assert p["patHealth"] == "valid" and p["patHealthCheckedAt"] == 1000
+
+        store.set_pat_health_ok(uid, "expired", 2000)
+        p = await (await cli.get(f"/api/users/{uid}")).json()
+        assert p["patHealth"] == "expired" and p["patHealthCheckedAt"] == 2000
+
+        # An errored check surfaces as unreachable without discarding the verdict.
+        store.set_pat_health_error(uid, "boom", 3000)
+        p = await (await cli.get(f"/api/users/{uid}")).json()
+        assert p["patHealth"] == "unreachable"
+
+
+@pytest.mark.asyncio
+async def test_public_profile_pat_health_null_for_consumer():
+    app, store, _eng = _make_seeded()
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)                        # consumer, no PAT
+        uid = store.get_user_by_login("octocat")["id"]
+        p = await (await cli.get(f"/api/users/{uid}")).json()
+        assert p["role"] == "consumer"
+        assert p["patHealth"] is None and p["patHealthCheckedAt"] is None

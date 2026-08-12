@@ -350,8 +350,12 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         cycle = _cycle()
         name = u["display_name"] or u["ghe_login"]
         tier = net = donated = donations_made = None
+        health_status = health_checked_at = None
         credit: dict = {}
         if u["role"] == "giver":
+            health = store.get_pat_health(uid)
+            health_status = display_status(health)
+            health_checked_at = health["checked_at"] if health else None
             ranked = assign_tiers(giver_tier_inputs(engine, _leaderboard_users(), cycle.id))
             entry = next((r for r in ranked if r.user_id == uid), None)
             tier = entry.tier if entry else None
@@ -384,7 +388,8 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         dto = PublicProfileDTO(
             id=uid, name=name, login=u["ghe_login"], initials=initials(name),
             role=u["role"], tier=tier, net=net, donated=donated,
-            donations_made=donations_made, **credit,
+            donations_made=donations_made, pat_health=health_status,
+            pat_health_checked_at=health_checked_at, **credit,
         )
         return web.json_response(dto.model_dump(by_alias=True))
 

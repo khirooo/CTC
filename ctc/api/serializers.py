@@ -109,6 +109,12 @@ class PublicProfileDTO(CamelModel):
     net: int | None = None           # nano-AIU
     donated: int | None = None       # nano-AIU
     donations_made: int | None = None
+    # Copilot-license state (givers only). The public credit numbers below are
+    # derived from a snapshot entitlement, so on a dead license they describe the
+    # last known state, not what the license can still do — visitors need to see
+    # that alongside the bar.
+    pat_health: str | None = None    # valid|expired|forbidden|no_entitlement|unreachable
+    pat_health_checked_at: int | None = None
     # Public credit cycle (givers only; nano-AIU; None for consumers or
     # unlimited entitlements). Public by design since 2026-07-11 — visitors
     # see the same bar the Host sees on their own profile.
