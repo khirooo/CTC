@@ -424,3 +424,44 @@ async def test_public_profile_pat_health_null_for_consumer():
         p = await (await cli.get(f"/api/users/{uid}")).json()
         assert p["role"] == "consumer"
         assert p["patHealth"] is None and p["patHealthCheckedAt"] is None
+
+
+@pytest.mark.asyncio
+async def test_dead_license_host_leaves_standings_and_tier_lines():
+    # A standing claims the host is carrying the marketplace; a dead license means
+    # they are not, and their entitlement-derived figures are last-known.
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    eng = AccountingEngine(AccountingStore(conn)); eng.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)
+    app = make_app(store=store, engine=eng, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=_giver_user, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   deployment=_DEFAULT_DEPLOYMENT)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        await cli.post("/api/pat", json={"pat": "ghp_x"})        # become a giver
+        uid = store.get_user_by_login("octocat")["id"]
+        from ctc.domain.types import Bucket
+        eng.record_consumption("c1", "other", uid, Bucket.POOL, 5 * N, ts=1,
+                               allow_overshoot=True)             # someone burned their gift
+
+        lb = await (await cli.get("/api/leaderboard")).json()
+        assert [s["userId"] for s in lb["standings"]] == [uid]
+        me = await (await cli.get("/api/profile")).json()
+        assert me["tier"] is not None
+
+        store.set_pat_health_ok(uid, "expired", 2000)
+
+        lb = await (await cli.get("/api/leaderboard")).json()
+        assert lb["standings"] == []
+        # The donation itself still happened, so the generous track keeps it.
+        assert [g["userId"] for g in lb["generous"]] == [uid]
+
+        # Both profile surfaces now read unranked.
+        me = await (await cli.get("/api/profile")).json()
+        assert me["tier"] is None and me["net"] is None and me["netToNext"] is None
+        pub = await (await cli.get(f"/api/users/{uid}")).json()
+        assert pub["tier"] is None and pub["net"] is None
+        assert pub["patHealth"] == "expired"

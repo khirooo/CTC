@@ -46,6 +46,9 @@ const LICENSE_NOTE: Record<string, string> = {
 /** The figures below are last-known rather than live for every dead-license state. */
 const STALE_NOTE = 'The figures below are the last state CTC could read.';
 
+/** Why the tier badge is gone: a dead license is left out of the standings. */
+const UNRANKED_NOTE = 'They stay out of the standings until the license is rotated.';
+
 export function PublicProfileScreen() {
   const { id } = useParams<{ id: string }>();
   const { api, session } = useApp();
@@ -83,6 +86,9 @@ export function PublicProfileScreen() {
   // Only a problem state is worth a pill on someone else's profile — a healthy
   // license is the assumption, so saying so on every visit is just noise.
   const brokenLicense = isGiver && p.patHealth && p.patHealth !== 'valid' ? p.patHealth : null;
+  // 'unreachable' is not a verdict — CTC just couldn't check. Such a host is still
+  // ranked server-side, so only a definitively dead license drops the tier badge.
+  const deadLicense = brokenLicense && brokenLicense !== 'unreachable' ? brokenLicense : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 680, width: '100%' }}>
@@ -138,12 +144,14 @@ export function PublicProfileScreen() {
               >
                 {isGiver ? 'Host' : 'Guest'}
               </span>
-              {isGiver && <TierBadge tier={p.tier} />}
+              {/* A broken license unranks the host, so the license pill replaces the
+                  tier badge rather than sitting next to an "Unranked" one. */}
+              {isGiver && !deadLicense && <TierBadge tier={p.tier} />}
               {brokenLicense && <PatHealthBadge health={brokenLicense} />}
             </div>
           </div>
         </div>
-        {isGiver && (
+        {isGiver && !deadLicense && (
           <div style={{ position: 'relative', marginTop: 16, fontSize: 13, color: 'var(--text-dim)', lineHeight: 1.5 }}>
             {tierBlurb(p.tier)}
           </div>
@@ -160,6 +168,7 @@ export function PublicProfileScreen() {
           >
             <div>{LICENSE_NOTE[brokenLicense]}</div>
             <div style={{ opacity: 0.85 }}>{STALE_NOTE}</div>
+            {deadLicense && <div style={{ opacity: 0.85 }}>{UNRANKED_NOTE}</div>}
           </div>
         )}
       </div>

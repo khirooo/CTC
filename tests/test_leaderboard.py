@@ -10,9 +10,15 @@ from ctc.domain.types import Cycle, GiverCycle, Bucket
 
 
 class FakeEngine:
-    def __init__(self, donated, consumed, pool_consumed=None):
+    def __init__(self, donated, consumed, pool_consumed=None, dead_givers=None):
         self._d, self._c = donated, consumed
         self._p = pool_consumed if pool_consumed is not None else {}
+        self._dead = set(dead_givers or ())
+
+    def dead_pat_givers(self):
+        # Givers whose PAT the health sweep found definitively dead; they are not
+        # hosting anything, so the host-facing tracks leave them out.
+        return self._dead
 
     def donated_live(self, cycle_id, uid):
         return self._d.get(uid, 0)
@@ -304,3 +310,61 @@ def test_standings_present_sorted_and_tracks_unchanged():
     for collection in ("generous", "topPro", "topNoob", "standings"):
         for entry in out[collection]:
             assert "userId" in entry, f"missing userId in {collection} entry: {entry}"
+
+
+# --- dead-license hosts are not ranked -----------------------------------------
+# A standing claims "this host is carrying the marketplace". A host whose Copilot
+# license stopped working is not, and their entitlement-derived figures are the
+# last state CTC could read — so they leave the host-facing tracks until the
+# license is rotated.
+
+def test_dead_license_host_dropped_from_standings_and_top_pro():
+    users = [
+        LeaderboardUser("a", "Alice", True),
+        LeaderboardUser("b", "Bob", True),
+        LeaderboardUser("c", "Chris", False),
+    ]
+    engine = FakeEngine(
+        donated={"a": 300, "b": 200},
+        consumed={"a": 100, "b": 90, "c": 40},
+        pool_consumed={},
+        dead_givers={"b"},
+    )
+
+    out = build_leaderboard(engine, users, cycle_id="cyc1")
+
+    assert [s["userId"] for s in out["standings"]] == ["a"]
+    assert [p["userId"] for p in out["topPro"]] == ["a"]
+    # Guests are never affected by a host's license.
+    assert [n["userId"] for n in out["topNoob"]] == ["c"]
+
+
+def test_dead_license_host_keeps_credit_for_real_donations():
+    # What people already burned from Bob's gifts happened, and does not stop
+    # having happened when his token dies — 'generous' still credits it.
+    users = [LeaderboardUser("a", "Alice", True), LeaderboardUser("b", "Bob", True)]
+    engine = FakeEngine(donated={"a": 100, "b": 400}, consumed={},
+                        dead_givers={"b"})
+
+    out = build_leaderboard(engine, users, cycle_id="cyc1")
+
+    assert out["generous"] == [
+        {"userId": "b", "name": "Bob", "value": 400},
+        {"userId": "a", "name": "Alice", "value": 100},
+    ]
+
+
+def test_dropping_a_dead_host_rebands_the_rest():
+    # Tiers are quartiles over the ranked field, so removing a host is not a
+    # cosmetic filter — the remaining hosts are re-banded over the live field.
+    users = [LeaderboardUser(u, u.title(), True) for u in ("a", "b", "c", "d")]
+    donated = {"a": 400, "b": 300, "c": 200, "d": 100}
+    live = build_leaderboard(FakeEngine(donated=donated, consumed={}),
+                             users, cycle_id="cyc1")
+    assert [s["tier"] for s in live["standings"]] == [
+        "aristocrat", "baron", "bourgeois", "commoner"]
+
+    out = build_leaderboard(FakeEngine(donated=donated, consumed={}, dead_givers={"a"}),
+                            users, cycle_id="cyc1")
+    assert [(s["userId"], s["tier"]) for s in out["standings"]] == [
+        ("b", "aristocrat"), ("c", "baron"), ("d", "bourgeois")]

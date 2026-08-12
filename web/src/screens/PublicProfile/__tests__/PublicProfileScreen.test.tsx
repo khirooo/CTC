@@ -76,6 +76,27 @@ describe('PublicProfileScreen license state', () => {
     expect(document.querySelector('[data-license-warning]')?.textContent).toMatch(expected);
   });
 
+  it('replaces the tier badge rather than showing an Unranked one', async () => {
+    // The backend drops a dead-license host from the standings, so tier arrives
+    // null; showing "Unranked" next to "Expired" would say the same thing twice.
+    renderProfile({ ...hostProfile, tier: null, net: null, patHealth: 'expired' });
+
+    expect(await screen.findByText('Expired')).toBeInTheDocument();
+    expect(screen.queryByText('Unranked')).toBeNull();
+    expect(screen.queryByText(/Not yet ranked/)).toBeNull();
+    expect(document.querySelector('[data-license-warning]')?.textContent)
+      .toMatch(/out of the standings/);
+  });
+
+  it('keeps the tier badge for a host CTC merely could not reach', async () => {
+    // Unreachable is not a verdict: the host is still ranked, so the badge stays.
+    renderProfile({ ...hostProfile, patHealth: 'unreachable' });
+
+    expect(await screen.findByText('Baron')).toBeInTheDocument();
+    expect(document.querySelector('[data-license-warning]')?.textContent)
+      .not.toMatch(/out of the standings/);
+  });
+
   it('stays quiet for a healthy license', async () => {
     renderProfile({ ...hostProfile, patHealth: 'valid' });
 

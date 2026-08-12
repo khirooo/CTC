@@ -34,6 +34,14 @@ const PAT_HEALTH_HINT: Record<string, string> = {
     "CTC couldn't reach GitHub to check this license just now. The badge shows the last known state.",
 };
 
+/**
+ * The consequences of a dead license, which are otherwise invisible: the pledge is
+ * withdrawn from the shared pool and the host leaves the standings. Both come back
+ * on their own once a working license is connected.
+ */
+const PAT_DEAD_CONSEQUENCE =
+  'While it is broken your pledge leaves the shared pool and you drop out of the standings. Both return when you connect a working license.';
+
 function checkedLine(checkedAt: number | null): string | null {
   if (!checkedAt) return null;
   const d = new Date(checkedAt * 1000);
@@ -500,6 +508,11 @@ export function ProfileScreen() {
           {data.patHealth && PAT_HEALTH_HINT[data.patHealth] && (
             <p style={{ color: data.patHealth === 'unreachable' ? 'var(--text-faint)' : 'var(--consume)', fontSize: 13, margin: '0 0 12px', fontFamily: "'JetBrains Mono', monospace" }}>
               {PAT_HEALTH_HINT[data.patHealth]}
+            </p>
+          )}
+          {data.patHealth && data.patHealth !== 'valid' && data.patHealth !== 'unreachable' && (
+            <p data-license-consequence style={{ color: 'var(--text-dim)', fontSize: 13, margin: '0 0 12px', fontFamily: "'JetBrains Mono', monospace" }}>
+              {PAT_DEAD_CONSEQUENCE}
             </p>
           )}
           {patSaveError && (

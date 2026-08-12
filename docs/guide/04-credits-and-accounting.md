@@ -156,6 +156,14 @@ bottom two; no activity at all is **newcomer**:
 It's a leaderboard flourish, not a spending rule — tiers never gate credit.
 (`ctc/accounting/tiers.py`, mirrored for display in `web/src/domain/tiers.ts`.)
 
+A host whose Copilot license has stopped working isn't ranked at all. A standing
+says this host is carrying the marketplace, and one whose token no longer
+authenticates isn't — so they leave the standings and the host-usage track until
+the license is rotated, which re-bands everyone else over the hosts who are
+actually live. What people already burned from their gifts still counts on the
+generous track: that happened, and it doesn't stop having happened when the token
+dies. (`ctc/accounting/leaderboard.py` `giver_tier_inputs`.)
+
 ---
 
 ## Layer 3 — Under the hood
