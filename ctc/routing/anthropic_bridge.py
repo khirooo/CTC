@@ -28,6 +28,17 @@ from typing import Optional
 
 from ctc import contract
 
+# Copilot rejects thinking:{type:"enabled"} unless budget_tokens >= 1024.
+_MIN_THINKING_BUDGET = 1024
+
+
+def _min_budget(budget: object) -> int:
+    """The configured thinking budget, floored at Copilot's 1024 minimum.
+    Crash-safe: a non-int / bool default falls back to the floor."""
+    if isinstance(budget, bool) or not isinstance(budget, int):
+        return _MIN_THINKING_BUDGET
+    return budget if budget >= _MIN_THINKING_BUDGET else _MIN_THINKING_BUDGET
+
 
 def is_bridge_request(upstream_host: str, method: str, path: str) -> bool:
     """True when this request is native Claude Code hitting copilot-api's
@@ -112,12 +123,22 @@ def transform_request_body(
     # (and may send other future values); coerce anything that isn't already one
     # of the two accepted shapes.
     th = obj.get("thinking")
-    if isinstance(th, dict) and th.get("type") not in ("disabled", "enabled"):
-        if thinking_mode == "enabled":
-            obj["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
-        else:
-            obj["thinking"] = {"type": "disabled"}
-        changed = True
+    if isinstance(th, dict):
+        th_type = th.get("type")
+        if th_type not in ("disabled", "enabled"):
+            # adaptive / future values -> coerce per configured mode.
+            if thinking_mode == "enabled":
+                obj["thinking"] = {"type": "enabled", "budget_tokens": _min_budget(thinking_budget)}
+            else:
+                obj["thinking"] = {"type": "disabled"}
+            changed = True
+        elif th_type == "enabled":
+            # Copilot requires budget_tokens >= 1024 for enabled; a bare or
+            # too-small budget would 400. Floor it to a valid value.
+            budget = th.get("budget_tokens")
+            if not isinstance(budget, int) or isinstance(budget, bool) or budget < 1024:
+                th["budget_tokens"] = _min_budget(thinking_budget)
+                changed = True
 
     if not changed:
         return body

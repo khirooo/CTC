@@ -115,6 +115,54 @@ def test_thinking_already_valid_is_preserved():
         assert json.loads(out)["thinking"] == th
 
 
+def test_thinking_enabled_without_budget_is_floored():
+    """LOW1: bare {type:"enabled"} (no budget_tokens) would 400 on Copilot;
+    normalize it up to the configured budget (>= 1024)."""
+    body = json.dumps({"thinking": {"type": "enabled"}}).encode()
+    out = anthropic_bridge.transform_request_body(body, thinking_budget=4096)
+    assert json.loads(out)["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+
+
+def test_thinking_enabled_with_too_small_budget_is_raised():
+    """LOW1: {type:"enabled", budget_tokens:<1024} is raised to a valid value."""
+    body = json.dumps({"thinking": {"type": "enabled", "budget_tokens": 500}}).encode()
+    out = anthropic_bridge.transform_request_body(body, thinking_budget=8192)
+    assert json.loads(out)["thinking"] == {"type": "enabled", "budget_tokens": 8192}
+
+
+def test_thinking_enabled_with_valid_budget_unchanged():
+    """LOW1: {type:"enabled", budget_tokens:>=1024} is left as-is."""
+    body = json.dumps({"thinking": {"type": "enabled", "budget_tokens": 2048}}).encode()
+    out = anthropic_bridge.transform_request_body(body)
+    assert json.loads(out)["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+    assert out == body  # no needless reserialize when already valid
+
+
+def test_thinking_enabled_configured_budget_below_floor_uses_1024():
+    """LOW1: even a misconfigured default below 1024 is floored to 1024, never
+    forwarded as an invalid value."""
+    body = json.dumps({"thinking": {"type": "enabled"}}).encode()
+    out = anthropic_bridge.transform_request_body(body, thinking_budget=100)
+    assert json.loads(out)["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+
+
+def test_thinking_enabled_non_int_budget_crash_safe():
+    """LOW1: a non-int budget_tokens (string/bool/null) is treated as invalid
+    and floored, never crashing."""
+    for bad in ("2048", True, None, 3.5, {"n": 1}):
+        body = json.dumps({"thinking": {"type": "enabled", "budget_tokens": bad}}).encode()
+        out = anthropic_bridge.transform_request_body(body, thinking_budget=4096)
+        assert json.loads(out)["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+
+
+def test_thinking_non_dict_is_left_alone():
+    """LOW1: a non-dict thinking value is not a dict path -> untouched, no crash."""
+    for th in ("enabled", 5, ["enabled"], None):
+        body = json.dumps({"thinking": th, "messages": []}).encode()
+        out = anthropic_bridge.transform_request_body(body)
+        assert json.loads(out)["thinking"] == th
+
+
 # --------------------------------------------------------------------------
 # Body invariants
 # --------------------------------------------------------------------------

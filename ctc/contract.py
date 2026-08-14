@@ -52,10 +52,17 @@ ANTHROPIC_BRIDGE_PATH: str = "/v1/messages"
 #    request carries the CLI's client-identity headers ("Personal Access Tokens
 #    are not supported for this endpoint" 400 otherwise). The native Copilot CLI
 #    already sends these; Claude Code does not, so we inject them.
+#    These default to the current proven client-identity values but are each
+#    env-overridable: if GitHub deprecates an old Copilot client version, bridge
+#    traffic would otherwise silently 400 with no field-patch path. Override via
+#    CTC_COPILOT_INTEGRATION_ID / CTC_COPILOT_EDITOR_VERSION / CTC_COPILOT_USER_AGENT.
 COPILOT_API_IDENTITY_HEADERS: dict[str, str] = {
-    "copilot-integration-id": "copilot-developer-cli",
-    "editor-version": "copilot/1.0.63",
-    "user-agent": "GitHubCopilotChat/copilot/1.0.63",
+    "copilot-integration-id": os.environ.get(
+        "CTC_COPILOT_INTEGRATION_ID", "copilot-developer-cli"),
+    "editor-version": os.environ.get(
+        "CTC_COPILOT_EDITOR_VERSION", "copilot/1.0.63"),
+    "user-agent": os.environ.get(
+        "CTC_COPILOT_USER_AGENT", "GitHubCopilotChat/copilot/1.0.63"),
 }
 
 # 2. anthropic-beta allowlist. Copilot 400s on beta values it does not know
