@@ -37,6 +37,51 @@ BILLABLE_HOST: str = f"copilot-api.{GHE_DOMAIN}"
 BILLABLE_PATHS: set[str] = {"/chat/completions", "/v1/messages", "/responses"}
 BILLABLE_METHOD: str = "POST"
 
+# ---------------------------------------------------------------------------
+# Native Anthropic Claude Code -> Copilot bridge (ctc/routing/anthropic_bridge.py)
+# ---------------------------------------------------------------------------
+# The native Anthropic Claude Code CLI points ANTHROPIC_BASE_URL at CTC and POSTs
+# the Anthropic Messages API to copilot-api's /v1/messages. Copilot's Anthropic
+# endpoint accepts a *narrower* schema than the public Anthropic API, so requests
+# from Claude Code must be normalized on this one path before the swapped PAT will
+# be accepted (attribution/metering/swap are untouched — this only rewrites the
+# outbound request). The Copilot CLI's own /chat/completions path is unaffected.
+ANTHROPIC_BRIDGE_PATH: str = "/v1/messages"
+
+# 1. Client identity. copilot-api rejects a Personal Access Token unless the
+#    request carries the CLI's client-identity headers ("Personal Access Tokens
+#    are not supported for this endpoint" 400 otherwise). The native Copilot CLI
+#    already sends these; Claude Code does not, so we inject them.
+COPILOT_API_IDENTITY_HEADERS: dict[str, str] = {
+    "copilot-integration-id": "copilot-developer-cli",
+    "editor-version": "copilot/1.0.63",
+    "user-agent": "GitHubCopilotChat/copilot/1.0.63",
+}
+
+# 2. anthropic-beta allowlist. Copilot 400s on beta values it does not know
+#    (observed: advisor-tool-2026-03-01, mid-conversation-system-2026-04-07). The
+#    real Copilot CLI sends none, and prompt caching is GA via cache_control in the
+#    body (needs no beta). Default EMPTY = drop the header entirely. Extend via
+#    CTC_ANTHROPIC_BETA_ALLOW (comma list) only once a value is proven accepted.
+ANTHROPIC_BETA_ALLOWLIST: frozenset[str] = frozenset(
+    b.strip() for b in os.environ.get("CTC_ANTHROPIC_BETA_ALLOW", "").split(",") if b.strip()
+)
+
+# 3. Top-level body fields to strip. output_config carries reasoning-effort /
+#    structured-output settings that Copilot rejects ("model does not support
+#    reasoning effort" 400 for e.g. haiku).
+ANTHROPIC_STRIP_BODY_FIELDS: frozenset[str] = frozenset(
+    f.strip() for f in os.environ.get(
+        "CTC_ANTHROPIC_STRIP_FIELDS", "output_config").split(",") if f.strip()
+)
+
+# 4. thinking coercion. Claude Code sends thinking:{type:"adaptive"}; Copilot's
+#    endpoint accepts only {type:"disabled"} or {type:"enabled",budget_tokens>=1024}.
+#    Default disabled (fine for v1 / non-thinking models). Set CTC_ANTHROPIC_THINKING
+#    =enabled to forward extended thinking on thinking-capable models.
+ANTHROPIC_THINKING_MODE: str = os.environ.get("CTC_ANTHROPIC_THINKING", "disabled")
+ANTHROPIC_THINKING_BUDGET: int = int(os.environ.get("CTC_ANTHROPIC_THINKING_BUDGET", "8192"))
+
 # Resolves auto_mode.model_hints (e.g. ["auto"]) to a concrete model and
 # issues a copilot-session-token used on the following billable call. Not
 # itself billable/metered, but the session token it returns is bound to
