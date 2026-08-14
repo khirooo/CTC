@@ -13,8 +13,17 @@ fingerprint — compare it with the one shown in the dashboard "Set up CLI" pane
     ctc login        # paste the token from the dashboard "Set up CLI" panel; approves one sudo for cert trust and prints the CA fingerprint
 
 ## Daily
-    ctc              # launches Copilot through CTC; all copilot flags pass through, e.g. ctc -p "..."
+    ctc              # in an interactive terminal, shows a menu to pick your agent:
+                     #   1) GitHub Copilot CLI   2) Claude Code
+    ctc copilot      # skip the menu — launch Copilot through CTC directly
+    ctc copilot -p "..."   # all copilot flags pass through
+    ctc claude       # skip the menu — launch native Claude Code on the Copilot backend
     copilot          # your normal, personal Copilot — untouched, runs side-by-side
+
+The `ctc` menu appears only when stdin/stdout are an interactive TTY. When `ctc`
+runs with no args in a non-interactive shell (piped or scripted), it launches
+Copilot directly — no prompt — so existing automation is unaffected. Passing any
+flags (e.g. `ctc -p "..."`) also skips the menu and goes straight to Copilot.
 
 Other commands: `ctc status`, `ctc logout`.
 

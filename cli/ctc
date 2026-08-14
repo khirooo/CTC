@@ -20,7 +20,9 @@ ctc_usage() {
 CTC — launch GitHub Copilot CLI through the CTC credit proxy.
 
 Usage:
-  ctc            Launch Copilot through CTC (run after 'ctc login')
+  ctc            Pick an agent (Copilot or Claude Code) via a menu, then launch it
+                 (in a non-interactive shell, launches Copilot directly)
+  ctc copilot    Launch Copilot through CTC directly (all flags pass through)
   ctc claude     Launch native Claude Code on the Copilot backend through CTC
   ctc login      Authenticate, trust the CA cert, cache config
   ctc status     Show whether CTC is set up
@@ -117,7 +119,7 @@ cmd_logout() {
   echo "CTC config removed. Your normal 'copilot' is unaffected."
   echo "To also untrust the CA cert: sudo security delete-certificate -c copilot-proxy-ca /Library/Keychains/System.keychain"
 }
-cmd_launch() {
+cmd_copilot() {
   local env real_home disc; env="$(_config_dir)/env"
   if [ ! -f "$env" ]; then
     echo "ctc: not set up yet. Run 'ctc login' first." >&2
@@ -185,16 +187,39 @@ cmd_claude() {
   exec claude "$@"
 }
 
+cmd_menu() {
+  # Interactive agent picker, shown only for a bare `ctc` on a TTY. Each choice
+  # execs into an existing launch path (cmd_copilot / cmd_claude), so this never
+  # duplicates their env setup. Re-prompts on invalid input; a clean EOF (Ctrl-D)
+  # exits 0, Ctrl-C terminates via the default SIGINT.
+  local choice
+  while :; do
+    printf '◆ CTC — choose your agent\n' >&2
+    printf '  1) GitHub Copilot CLI\n' >&2
+    printf '  2) Claude Code\n' >&2
+    printf 'Choice: ' >&2
+    if ! IFS= read -r choice; then echo >&2; exit 0; fi   # EOF / Ctrl-D
+    case "$choice" in
+      1|copilot|c) cmd_copilot;;      # execs — no return
+      2|claude)    cmd_claude;;       # execs — no return
+      *) echo "  Please enter 1 or 2." >&2;;
+    esac
+  done
+}
+
 main() {
   case "${1:-}" in
-    login)  shift; cmd_login "$@";;
-    status) shift; cmd_status "$@";;
-    logout) shift; cmd_logout "$@";;
-    claude) shift; cmd_claude "$@";;
+    login)   shift; cmd_login "$@";;
+    status)  shift; cmd_status "$@";;
+    logout)  shift; cmd_logout "$@";;
+    claude)  shift; cmd_claude "$@";;
+    copilot) shift; cmd_copilot "$@";;
     -h|--help|help) ctc_usage; exit 0;;
-    "") cmd_launch;;
-    -*) cmd_launch "$@";;            # flags belong to copilot
+    "") if [ -t 0 ] && [ -t 1 ]; then cmd_menu; else cmd_copilot; fi;;
+    -*) cmd_copilot "$@";;           # flags belong to copilot (passthrough, no menu)
     *) echo "ctc: unknown command '$1'" >&2; echo >&2; ctc_usage >&2; exit 2;;
   esac
 }
-main "$@"
+# Run main only when executed directly, not when sourced (lets tests call the
+# internal cmd_* functions in isolation).
+if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then main "$@"; fi
