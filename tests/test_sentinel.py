@@ -84,6 +84,58 @@ def test_billable_200_no_rejection_finding():
     assert sentinel.check_billable_rejection(200, "/chat/completions") is None
 
 
+# --- bridge self-heal 400 suppression (native Claude Code) ---
+from ctc.contract import ANTHROPIC_BRIDGE_PATH
+
+_SELF_HEAL_BODY = (
+    b'{"type":"error","error":{"type":"invalid_request_error",'
+    b'"message":"messages: Unexpected role \\"system\\". The Messages API accepts '
+    b'a top-level `system` parameter, not \\"system\\" as an input message role."}}'
+)
+
+
+def test_bridge_self_heal_400_is_not_a_finding():
+    """(a) native Claude Code's routine mid-conversation-system self-heal 400 on
+    the bridge path must NOT emit the drift WARN."""
+    assert sentinel.check_billable_rejection(400, ANTHROPIC_BRIDGE_PATH, _SELF_HEAL_BODY) is None
+    # with query string on the path, still suppressed
+    assert sentinel.check_billable_rejection(
+        400, ANTHROPIC_BRIDGE_PATH + "?beta=true", _SELF_HEAL_BODY) is None
+    # the mid-conversation-system marker alone also matches
+    assert sentinel.check_billable_rejection(
+        400, ANTHROPIC_BRIDGE_PATH,
+        b'{"error":{"message":"mid-conversation-system not supported"}}') is None
+
+
+def test_bridge_real_401_403_still_alarms():
+    """(b) a genuine auth failure on the bridge path STILL emits the drift WARN,
+    even with the same body present."""
+    for status in (401, 403):
+        f = sentinel.check_billable_rejection(status, ANTHROPIC_BRIDGE_PATH, _SELF_HEAL_BODY)
+        assert f is not None and f.kind == "billable_rejected"
+
+
+def test_bridge_non_self_heal_400_still_alarms():
+    """(b) a 400 on the bridge path that is NOT the self-heal case still alarms —
+    the suppression is wording-specific, not a blanket bridge-400 mute."""
+    f = sentinel.check_billable_rejection(
+        400, ANTHROPIC_BRIDGE_PATH,
+        b'{"type":"error","error":{"message":"model claude-fable-5 not found"}}')
+    assert f is not None and f.kind == "billable_rejected"
+    # and a bridge 400 with no body at all still alarms (can't prove it benign)
+    assert sentinel.check_billable_rejection(400, ANTHROPIC_BRIDGE_PATH) is not None
+
+
+def test_copilot_cli_path_400_unchanged_even_with_self_heal_wording():
+    """(c) the Copilot CLI path's drift behavior is unchanged: a 400 there always
+    alarms, regardless of body — the suppression is scoped to the bridge path."""
+    f = sentinel.check_billable_rejection(400, "/chat/completions", _SELF_HEAL_BODY)
+    assert f is not None and f.kind == "billable_rejected"
+    # /responses (also Copilot CLI, non-bridge) likewise unchanged
+    f2 = sentinel.check_billable_rejection(400, "/responses", _SELF_HEAL_BODY)
+    assert f2 is not None and f2.kind == "billable_rejected"
+
+
 # --- classify_usage: type-guard for non-numeric total_nano_aiu (Fix 2) ---
 def test_classify_null_nano_aiu_is_absent():
     """A present-but-null total_nano_aiu must be treated as absent (unusable/drifted),

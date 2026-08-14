@@ -1106,7 +1106,12 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                     except Exception as exc:
                         log.warning("[!] failed to pin giver from /models/session response: %s", exc)
                 if is_billable(upstream_host, method, path) and _status in (400, 401, 403):
-                    _safe_sentinel_emit(sentinel.check_billable_rejection, _status, path.split("?", 1)[0])
+                    # Pass the upstream error body so the sentinel can recognize
+                    # (and not alarm on) native Claude Code's routine
+                    # mid-conversation-system self-heal 400 on the bridge path,
+                    # while every other rejection still emits the drift WARN.
+                    _safe_sentinel_emit(sentinel.check_billable_rejection, _status,
+                                        path.split("?", 1)[0], full_body or b"")
                 break
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
             log.error("[!] Upstream timeout: %s %s", method, path)

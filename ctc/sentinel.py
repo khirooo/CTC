@@ -97,9 +97,39 @@ def check_bypassed_host(host: str) -> Finding | None:
     return None
 
 
-def check_billable_rejection(status: int, path: str) -> Finding | None:
+# Native Anthropic Claude Code opens a session by sending a mid-conversation
+# `role:"system"` input message (its `mid-conversation-system` beta). Copilot's
+# Anthropic endpoint doesn't accept that shape and 400s; Claude Code then folds
+# the content into the top-level `system` param and retries to a 200. This 400 is
+# ROUTINE self-healing on the bridge path — not contract drift — so we must not
+# desensitize operators by alarming on it every session. Markers are matched
+# case-insensitively against the upstream error body; both are Anthropic-specific
+# wording that a real auth/contract drift (401/403, Bearer->token, or any other
+# 400) would NOT carry, so every genuine rejection still alarms.
+_SELF_HEAL_400_MARKERS: tuple[str, ...] = ('unexpected role "system"', "mid-conversation-system")
+
+
+def _is_bridge_self_heal_400(status: int, path: str, body: bytes | str) -> bool:
+    if status != 400 or path.split("?", 1)[0] != contract.ANTHROPIC_BRIDGE_PATH:
+        return False
+    text = body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray)) else (body or "")
+    # The wording lives inside a JSON string, so its quotes arrive backslash-
+    # escaped (`role \"system\"`). Drop backslashes before matching so the marker
+    # doesn't have to guess the escaping.
+    low = text.lower().replace("\\", "")
+    return any(m in low for m in _SELF_HEAL_400_MARKERS)
+
+
+def check_billable_rejection(status: int, path: str, body: bytes | str = b"") -> Finding | None:
     """Finding when a billable request is rejected — auth-scheme or endpoint
-    contract drift (e.g. Bearer->token change)."""
-    if status in (400, 401, 403):
-        return Finding("billable_rejected", f"billable request rejected (status={status} path={path})")
-    return None
+    contract drift (e.g. Bearer->token change).
+
+    Suppressed for exactly one benign case: native Claude Code's routine
+    mid-conversation-system self-heal 400 on the bridge path (see
+    _is_bridge_self_heal_400). Every other 400/401/403 — including any other 400
+    on the bridge path — still alarms."""
+    if status not in (400, 401, 403):
+        return None
+    if _is_bridge_self_heal_400(status, path, body):
+        return None
+    return Finding("billable_rejected", f"billable request rejected (status={status} path={path})")
