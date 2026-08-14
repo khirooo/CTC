@@ -20,7 +20,10 @@ ctc_usage() {
 CTC — launch GitHub Copilot CLI through the CTC credit proxy.
 
 Usage:
-  ctc            Launch Copilot through CTC (run after 'ctc login')
+  ctc            Pick an agent (Copilot or Claude Code) via a menu, then launch it
+                 (in a non-interactive shell, launches Copilot directly)
+  ctc copilot    Launch Copilot through CTC directly (all flags pass through)
+  ctc claude     Launch native Claude Code on the Copilot backend through CTC
   ctc login      Authenticate, trust the CA cert, cache config
   ctc status     Show whether CTC is set up
   ctc logout     Remove cached CTC config
@@ -116,7 +119,7 @@ cmd_logout() {
   echo "CTC config removed. Your normal 'copilot' is unaffected."
   echo "To also untrust the CA cert: sudo security delete-certificate -c copilot-proxy-ca /Library/Keychains/System.keychain"
 }
-cmd_launch() {
+cmd_copilot() {
   local env real_home disc; env="$(_config_dir)/env"
   if [ ! -f "$env" ]; then
     echo "ctc: not set up yet. Run 'ctc login' first." >&2
@@ -150,15 +153,73 @@ cmd_launch() {
   exec copilot "$@"
 }
 
+cmd_claude() {
+  # Launch the native Anthropic Claude Code CLI against the Copilot backend
+  # through CTC. Reuses the same cached login env (proxy host, CA cert, CTC token)
+  # as the Copilot launcher; the proxy's anthropic-bridge normalizes each
+  # /v1/messages request so Copilot accepts the swapped PAT. Claude Code is a
+  # normal Node process and honors NODE_EXTRA_CA_CERTS (no keychain needed).
+  local env; env="$(_config_dir)/env"
+  if [ ! -f "$env" ]; then
+    echo "ctc: not set up yet. Run 'ctc login' first." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  . "$env"          # HOME/XDG_*/COPILOT_GITHUB_TOKEN(=CTC token)/HTTPS_PROXY/NODE_EXTRA_CA_CERTS
+  export ANTHROPIC_BASE_URL="https://copilot-api.$GHE_DOMAIN"
+  # The CTC token flows to copilot-api as Authorization: Bearer; resolve_consumer
+  # reads it exactly like the Copilot CLI's fake token.
+  export ANTHROPIC_AUTH_TOKEN="$COPILOT_GITHUB_TOKEN"
+  # Pin Copilot-hosted Anthropic model ids. Without ANTHROPIC_MODEL, Claude Code
+  # defaults to claude-fable-5 (not hosted by Copilot -> instant 400).
+  export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-sonnet-5}"
+  export ANTHROPIC_SMALL_FAST_MODEL="${ANTHROPIC_SMALL_FAST_MODEL:-claude-haiku-4.5}"
+  export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+  export CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "ctc: 'claude' (Anthropic Claude Code CLI) not found on PATH." >&2
+    echo "  Install it from https://docs.claude.com/claude-code" >&2
+    exit 1
+  fi
+  printf '\033]0;CTC ◆ claude\007' >&2
+  echo "◆ CTC mode — Claude Code on the Copilot backend (credits via the donation pool)" >&2
+  echo "  model: $ANTHROPIC_MODEL  (small/fast: $ANTHROPIC_SMALL_FAST_MODEL)" >&2
+  exec claude "$@"
+}
+
+cmd_menu() {
+  # Interactive agent picker, shown only for a bare `ctc` on a TTY. Each choice
+  # execs into an existing launch path (cmd_copilot / cmd_claude), so this never
+  # duplicates their env setup. Re-prompts on invalid input; a clean EOF (Ctrl-D)
+  # exits 0, Ctrl-C terminates via the default SIGINT.
+  local choice
+  while :; do
+    printf '◆ CTC — choose your agent\n' >&2
+    printf '  1) GitHub Copilot CLI\n' >&2
+    printf '  2) Claude Code\n' >&2
+    printf 'Choice: ' >&2
+    if ! IFS= read -r choice; then echo >&2; exit 0; fi   # EOF / Ctrl-D
+    case "$choice" in
+      1|copilot|c) cmd_copilot;;      # execs — no return
+      2|claude)    cmd_claude;;       # execs — no return
+      *) echo "  Please enter 1 or 2." >&2;;
+    esac
+  done
+}
+
 main() {
   case "${1:-}" in
-    login)  shift; cmd_login "$@";;
-    status) shift; cmd_status "$@";;
-    logout) shift; cmd_logout "$@";;
+    login)   shift; cmd_login "$@";;
+    status)  shift; cmd_status "$@";;
+    logout)  shift; cmd_logout "$@";;
+    claude)  shift; cmd_claude "$@";;
+    copilot) shift; cmd_copilot "$@";;
     -h|--help|help) ctc_usage; exit 0;;
-    "") cmd_launch;;
-    -*) cmd_launch "$@";;            # flags belong to copilot
+    "") if [ -t 0 ] && [ -t 1 ]; then cmd_menu; else cmd_copilot; fi;;
+    -*) cmd_copilot "$@";;           # flags belong to copilot (passthrough, no menu)
     *) echo "ctc: unknown command '$1'" >&2; echo >&2; ctc_usage >&2; exit 2;;
   esac
 }
-main "$@"
+# Run main only when executed directly, not when sourced (lets tests call the
+# internal cmd_* functions in isolation).
+if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then main "$@"; fi

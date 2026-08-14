@@ -24,6 +24,7 @@ from ctc.metering.capture import record_exchange, redact_text, redact_headers, c
 from ctc.metering.extract import extract_total_nano_aiu
 from ctc import contract
 from ctc import sentinel
+from ctc.routing import anthropic_bridge
 
 # ---------------------------------------------------------------------------
 # Config
@@ -857,6 +858,17 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                       # relay except handlers can reference it unconditionally.
         pat_to_use = REAL_PAT
         billable = ATTRIBUTION is not None and is_billable(upstream_host, method, path)
+        # Native Anthropic Claude Code -> Copilot bridge: normalize the request
+        # body ONLY on copilot-api's /v1/messages path so the swapped PAT is
+        # accepted and Copilot doesn't 400 on Claude Code's wider schema. Applied
+        # once here (header identity/beta filter is applied per-attempt on fwd
+        # below). Every other path is left byte-for-byte unchanged. Attribution,
+        # metering, and the PAT swap are untouched.
+        bridge_req = anthropic_bridge.is_bridge_request(upstream_host, method, path)
+        if bridge_req and body:
+            transformed = anthropic_bridge.transform_request_body(body)
+            if transformed != body:
+                body = transformed
         # /models/session resolves auto_mode -> a copilot-session-token bound to
         # whichever giver identity requested it. It isn't billable/metered, but
         # its giver pick has to be pinned so the client's next billable call
@@ -978,6 +990,11 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 if billable and source is not None:
                     pat_to_use = source.pat
                 fwd = build_upstream_headers(hdrs, upstream_host, auth, len(body), pat_to_use)
+                if bridge_req:
+                    # Inject Copilot client-identity headers (else copilot-api
+                    # rejects the swapped PAT) and filter anthropic-beta to the
+                    # allowlist. Re-applied each attempt since fwd is rebuilt above.
+                    anthropic_bridge.transform_request_headers(fwd)
                 async with _http.request(
                     method   = method,
                     url      = f"https://{upstream_host}{path}",
@@ -1089,7 +1106,12 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                     except Exception as exc:
                         log.warning("[!] failed to pin giver from /models/session response: %s", exc)
                 if is_billable(upstream_host, method, path) and _status in (400, 401, 403):
-                    _safe_sentinel_emit(sentinel.check_billable_rejection, _status, path.split("?", 1)[0])
+                    # Pass the upstream error body so the sentinel can recognize
+                    # (and not alarm on) native Claude Code's routine
+                    # mid-conversation-system self-heal 400 on the bridge path,
+                    # while every other rejection still emits the drift WARN.
+                    _safe_sentinel_emit(sentinel.check_billable_rejection, _status,
+                                        path.split("?", 1)[0], full_body or b"")
                 break
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
             log.error("[!] Upstream timeout: %s %s", method, path)
