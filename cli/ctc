@@ -153,6 +153,413 @@ cmd_copilot() {
   exec copilot "$@"
 }
 
+# Refresh the per-model price table from Copilot's live catalog.
+#
+# `GET /models` on copilot-api is read-only and NOT in BILLABLE_PATHS, so this
+# costs no credit. The consumer has no real PAT — the request goes through the
+# CTC proxy exactly like every other call, and the proxy swaps in the giver's
+# PAT. Result is cached to the isolated HOME as prices.json; the statusline
+# reads that file and falls back to its baked-in table when it is missing,
+# stale, or unparseable. Runs in the BACKGROUND and swallows all output: the
+# launch must never block or print on a slow/absent proxy.
+_refresh_model_prices() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  CTC_PRICE_OUT="$HOME/.claude/prices.json" \
+  CTC_PRICE_URL="https://copilot-api.$GHE_DOMAIN/models" \
+  CTC_PRICE_TOKEN="${COPILOT_GITHUB_TOKEN:-}" \
+  CTC_PRICE_PROXY="${HTTPS_PROXY:-}" \
+  CTC_PRICE_CA="${NODE_EXTRA_CA_CERTS:-}" \
+  python3 - >/dev/null 2>&1 <<'PYEOF' &
+import json, os, ssl, sys, time, urllib.request, uuid
+
+out = os.environ["CTC_PRICE_OUT"]
+KEYS = ("input_price", "output_price", "cache_price", "cache_write_price")
+TTL = 86400            # one fetch a day is plenty; prices move rarely
+
+try:                   # already fresh -> don't touch the network at all
+    if time.time() - json.load(open(out)).get("fetched", 0) < TTL:
+        sys.exit(0)
+except Exception:
+    pass
+
+req = urllib.request.Request(os.environ["CTC_PRICE_URL"], headers={
+    "authorization": "Bearer " + os.environ.get("CTC_PRICE_TOKEN", ""),
+    "accept": "application/json",
+    # Copilot rejects the swapped PAT without a known integration id.
+    "copilot-integration-id": "copilot-developer-cli",
+    "editor-version": "copilot/1.0.63",
+    "user-agent": "copilot/1.0.63 (darwin v24.16.0) term/vscode",
+    "x-github-api-version": "2026-06-01",
+    "openai-intent": "conversation-agent",
+    "x-interaction-id": str(uuid.uuid4()),
+    "x-initiator": "user",
+})
+opener = urllib.request.build_opener()
+proxy = os.environ.get("CTC_PRICE_PROXY")
+if proxy:
+    opener.add_handler(urllib.request.ProxyHandler({"https": proxy, "http": proxy}))
+ca = os.environ.get("CTC_PRICE_CA")
+ctx = ssl.create_default_context(cafile=ca) if ca and os.path.isfile(ca) else None
+if ctx:
+    opener.add_handler(urllib.request.HTTPSHandler(context=ctx))
+
+with opener.open(req, timeout=20) as resp:
+    body = json.load(resp)
+
+prices = {}
+for m in body.get("data", []):
+    tp = ((m.get("billing") or {}).get("token_prices") or {}).get("default")
+    if isinstance(tp, dict) and any(tp.get(k) for k in KEYS):
+        prices[m["id"]] = [int(tp.get(k, 0) or 0) for k in KEYS]
+if not prices:
+    sys.exit(0)                     # never overwrite a good cache with nothing
+
+tmp = out + ".tmp"                  # atomic: the statusline may read concurrently
+with open(tmp, "w") as fh:
+    json.dump({"fetched": int(time.time()), "source": os.environ["CTC_PRICE_URL"],
+               "prices": prices}, fh)
+os.replace(tmp, out)
+PYEOF
+  return 0
+}
+
+# Install a CTC statusline into the isolated Claude HOME. Prices the session
+# with Copilot's OWN per-model token prices (nano-AIU/token, from
+# `GET /models` on copilot-api — the table tools/price_check.py diffs), so the
+# figure a consumer sees is the credit the pool is actually being charged, not
+# an Anthropic list-price estimate. Rewritten on every launch so it ships and
+# updates with the launcher. Never touches the user's real ~/.claude.
+_install_claude_statusline() {
+  local dir="$HOME/.claude"                # HOME is already the isolated one
+  command -v python3 >/dev/null 2>&1 || return 0    # optional garnish, never fatal
+  mkdir -p "$dir" || return 0
+  cat > "$dir/statusline.py" <<'PYEOF'
+#!/usr/bin/env python3
+"""CTC statusline — session cost in Copilot's own billing unit (AIU).
+
+Claude Code pipes its statusline JSON on stdin. We tally this session's token
+usage from the transcript and price it with Copilot's per-model
+`billing.token_prices` (nano-AIU per token) as returned by `GET /models` on
+copilot-api.<GHE_DOMAIN> — the same table `tools/price_check.py` diffs against.
+That is the unit the CTC pool is debited in (docs/reference/metering-contract.md).
+
+This is a client-side projection, not the ledger: the authoritative charge is
+`copilot_usage.total_nano_aiu`, which only the proxy sees.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# Copilot token prices, nano-AIU per token x1000 (default tier).
+# baseline: tests/fixtures/metering/exchanges.ndjson, captured 2026-06-20.
+# order: input, output, cache_read, cache_write
+PRICES = {
+    # Copilot's live catalog as of 2026-08-18 (operator screenshot of the model
+    # picker; ids inferred from display names where not in the 2026-06-20
+    # capture). A live `GET /models` fetch overrides all of this — see
+    # _refresh_model_prices. Values are Copilot's own token_prices; x1000 = nano-AIU/token.
+    "claude-haiku-4.5":       (110,  550,  11, 137),
+    "claude-opus-4.5":        (550, 2750,  55, 687),
+    "claude-opus-4.6":        (550, 2750,  55, 687),
+    "claude-opus-4.7":        (550, 2750,  55, 687),
+    "claude-opus-4.8":        (550, 2750,  55, 687),
+    "claude-sonnet-4.5":      (330, 1650,  33, 412),
+    "claude-sonnet-4.6":      (330, 1650,  33, 412),
+    # Sonnet 5 bills at Anthropic's $2/$10 intro rate, NOT list $3/$15 — Copilot
+    # passes the promo through. Re-check after it lapses (upstream: 2026-08-31).
+    "claude-sonnet-5":        (220, 1100,  22, 275),
+    "gemini-3.5-flash":       (165,  990,  16,   0),
+    "gpt-5-mini":             ( 27,  220,   2,   0),
+    "gpt-5.3-codex":          (192, 1540,  19,   0),
+    "gpt-5.4":                (275, 1650,  27,   0),
+    "gpt-5.4-mini":           ( 82,  495,   8,   0),
+    "gpt-5.5":                (550, 3300,  55,   0),
+    "gpt-5.6-luna":           ( 22,  132,   2,  27),
+    "gpt-5.6-sol":            (550, 3300,  55, 687),
+    "gpt-5.6-terra":          (220, 1320,  22, 275),
+    "mai-code-1-flash":       ( 82,  495,   8,   0),
+    "<synthetic>":            (  0,    0,   0,   0),   # local/error message, never billed
+    # Not in Copilot's catalog at all, but `ctc claude` can run on it: priced
+    # from Anthropic list ($5/$25 per Mtok) at the same 1 AIU = $1/110 anchor.
+    "claude-opus-5":          (550, 2750,  55, 687),
+}
+# Priced from list, not from Copilot's catalog — shown with a leading "≈".
+DERIVED = {"claude-opus-5"}
+
+# Live catalog, refreshed once a day by `ctc claude` (see _refresh_model_prices).
+# Anything it confirms overrides the baked-in table and counts as exact. The
+# statusline itself NEVER hits the network — it renders on every keystroke, so
+# this is a plain disk read with a staleness guard.
+LIVE_TTL = 7 * 86400
+
+
+def load_live():
+    try:
+        d = json.loads((Path.home() / ".claude" / "prices.json").read_text())
+        if time.time() - (d.get("fetched") or 0) > LIVE_TTL:
+            return {}
+        return {k: tuple(int(x) for x in v)
+                for k, v in (d.get("prices") or {}).items()
+                if isinstance(v, list) and len(v) == 4}
+    except Exception:
+        return {}
+
+
+LIVE = load_live()
+PRICES.update(LIVE)
+DERIVED -= set(LIVE)
+NANO_PER_TOKEN = 1000          # table value x1000 = nano-AIU per token
+# 1 AIU lines up with published list prices at $1/110: sonnet 330 AIU/Mtok in
+# = $3/M, opus 550 = $5/M, gpt-5-mini 27/220 = $0.25/$2 per M. Display only.
+USD_PER_AIU = 1.0 / 110.0
+# Optional ceiling for the burn bar (a giver's entitlement, or a grant). Unset
+# = no bar, since a consumer's grant is not knowable from the CLI.
+CEILING = float(os.environ.get("CTC_AIU_CEILING", "0") or 0)
+
+FAMILY = (("opus", "claude-opus-4.7"), ("sonnet", "claude-sonnet-4.6"),
+          ("haiku", "claude-haiku-4.5"), ("codex", "gpt-5.3-codex"),
+          # "gemini" CONTAINS "mini" — keep it ahead or Gemini prices as a mini.
+          ("gemini", "gemini-3.5-flash"), ("mini", "gpt-5.4-mini"),
+          ("gpt", "gpt-5.5"))
+
+
+def price_for(model_id):
+    """(prices, exact?) — unlisted ids fall back to the nearest listed sibling."""
+    mid = (model_id or "").strip()
+    if mid in PRICES:
+        return PRICES[mid], mid not in DERIVED
+    norm = mid.replace("claude-", "").replace("-", ".").lower()
+    for fam, listed in FAMILY:
+        if fam in norm:
+            return PRICES[listed], False
+    return PRICES["claude-sonnet-4.6"], False
+
+
+def cost_nano(usage, prices):
+    i = usage.get("input_tokens") or 0
+    out = usage.get("output_tokens") or 0
+    cr = usage.get("cache_read_input_tokens") or 0
+    cw = usage.get("cache_creation_input_tokens") or 0
+    h1 = (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0
+    # Copilot's table lists the 5m cache-write tier only; 1h writes bill at 2x
+    # input (and at 0 for models Copilot charges no cache-write on).
+    w5 = max(cw - h1, 0)
+    return (i * prices[0] + out * prices[1] + cr * prices[2] + w5 * prices[3]
+            + h1 * (prices[0] * 2 if prices[3] else 0)) * NANO_PER_TOKEN
+
+
+def transcripts(p, session_id):
+    """Main transcript first, then every agent transcript below it.
+
+    Agent turns are NOT written to the session transcript — Claude Code puts
+    them under <project>/<session-id>/subagents/. Layout there is nested and
+    varies by agent kind:
+      subagents/agent-*.jsonl                  Task subagents AND named
+                                               in-process teammates
+      subagents/workflows/wf_*/agent-*.jsonl   agents inside a Workflow run
+    All of them cost real credit, so recurse rather than globbing one level.
+    Re-walked every render: agents spawned mid-session appear on the next tick.
+    """
+    out = [p]
+    sub = p.parent / (session_id or p.stem) / "subagents"
+    try:
+        if sub.is_dir():
+            out += sorted(sub.rglob("*.jsonl"))
+    except Exception:
+        pass
+    return out
+
+
+def tally(transcript, session_id):
+    """-> (total AIU, subagent AIU, last-turn AIU, all-exact?, context tokens).
+
+    Incremental: caches a per-file byte offset + running totals so long
+    transcripts are not re-parsed on every render.
+    """
+    p = Path(transcript or "")
+    if not p.is_file():
+        return 0.0, 0.0, 0.0, True, 0
+    cdir = Path.home() / ".claude" / "statusline-cache"
+    try:
+        cdir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return 0.0, 0.0, 0.0, True, 0
+    cf = cdir / ("%s.json" % (session_id or p.stem))
+    st = {"offs": {}, "rids": {}, "nano": 0, "sub": 0, "last": 0,
+          "exact": True, "ctx": 0}
+    try:
+        cached = json.loads(cf.read_text())
+        if isinstance(cached.get("offs"), dict):
+            st = cached
+    except Exception:
+        pass
+
+    offs, rids = st["offs"], st["rids"]
+    nano, sub, last, exact, ctx = st["nano"], st["sub"], st["last"], st["exact"], st["ctx"]
+
+    for idx, f in enumerate(transcripts(p, session_id)):
+        # Key by full path: agent files nest under workflows/wf_*/ and bare
+        # names (journal.jsonl) repeat across runs, which would collide offsets.
+        key = str(f)
+        try:
+            size = f.stat().st_size
+        except Exception:
+            continue
+        off = offs.get(key, 0)
+        if off > size:              # file replaced/truncated — re-read it
+            off = 0
+        if off == size:
+            continue
+        try:
+            fh = f.open("r", errors="replace")
+        except Exception:
+            continue
+        with fh:
+            fh.seek(off)
+            while True:
+                line = fh.readline()   # readline, not iteration: tell() needs it
+                if not line:
+                    break
+                if not line.endswith("\n"):   # partial write — resume next render
+                    break
+                off = fh.tell()
+                try:
+                    o = json.loads(line)
+                except Exception:
+                    continue
+                msg = o.get("message") or {}
+                u = msg.get("usage")
+                if not isinstance(u, dict):
+                    continue
+                pr, ok = price_for(msg.get("model", ""))
+                n = cost_nano(u, pr)
+                # A streaming turn is logged repeatedly under one requestId with
+                # a GROWING output count, so the last/largest record wins and we
+                # only add the delta. (Identical repeats then cost nothing.)
+                rid = o.get("requestId") or o.get("uuid") or ""
+                prev = rids.get(rid, 0)
+                if n <= prev:
+                    continue
+                rids[rid] = n
+                delta = n - prev
+                nano += delta
+                exact = exact and ok
+                if idx:                       # a subagent transcript
+                    sub += delta
+                else:
+                    last = n
+                    if not o.get("isSidechain"):
+                        ctx = ((u.get("input_tokens") or 0)
+                               + (u.get("cache_read_input_tokens") or 0)
+                               + (u.get("cache_creation_input_tokens") or 0))
+        offs[key] = off
+
+    if len(rids) > 6000:            # bound the cache; dicts keep insertion order
+        rids = dict(list(rids.items())[-4000:])
+    st.update(offs=offs, rids=rids, nano=nano, sub=sub, last=last,
+              exact=exact, ctx=ctx)
+    try:
+        cf.write_text(json.dumps(st))
+    except Exception:
+        pass
+    return nano / 1e9, sub / 1e9, last / 1e9, exact, ctx
+
+
+def c(code, s):
+    return "\033[%sm%s\033[0m" % (code, s)
+
+
+DIM = "2"
+SEP = c(DIM, " ▕ ")
+
+
+def bar(frac, width=8):
+    filled = min(width, int(frac * width + 0.999)) if frac > 0 else 0
+    hue = "32" if frac < .25 else "33" if frac < .6 else "31"
+    return c(hue, "▰" * filled) + c(DIM, "▱" * (width - filled))
+
+
+def human(n):
+    if n >= 1_000_000:
+        return "%.1fM" % (n / 1_000_000)
+    return "%dk" % (n / 1000) if n >= 1000 else str(n)
+
+
+def git_seg(cwd):
+    try:
+        r = subprocess.run(["git", "-C", cwd or ".", "status", "--porcelain=v1", "-b"],
+                           capture_output=True, text=True, timeout=1)
+        if r.returncode != 0:
+            return ""
+        lines = r.stdout.splitlines()
+        branch = lines[0][3:].split("...")[0] if lines else ""
+        dirty = c("33", " ✎") if len(lines) > 1 else ""
+        return c("38;5;114", "⎇ " + branch) + dirty
+    except Exception:
+        return ""
+
+
+def main():
+    try:
+        d = json.load(sys.stdin)
+    except Exception:
+        d = {}
+    m = d.get("model") or {}
+    model = m.get("display_name") or m.get("id") or "?"
+    ws = d.get("workspace") or {}
+    cwd = ws.get("current_dir") or d.get("cwd") or ""
+    proj = Path(ws.get("project_dir") or cwd or ".").name
+
+    aiu, sub, last, exact, ctx = tally(d.get("transcript_path", ""), d.get("session_id", ""))
+    approx = "" if exact else "≈"
+    hue = "32" if aiu < 1 else "33" if aiu < 10 else "38;5;208" if aiu < 50 else "31"
+
+    parts = [c("1;38;5;213", "◆ CTC"), c("38;5;110", model.replace("Claude ", ""))]
+    if proj and proj.lower() != "ctc":     # don't echo the brand back as the cwd
+        parts.append(c("38;5;146", proj))
+    g = git_seg(cwd)
+    if g:
+        parts.append(g)
+
+    cost = c(hue, "⚡ %s%.2f AIU" % (approx, aiu)) + c(DIM, " · $%.2f" % (aiu * USD_PER_AIU))
+    if last:
+        cost += c(DIM, " (+%.2f)" % last)
+    parts.append(cost)
+    if sub:
+        parts.append(c("38;5;180", "⑂ %.2f" % sub) + c(DIM, " agents"))
+    if CEILING > 0:
+        f = aiu / CEILING
+        parts.append(bar(f) + c(DIM, " %.1f%% of %.0f" % (f * 100, CEILING)))
+    if ctx:
+        parts.append(c(DIM, "⌁ " + human(ctx)))
+
+    sys.stdout.write(SEP.join(parts))
+
+
+if __name__ == "__main__":
+    main()
+PYEOF
+  # Merge (never clobber) the statusLine key into the isolated settings.json.
+  CTC_SL_DIR="$dir" python3 - <<'PYEOF' || true
+import json, os, pathlib
+p = pathlib.Path(os.environ["CTC_SL_DIR"]) / "settings.json"
+try:
+    d = json.loads(p.read_text())
+    if not isinstance(d, dict):
+        d = {}
+except Exception:
+    d = {}
+sl = pathlib.Path(os.environ["CTC_SL_DIR"]) / "statusline.py"
+d["statusLine"] = {"type": "command", "command": 'python3 "%s"' % sl, "padding": 0}
+p.write_text(json.dumps(d, indent=2) + "\n")
+PYEOF
+}
+
 cmd_claude() {
   # Launch the native Anthropic Claude Code CLI against the Copilot backend
   # through CTC. Reuses the same cached login env (proxy host, CA cert, CTC token)
@@ -181,6 +588,8 @@ cmd_claude() {
     echo "  Install it from https://docs.claude.com/claude-code" >&2
     exit 1
   fi
+  _install_claude_statusline                # AIU cost readout; best-effort
+  _refresh_model_prices                     # live price table; background, best-effort
   printf '\033]0;CTC ◆ claude\007' >&2
   echo "◆ CTC mode — Claude Code on the Copilot backend (credits via the donation pool)" >&2
   echo "  model: $ANTHROPIC_MODEL  (small/fast: $ANTHROPIC_SMALL_FAST_MODEL)" >&2

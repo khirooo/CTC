@@ -27,6 +27,70 @@ flags (e.g. `ctc -p "..."`) also skips the menu and goes straight to Copilot.
 
 Other commands: `ctc status`, `ctc logout`.
 
+## Cost readout in Claude Code
+
+`ctc claude` installs a statusline into its **isolated** Claude home
+(`~/.config/ctc/home/.claude/`) — never your personal `~/.claude`. It shows what
+the session is costing the pool:
+
+    ◆ CTC ▕ Sonnet 5 ▕ ⎇ main ✎ ▕ ⚡ 3.21 AIU · $0.03 (+0.12) ▕ ⑂ 1.04 agents ▕ ⌁ 61k
+
+The cost is priced with **Copilot's own per-model token prices** —
+`billing.token_prices` from `GET /models` on `copilot-api`, in nano-AIU per
+token, the same table `tools/price_check.py` diffs for price changes. AIU is the
+unit the pool is debited in (`docs/reference/metering-contract.md`); the dollar
+figure is a display conversion at 1 AIU = $1/110, which is where Copilot's table
+lines up with published list prices (sonnet 330 AIU/Mtok in = $3/M, opus 550 =
+$5/M, gpt-5-mini 27/220 = $0.25/$2 per M). `(+0.12)` is the last turn.
+
+Everything the session spends is counted, including every agent it spawns.
+Claude Code writes agent turns outside the session transcript, nested by kind:
+
+    subagents/agent-*.jsonl                  Task subagents and named teammates
+    subagents/workflows/wf_*/agent-*.jsonl   agents inside a Workflow run
+
+The statusline walks all of them and breaks the agent share out as `⑂` — worth
+watching, since on a workflow-heavy session the agents can be most of the bill.
+
+Each model is priced at its own rate, so switching models mid-session
+gives a correct blended total (earlier turns are never re-priced). A streaming
+turn is logged repeatedly under one `requestId` with a growing output count, so
+it is charged once at the final size.
+
+This is a **client-side projection, not the ledger.** The authoritative charge is
+`copilot_usage.total_nano_aiu`, which only the proxy sees.
+
+### Where the rates come from
+
+`ctc claude` refreshes the price table from Copilot's **live catalog** on launch
+— `GET /models` on `copilot-api`, through the CTC proxy like any other call, so
+no PAT is needed on the client. That path is read-only and not in
+`BILLABLE_PATHS`, so it costs no credit. The result is cached to
+`~/.config/ctc/home/.claude/prices.json` and refetched at most once a day.
+
+The fetch runs in the background and swallows every error: an unreachable proxy
+delays nothing, breaks no launch, and leaves the cache untouched. The statusline
+itself never touches the network — it renders on every keystroke, so it is a
+plain disk read with a 7-day staleness guard.
+
+A baked-in table backs all of this up whenever the cache is missing, stale, or
+unparseable. It mirrors Copilot's catalog as of **2026-08-18** and covers every
+model the picker exposes. Note `claude-sonnet-5` bills at **220/1100** — Copilot
+passes through Anthropic's $2/$10 intro rate rather than list $3/$15, so re-check
+it after the promo lapses upstream (2026-08-31).
+
+Only `claude-opus-5` is priced without a catalog entry (Copilot doesn't expose
+it) — from Anthropic list at the same anchor. It, and anything else unlisted
+falling back to its nearest sibling, renders a leading `≈`; the live catalog
+clears the flag for every model it confirms.
+
+Set `CTC_AIU_CEILING=<aiu>` to add a burn bar against a known allowance. To
+inspect price drift by hand (or refresh the baked-in fallback in `cli/ctc`), run
+`PAT=github_pat_xxx python tools/price_check.py`, which diffs the live catalog
+against the captured baseline. Needs `python3` on PATH; without it both the
+statusline and the price refresh are silently skipped and the launch is
+unaffected.
+
 ## Use inside VS Code
 
 CTC Copilot runs in VS Code's **integrated terminal** and bridges to the editor
