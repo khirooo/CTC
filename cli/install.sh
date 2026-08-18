@@ -73,6 +73,39 @@ else
   fi
 fi
 
+# Ensure the native Anthropic Claude Code CLI (the 'claude' binary 'ctc claude' execs) is present.
+# Optional — only the `ctc claude` launch path needs it, so a failure here never
+# affects `ctc copilot` (checked separately above).
+if command -v claude >/dev/null 2>&1; then
+  echo "✓ Claude Code CLI already installed ($(command -v claude))."
+else
+  echo "Claude Code CLI not found — installing (npm install -g @anthropic-ai/claude-code) ..."
+  claude_installed=0
+  if command -v npm >/dev/null 2>&1; then
+    if npm install -g @anthropic-ai/claude-code; then
+      claude_installed=1
+    else
+      echo "npm install -g @anthropic-ai/claude-code failed." >&2
+    fi
+  else
+    echo "npm not found — trying the native installer (curl https://claude.ai/install.sh | bash) ..."
+    if curl -fsSL https://claude.ai/install.sh | bash; then
+      claude_installed=1
+    else
+      echo "Native Claude Code installer failed." >&2
+    fi
+  fi
+
+  if [ "$claude_installed" -eq 1 ] && command -v claude >/dev/null 2>&1; then
+    echo "✓ Claude Code CLI installed ($(command -v claude))."
+  else
+    echo "Could not install the Claude Code CLI automatically." >&2
+    echo "Install Node (https://nodejs.org) then run: npm install -g @anthropic-ai/claude-code" >&2
+    echo "(or: curl -fsSL https://claude.ai/install.sh | bash)" >&2
+    echo "'ctc claude' will not work until 'claude' is on your PATH ('ctc copilot' is unaffected)." >&2
+  fi
+fi
+
 if [ -n "$TOKEN" ]; then
   "$BIN_DIR/ctc" login --token "$TOKEN"
 else
