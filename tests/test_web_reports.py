@@ -154,6 +154,54 @@ async def test_profile_consumer_shows_donations():
 
 
 @pytest.mark.asyncio
+async def test_profile_fresh_refresh_raises_quota_ceiling_on_higher_entitlement():
+    # Reproduces the reported bug: GitHub grants a giver extra credit mid-cycle
+    # (entitlement 4000 -> 5000) but CTC's stored quota ceiling (set once at PAT
+    # onboarding) stays at 4000, so personal_remaining()/totalCredit stay stale
+    # even though the live entitlement is now higher. A `?fresh=1` profile
+    # refresh must self-heal gc.quota via sync_quota_ceiling.
+    entitlement = {"value": 4000}
+
+    async def _variable_giver_user(pat):
+        v = entitlement["value"]
+        return {"login": "octocat",
+                "quota_snapshots": {"premium_interactions": {"entitlement": v, "remaining": v}}}
+
+    conn = connect(":memory:"); init_db(conn)
+    store = AuthStore(conn)
+    engine = AccountingEngine(AccountingStore(conn))
+    engine.start_cycle("c1", "June", 0, 10**12)
+    reg = AuthRegistry(store, derive_key("k"))
+    sess = SessionService(store, secret="sek", ttl_s=10**9)
+    app = make_app(store=store, engine=engine, registry=reg, sessions=sess,
+                   oauth=StubOAuth(), http_get_user=_variable_giver_user, cycle_id="c1",
+                   secret="sek", app_origin="http://app", now=lambda: 1000,
+                   deployment=_DEFAULT_DEPLOYMENT)
+    async with TestClient(TestServer(app)) as cli:
+        await _login(cli)
+        octo = store.get_user_by_login("octocat")["id"]
+        await cli.post("/api/pat", json={"pat": "ghp_x"})   # onboards at entitlement 4000
+
+        p = await (await cli.get("/api/profile")).json()
+        assert p["totalCredit"] == 4000 * NANO_PER_AIU
+        remaining_before = engine.personal_remaining("c1", octo)
+
+        # GitHub grants extra credit mid-cycle.
+        entitlement["value"] = 5000
+        # A stale (non-fresh) read still hits the 60s LiveQuotaCache TTL, so the
+        # ceiling doesn't move yet.
+        p_stale = await (await cli.get("/api/profile")).json()
+        assert p_stale["totalCredit"] == 4000 * NANO_PER_AIU
+
+        # `?fresh=1` bypasses the cache, observes the higher live entitlement,
+        # and self-heals gc.quota. personal_remaining moves by exactly the
+        # entitlement delta (1000 AIU), independent of any default pledge %.
+        p_fresh = await (await cli.get("/api/profile?fresh=1")).json()
+        assert p_fresh["totalCredit"] == 5000 * NANO_PER_AIU
+        assert engine.personal_remaining("c1", octo) == remaining_before + 1000 * NANO_PER_AIU
+
+
+@pytest.mark.asyncio
 async def test_profile_includes_tier_for_giver():
     app, store, engine = _build()
     async with TestClient(TestServer(app)) as cli:

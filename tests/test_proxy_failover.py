@@ -169,6 +169,51 @@ def test_reconcile_candidate_reconcile_failure_still_returns_remaining(_engine_q
     class _BrokenEngine:
         def reconcile_giver(self, *a, **kw):
             raise RuntimeError("db locked")
+        def sync_quota_ceiling(self, *a, **kw):
+            raise RuntimeError("db locked")
     cache = _FakeCache({"entitlement": 4000, "remaining": 1500})
     rem = asyncio.run(proxy.reconcile_candidate(_BrokenEngine(), cache, "c1", "g1"))
     assert rem == 1500  # remaining returned despite reconcile failure
+
+
+def test_reconcile_candidate_raises_quota_on_higher_live_entitlement(_engine_quota_4000):
+    # Simulates an exceptional mid-cycle GitHub grant: the giver's live
+    # entitlement (5000) now exceeds CTC's stored quota ceiling (4000). The
+    # health-gate reconcile must self-heal the ceiling in the SAME pre-request
+    # check that computes health[], fixing the false 402 without a PAT resubmit.
+    eng = _engine_quota_4000  # fixture: cycle "c1", giver "g1", quota 4000*N, no events
+    cache = _FakeCache({"entitlement": 5000, "remaining": 4800})
+    rem = asyncio.run(proxy.reconcile_candidate(eng, cache, "c1", "g1"))
+    assert rem == 4800
+    gc = eng.store.get_giver_cycle("c1", "g1")
+    assert gc.quota == 5000 * _N
+
+
+def test_reconcile_candidate_quota_bump_unblocks_select_source():
+    # End-to-end: a giver who has fully drawn their old 4000 quota is blocked
+    # (personal_remaining == 0) until reconcile_candidate observes GitHub's
+    # higher live entitlement and raises the ceiling, after which
+    # select_source finds credit again.
+    from ctc.domain.types import Bucket
+    from ctc.routing.attribution import AttributionService
+    from ctc.auth.identity import ConsumerIdentity, InMemoryIdentityProvider, InMemoryPatRegistry
+
+    conn = connect(":memory:"); init_db(conn)
+    s = AccountingStore(conn)
+    s.add_cycle(Cycle("c1", "c", 0, 1_000_000, "active"))
+    s.upsert_giver_cycle(GiverCycle("c1", "g1", 4000 * _N, 0))
+    eng = AccountingEngine(s)
+    eng.record_consumption("c1", "g1", "g1", Bucket.OWN, 4000 * _N, ts=1)  # fully consumed
+
+    consumer = ConsumerIdentity(user_id="g1", is_giver=True)
+    attribution = AttributionService(
+        eng, InMemoryIdentityProvider({}), InMemoryPatRegistry({"g1": "ghp_fake"}))
+
+    assert eng.personal_remaining("c1", "g1") == 0
+    assert attribution.select_source("c1", consumer) is None  # blocked, as reported
+
+    cache = _FakeCache({"entitlement": 5000, "remaining": 4800})
+    rem = asyncio.run(proxy.reconcile_candidate(eng, cache, "c1", "g1"))
+    assert rem == 4800
+    assert eng.personal_remaining("c1", "g1") == 1000 * _N
+    assert attribution.select_source("c1", consumer) is not None  # unblocked

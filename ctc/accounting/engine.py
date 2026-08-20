@@ -282,6 +282,36 @@ class AccountingEngine:
             self.conn.execute("ROLLBACK")
             raise
 
+    def sync_quota_ceiling(self, cycle_id: str, giver_id: str, live: dict | None) -> None:
+        """Best-effort: raise gc.quota to match a higher live GitHub entitlement
+        observed out of band (e.g. an exceptional mid-cycle grant), so
+        personal_remaining() reflects it without requiring a PAT resubmit.
+
+        Never LOWERS quota (that stays onboarding/resubmit/rollover/
+        repair-tool's job — a transient bad read must not shrink a giver's
+        ceiling) and never raises for unknown/unlimited(-1)/corrupt live data,
+        matching reconcile_giver's guard convention. Safe to call before/after
+        reconcile_giver — independent, sequential BEGIN IMMEDIATE calls, no
+        shared transaction."""
+        if not live:
+            return
+        ent = live.get("entitlement")
+        if ent is None or int(ent) < 0:
+            return
+        gc = self.store.get_giver_cycle(cycle_id, giver_id)
+        if gc is None:
+            return
+        ent_nano = int(ent) * NANO_PER_AIU
+        if ent_nano <= gc.quota:
+            return
+        try:
+            self.set_quota(cycle_id, giver_id, ent_nano)
+        except InvalidPledge:
+            # Shouldn't happen when raising (set_quota only guards lowering
+            # below already-consumed pledge), but stay best-effort/never-raise
+            # like reconcile_giver.
+            pass
+
     def set_pledge(self, cycle_id: str, giver_id: str, pledge: int) -> None:
         self.conn.execute("BEGIN IMMEDIATE")
         try:

@@ -761,6 +761,13 @@ async def reconcile_candidate(engine, live_cache, cycle_id, giver_id):
     if v is None:
         return None
     try:
+        # Self-heal the quota ceiling BEFORE the debounced burn reconcile below,
+        # so an exceptional mid-cycle GitHub entitlement bump is reflected in
+        # personal_remaining() for this same request's select_source() check.
+        engine.sync_quota_ceiling(cycle_id, giver_id, v)
+    except Exception as exc:
+        log.warning("[quota-sync] candidate %s failed: %s", giver_id, exc)
+    try:
         # Hot path: stays debounced (two-observation confirm) + throttled so an
         # in-flight cost isn't double-booked as BYPASS and the loop isn't stalled.
         engine.reconcile_giver(cycle_id, giver_id, v, ts=_now())

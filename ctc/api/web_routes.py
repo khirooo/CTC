@@ -299,7 +299,13 @@ def register_web_routes(app, *, store, engine, current_user, now, live_quota):
         # so profile, leaderboard and dashboard all derive the same number. No-op
         # when stale (lq is None / entitlement None) or unlimited.
         if lq and lq.get("entitlement") is not None:
+            # Self-heal the quota ceiling first, so an exceptional mid-cycle
+            # GitHub entitlement bump (a manual/`?fresh=1` refresh) is reflected
+            # in total_credit/retained even before the giver's next proxied call.
+            engine.sync_quota_ceiling(cycle.id, uid, lq)
             engine.reconcile_giver(cycle.id, uid, lq, ts=now())
+            # Re-read: sync_quota_ceiling may have just raised gc.quota above.
+            gc = acct.get_giver_cycle(cycle.id, uid)
 
         pledged = gc.pledge
         donated = acct.granted_out(cycle.id, uid)
