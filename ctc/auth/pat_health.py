@@ -113,15 +113,19 @@ class PatHealthChecker:
     fetch_raw(pat) -> (status:int, body:dict|None); network errors may raise.
     fetch_copilot_api(pat) -> status:int; optional second gate, see module
     docstring. None (the default) keeps the single-endpoint behaviour.
+    probe_target: the URL fetch_copilot_api calls, for log messages only.
     """
 
     def __init__(self, store, pat_for, fetch_raw, now, interval_s: int = 1200,
                  engine=None, confirm_delay_s: int = 95, sleep=asyncio.sleep,
-                 fetch_copilot_api=None):
+                 fetch_copilot_api=None, probe_target=None):
         self.store = store
         self.pat_for = pat_for
         self.fetch_raw = fetch_raw
         self.fetch_copilot_api = fetch_copilot_api
+        # Display-only: the URL fetch_copilot_api calls, so a probe failure can
+        # say what it tried to reach.
+        self.probe_target = probe_target
         self.now = now
         self.interval_s = interval_s
         # Optional accounting engine: when set, the sweep also reconciles each
@@ -189,9 +193,14 @@ class PatHealthChecker:
             return None
         try:
             status = await self.fetch_copilot_api(pat)
-        except Exception:
-            log.warning("copilot-api permission probe failed for giver %s "
-                        "(keeping the /copilot_internal/user verdict)", giver_id)
+        except Exception as exc:
+            # Name the target: the most likely cause of a probe that fails for
+            # EVERY giver is that it is aimed at the wrong host (a deployment that
+            # never passed GHE_DOMAIN to this process probes the placeholder
+            # domain), and a message without the host hides exactly that.
+            log.warning("copilot-api permission probe failed for giver %s against %s "
+                        "(%s); keeping the /copilot_internal/user verdict",
+                        giver_id, self.probe_target or "<unknown host>", exc)
             return None
         return classify_copilot_api(status)
 

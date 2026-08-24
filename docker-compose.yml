@@ -96,6 +96,12 @@ services:
       GITLAB_OAUTH_CLIENT_SECRET: ${GITLAB_OAUTH_CLIENT_SECRET}
       GITLAB_OAUTH_REDIRECT_URI: ${GITLAB_OAUTH_REDIRECT_URI}
       GHE_API_BASE: ${GHE_API_BASE}
+      # MUST be set here, not only on the proxy: ctc/contract.py derives the
+      # Copilot API host from it at import time, and the PAT-health permission
+      # probe (ctc/auth/pat_health.py) calls that host. Omitted, the control
+      # plane silently probes the placeholder domain, every probe fails to
+      # resolve, and an under-scoped PAT keeps its "valid" verdict forever.
+      GHE_DOMAIN: ${GHE_DOMAIN}
       CTC_ADMINS: ${CTC_ADMINS:-}
       CTC_CA_CERT: /certs/cert.pem
       # Deployment mode knobs — all optional, defaults shown

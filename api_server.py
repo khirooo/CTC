@@ -25,6 +25,8 @@ from ctc.accounting.errors import AccountingError
 from ctc.domain.deployment import DeploymentConfig
 from pydantic import ValidationError
 
+log = logging.getLogger("ctc.api_server")
+
 COOKIE = "ctc_session"
 STATE_COOKIE = "ctc_oauth_state"
 
@@ -35,6 +37,39 @@ def assert_transport_consistent(deployment, app_origin) -> None:
         raise ValueError(
             f"CTC_WEB_TRANSPORT={deployment.web_transport} but CTC_APP_ORIGIN="
             f"{app_origin!r}; scheme must match")
+
+
+# The domain shipped in ctc/contract.py so the repo carries no organization-specific
+# host name. Seeing it in a deployment that has a real GHE_API_BASE means GHE_DOMAIN
+# never reached this container.
+_PLACEHOLDER_GHE_DOMAIN = "example.ghe.com"
+
+
+def assert_ghe_domain_consistent(api_base, ghe_domain=None) -> None:
+    """Fail fast when GHE_DOMAIN did not reach the control plane.
+
+    ctc/contract.py derives the Copilot API host from GHE_DOMAIN at import time,
+    and the PAT-health permission probe calls that host. Nothing else here reads
+    GHE_DOMAIN, so an omission is otherwise invisible: every probe fails to
+    resolve, is treated as "no opinion", and an under-scoped PAT keeps a "valid"
+    verdict indefinitely while the pool sells credit it cannot serve.
+
+    Only the unambiguous case is fatal — the shipped placeholder alongside a real
+    API base. A deployment whose API host genuinely differs from its web domain is
+    unusual but legitimate, so it only warns.
+    """
+    ghe_domain = contract.GHE_DOMAIN if ghe_domain is None else ghe_domain
+    api_is_placeholder = _PLACEHOLDER_GHE_DOMAIN in api_base
+    if ghe_domain == _PLACEHOLDER_GHE_DOMAIN and not api_is_placeholder:
+        raise ValueError(
+            f"GHE_DOMAIN is unset in this process (still {_PLACEHOLDER_GHE_DOMAIN!r}) "
+            f"but GHE_API_BASE={api_base!r} is a real host. The PAT-health "
+            f"permission probe would call copilot-api.{_PLACEHOLDER_GHE_DOMAIN} and "
+            f"fail for every giver. Set GHE_DOMAIN on the control-plane service.")
+    if ghe_domain not in api_base:
+        log.warning("GHE_DOMAIN=%r does not appear in GHE_API_BASE=%r; the PAT-health "
+                    "permission probe will call %s — verify that is the right host",
+                    ghe_domain, api_base, contract.BILLABLE_HOST)
 
 
 def _sign(secret: str, value: str) -> str:
@@ -340,6 +375,7 @@ def build_from_env(session) -> web.Application:
     # api_base is required for PAT onboarding (calls /copilot_internal/user).
     # GITLAB_* are required for GitLab OAuth login.
     api_base = os.environ["GHE_API_BASE"].rstrip("/")
+    assert_ghe_domain_consistent(api_base)
 
     async def http_get_user(pat):
         headers = {"authorization": f"Bearer {pat}", "editor-version": "copilot/1.0.63",
@@ -395,7 +431,9 @@ def build_from_env(session) -> web.Application:
                                now=lambda: int(time.time()),
                                interval_s=int(os.environ.get("CTC_PAT_HEALTH_INTERVAL_S", "1200")),
                                engine=engine,
-                               fetch_copilot_api=http_probe_copilot_api)
+                               fetch_copilot_api=http_probe_copilot_api,
+                               probe_target=f"https://{contract.BILLABLE_HOST}"
+                                            f"{contract.MODELS_PATH}")
 
     async def _pat_health_ctx(app):
         task = asyncio.create_task(checker.run_forever())
