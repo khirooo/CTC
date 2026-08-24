@@ -28,8 +28,9 @@ OPERATIONAL NOTES:
     retracts 0.
   * Health verdicts are read, never written. A giver marked "unreachable" (last
     check errored, e.g. GHE 502s during an outage) is NOT touched: the surviving
-    definitive verdict is what counts. Only expired/forbidden/no_entitlement
-    qualify.
+    definitive verdict is what counts. Only the verdicts in
+    pat_health.DEAD_VERDICTS qualify (expired / forbidden / no_entitlement /
+    no_copilot_permission).
   * Not a permanent demotion: reconnecting a working PAT re-applies the default
     pledge, because validate_and_store_pat treats pledge == 0 as unpledged.
   * Safe to run with the proxy and control plane up — the write goes through the

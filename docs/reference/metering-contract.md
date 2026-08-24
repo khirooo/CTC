@@ -379,7 +379,35 @@ behaviour. A side effect (accepted, desirable): the sweep calls
 `ensure_active_cycle(now())`, so a calendar-month rollover now happens within one
 sweep of the boundary even under zero traffic.
 
-### 8.6 Known misattribution: pending at rollover
+### 8.6 Two-endpoint health verdict
+
+`/copilot_internal/user` alone cannot tell whether a PAT can actually serve
+traffic. Copilot's fine-grained **"Copilot Requests"** permission is enforced only
+by the Copilot API host (`BILLABLE_HOST`): a PAT missing it answers
+`/copilot_internal/user` with a healthy `200` — entitlement, remaining and all —
+and is then rejected `401` by every billable call.
+
+Left at one endpoint, such a PAT sits at `valid` forever while the shared pool
+advertises its pledge and hands out credit that nothing can spend. So an
+*otherwise-valid* PAT is probed a second time against `GET /models` on the Copilot
+API host (free — not in `BILLABLE_PATHS`) with the same client-identity headers the
+proxy forwards, and a `401` there becomes its own definitive verdict,
+`no_copilot_permission`, a member of `DEAD_VERDICTS`. Membership is all that is
+needed: pledge retraction, pool exclusion, rollover carry and leaderboard ranking
+all read that one set.
+
+Only `401` counts. Any other probe outcome — `200`, an unexpected `4xx`, a `5xx`, an
+unreachable host — leaves the `/copilot_internal/user` verdict standing, so a blip
+on the Copilot API host can never mark a whole fleet of working PATs dead. A probe
+that raises is not even recorded as `health_error`: the check that just succeeded
+is the real verdict and must not be downgraded to "unreachable" by it.
+
+Detection is not instant, so the proxy carries the matching runtime guard: a
+billable `401` from the Copilot API host excludes that giver and re-selects within
+the same request (`is_pat_rejected_401`), rather than retrying a PAT that cannot
+succeed until the next sweep lands.
+
+### 8.7 Known misattribution: pending at rollover
 
 If a giver's `pending_drift` (an unconfirmed observation) is still set at the exact
 moment of rollover, it is dropped rather than carried (§8.3). If that drift was
@@ -389,7 +417,7 @@ carrying unconfirmed drift risks silencing real proxied cost, which is the worse
 error. The exposure is bounded (one debounce window straddling one rollover) and
 self-corrects the next cycle.
 
-### 8.7 One-time repair
+### 8.8 One-time repair
 
 A giver whose baseline **already** swallowed real burn this cycle (before the carry
 fix shipped) needs a manual re-anchor — the automatic paths only prevent future

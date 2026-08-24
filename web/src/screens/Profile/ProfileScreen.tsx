@@ -30,6 +30,8 @@ const PAT_HEALTH_HINT: Record<string, string> = {
     'This license is missing the permissions Copilot needs. Rotate it below with a token that has Copilot access.',
   no_entitlement:
     'This license has no Copilot quota attached. Check the Copilot subscription on your GitHub account.',
+  no_copilot_permission:
+    'This license is missing the Copilot Requests permission, so every request through it is refused. Rotate it below with a token that has Copilot Requests enabled.',
   unreachable:
     "CTC couldn't reach GitHub to check this license just now. The badge shows the last known state.",
 };

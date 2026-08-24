@@ -1,6 +1,7 @@
 import pytest
 from ctc.auth.crypto import derive_key
-from ctc.auth.pat_health import PatHealthChecker, classify, display_status
+from ctc.auth.pat_health import (
+    PatHealthChecker, classify, classify_copilot_api, display_status)
 from ctc.auth.registry import AuthRegistry
 from ctc.store.auth_store import AuthStore
 from ctc.store.db import connect, init_db
@@ -40,8 +41,9 @@ def test_display_status():
 
 # --- checker -------------------------------------------------------------------
 
-def _setup(responses):
-    """responses: dict pat -> (status, body) or Exception to raise."""
+def _setup(responses, probe=None):
+    """responses: dict pat -> (status, body) or Exception to raise.
+    probe: optional dict pat -> status int or Exception, for the copilot-api gate."""
     conn = connect(":memory:"); init_db(conn)
     store = AuthStore(conn)
     reg = AuthRegistry(store, derive_key("k"))
@@ -55,7 +57,8 @@ def _setup(responses):
         return r
 
     t = [1000]
-    checker = PatHealthChecker(store, reg.pat_for, fetch_raw, now=lambda: t[0])
+    checker = PatHealthChecker(store, reg.pat_for, fetch_raw, now=lambda: t[0],
+                               fetch_copilot_api=_probe(probe))
     return store, reg, checker, calls, t
 
 
@@ -150,6 +153,18 @@ def _raiser(exc):
     return f
 
 
+def _probe(statuses):
+    """Build a fetch_copilot_api from a dict pat -> status int or Exception."""
+    if statuses is None:
+        return None
+    async def f(pat):
+        r = statuses[pat]
+        if isinstance(r, Exception):
+            raise r
+        return r
+    return f
+
+
 def _responder(status, body):
     async def f(pat):
         return status, body
@@ -170,7 +185,7 @@ def _body(ent, rem):
             "quota_reset_date": "2026-08-01"}
 
 
-def _engine_setup(responses, *, ends_at=10_000_000_000):
+def _engine_setup(responses, *, ends_at=10_000_000_000, probe=None):
     """Like _setup but with a real AccountingEngine sharing the same conn, plus an
     injectable `sleep` recorder that ADVANCES the fake clock by whatever it is
     asked to wait (so the confirm phase's second observation lands >=90s later)."""
@@ -199,7 +214,8 @@ def _engine_setup(responses, *, ends_at=10_000_000_000):
 
     def make(engine_arg=engine):
         return PatHealthChecker(store, reg.pat_for, fetch_raw, now=lambda: t[0],
-                                engine=engine_arg, confirm_delay_s=95, sleep=sleep)
+                                engine=engine_arg, confirm_delay_s=95, sleep=sleep,
+                                fetch_copilot_api=_probe(probe))
 
     return dict(store=store, reg=reg, acct=acct, engine=engine, calls=calls,
                 t=t, sleeps=sleeps, make=make)
@@ -408,3 +424,91 @@ async def test_sweep_without_engine_leaves_pledge_alone():
     await env["make"](engine_arg=None).run_once()
 
     assert env["acct"].get_giver_cycle("c1", "g1").pledge == 1000 * N
+
+
+# --- copilot-api permission gate -----------------------------------------------
+#
+# A PAT missing the fine-grained "Copilot Requests" permission answers
+# /copilot_internal/user with 200 (so `classify` says "valid") but is rejected by
+# the Copilot API host, which is the only host that enforces that permission.
+# Without a second probe such a PAT looks healthy forever: the pool advertises its
+# pledge, credit is granted against it, and every billable call 401s upstream.
+
+@pytest.mark.parametrize("status,expected", [
+    (401, "no_copilot_permission"),
+    (200, None),      # PAT works against the Copilot API — keep the "valid" verdict
+    (403, None),      # not the permission signal; don't invent a verdict
+    (404, None),
+    (500, None),      # indefinitive — must never flip a working PAT
+    (502, None),
+])
+def test_classify_copilot_api(status, expected):
+    assert classify_copilot_api(status) == expected
+
+
+@pytest.mark.asyncio
+async def test_valid_user_call_but_copilot_api_401_is_a_dead_verdict():
+    store, reg, checker, _, _ = _setup({"p1": (200, BODY_OK)}, probe={"p1": 401})
+    _add_giver(store, reg, "g1", "p1")
+    assert await checker.check_one("g1") == "no_copilot_permission"
+    assert store.get_pat_health("g1") == {
+        "status": "no_copilot_permission", "checked_at": 1000, "error": None}
+
+
+@pytest.mark.asyncio
+async def test_copilot_api_401_does_not_refresh_the_quota_snapshot():
+    # The entitlement snapshot seeds the next cycle's quota. A PAT that cannot
+    # serve traffic must not keep topping it up, or the rollover re-creates the
+    # phantom capacity this gate exists to prevent.
+    store, reg, checker, _, _ = _setup({"p1": (200, BODY_OK)}, probe={"p1": 401})
+    _add_giver(store, reg, "g1", "p1")
+    await checker.check_one("g1")
+    assert store.get_giver_quota_snapshot("g1") is None
+
+
+@pytest.mark.asyncio
+async def test_copilot_api_probe_only_runs_for_an_otherwise_valid_pat():
+    # An already-dead PAT needs no second opinion — don't spend a round trip.
+    probed = []
+    async def probe(pat):
+        probed.append(pat)
+        return 401
+    store, reg, checker, _, _ = _setup({"p1": (401, None)})
+    checker.fetch_copilot_api = probe
+    _add_giver(store, reg, "g1", "p1")
+    assert await checker.check_one("g1") == "expired"
+    assert probed == []
+
+
+@pytest.mark.asyncio
+async def test_copilot_api_probe_failure_keeps_the_valid_verdict():
+    # The Copilot API host being unreachable is not evidence about the PAT.
+    for outcome in (ConnectionError("dns down"), 502, 500):
+        store, reg, checker, _, _ = _setup({"p1": (200, BODY_OK)}, probe={"p1": outcome})
+        _add_giver(store, reg, "g1", "p1")
+        assert await checker.check_one("g1") == "valid"
+        assert store.get_pat_health("g1")["status"] == "valid"
+        # Still a fully valid check: the quota snapshot refresh must not be lost.
+        assert store.get_giver_quota_snapshot("g1")["entitlement"] == 4000
+
+
+@pytest.mark.asyncio
+async def test_no_probe_wired_behaves_exactly_as_before():
+    store, reg, checker, _, _ = _setup({"p1": (200, BODY_OK)})
+    _add_giver(store, reg, "g1", "p1")
+    assert await checker.check_one("g1") == "valid"
+
+
+@pytest.mark.asyncio
+async def test_copilot_api_401_retracts_the_undrawn_pledge():
+    # The whole point: capacity backed by a PAT that cannot serve must leave the
+    # shared pool, exactly as an expired PAT's does.
+    env = _engine_setup({"p1": (200, _body(4000, 1500))}, probe={"p1": 401})
+    _seed_giver(env, "g1", "p1")
+    env["engine"].set_pledge("c1", "g1", 1000 * N)
+
+    await env["make"]().run_once()
+
+    assert env["store"].get_pat_health("g1")["status"] == "no_copilot_permission"
+    assert env["acct"].get_giver_cycle("c1", "g1").pledge == 0
+    assert env["engine"].pool_available("c1") == 0

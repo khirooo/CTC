@@ -39,6 +39,8 @@ const LICENSE_NOTE: Record<string, string> = {
     "This host's Copilot license is missing the permissions Copilot needs, so nothing can be routed through it.",
   no_entitlement:
     "This host's Copilot license has no Copilot quota attached, so nothing can be routed through it.",
+  no_copilot_permission:
+    "This host's Copilot license is missing the Copilot Requests permission, so nothing can be routed through it.",
   unreachable:
     "CTC couldn't reach GitHub to check this host's license just now, so these figures may have moved.",
 };

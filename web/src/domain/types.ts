@@ -212,7 +212,15 @@ export interface OwnProfile {
  * 'unreachable' means the last check could not reach GHE (the previous verdict
  * is kept server-side); null means no PAT or never checked.
  */
-export type PatHealth = 'valid' | 'expired' | 'forbidden' | 'no_entitlement' | 'unreachable';
+export type PatHealth =
+  | 'valid'
+  | 'expired'
+  | 'forbidden'
+  | 'no_entitlement'
+  // Live token, but missing the fine-grained "Copilot Requests" permission:
+  // it can read quota yet cannot serve a single request.
+  | 'no_copilot_permission'
+  | 'unreachable';
 
 export interface SettingsData {
   name: string;

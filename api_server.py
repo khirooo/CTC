@@ -10,6 +10,7 @@ import time
 import uuid
 from aiohttp import web
 
+from ctc import contract
 from ctc.store.db import connect, init_db
 from ctc.store.auth_store import AuthStore
 from ctc.auth.crypto import derive_key, validate_secret
@@ -358,6 +359,20 @@ def build_from_env(session) -> web.Application:
                 return r.status, None
             return 200, await r.json()
 
+    async def http_probe_copilot_api(pat):
+        """Status of a free read-only call to the Copilot API host, for the health
+        checker's permission gate. The Copilot API host is the only one that
+        enforces the fine-grained "Copilot Requests" permission, so this is the
+        only place a PAT missing it can be caught — /copilot_internal/user answers
+        200 for such a token. Sends the same client-identity headers the proxy
+        forwards, so the probe exercises the exact path real traffic takes.
+        Network errors propagate; the checker treats them as "no opinion"."""
+        headers = {**contract.COPILOT_API_IDENTITY_HEADERS,
+                   "authorization": f"{contract.AUTH_SCHEME} {pat}"}
+        url = f"https://{contract.BILLABLE_HOST}{contract.MODELS_PATH}"
+        async with session.get(url, headers=headers) as r:
+            return r.status
+
     gitlab_base = os.environ["GITLAB_BASE"].rstrip("/")
     oauth = GitLabOAuth(os.environ["GITLAB_OAUTH_CLIENT_ID"],
                         os.environ["GITLAB_OAUTH_CLIENT_SECRET"],
@@ -379,7 +394,8 @@ def build_from_env(session) -> web.Application:
     checker = PatHealthChecker(store, registry.pat_for, http_get_user_raw,
                                now=lambda: int(time.time()),
                                interval_s=int(os.environ.get("CTC_PAT_HEALTH_INTERVAL_S", "1200")),
-                               engine=engine)
+                               engine=engine,
+                               fetch_copilot_api=http_probe_copilot_api)
 
     async def _pat_health_ctx(app):
         task = asyncio.create_task(checker.run_forever())

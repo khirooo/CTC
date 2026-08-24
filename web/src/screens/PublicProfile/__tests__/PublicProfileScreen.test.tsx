@@ -68,6 +68,7 @@ describe('PublicProfileScreen license state', () => {
   it.each<[PatHealth, RegExp]>([
     ['forbidden', /missing the permissions/],
     ['no_entitlement', /no Copilot quota/],
+    ['no_copilot_permission', /missing the Copilot Requests permission/],
     ['unreachable', /couldn't reach GitHub/],
   ])('explains the %s state', async (health, expected) => {
     renderProfile({ ...hostProfile, patHealth: health });

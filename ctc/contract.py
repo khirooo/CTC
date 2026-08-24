@@ -96,6 +96,13 @@ ANTHROPIC_THINKING_BUDGET: int = int(os.environ.get("CTC_ANTHROPIC_THINKING_BUDG
 # AttributionService.pin_source/pinned_source in ctc/routing/attribution.py.
 SESSION_BOOTSTRAP_PATH: str = "/models/session"
 
+# Read-only model catalogue on the Copilot API host. NOT in BILLABLE_PATHS, so
+# it costs no credit — which is what makes it usable as the PAT-health
+# permission probe (ctc/auth/pat_health.py): the Copilot API host is the only
+# one that enforces the fine-grained "Copilot Requests" permission, so a PAT
+# lacking it 401s here while /copilot_internal/user still answers 200.
+MODELS_PATH: str = "/models"
+
 # Plain-text marker returned when a session_token minted for one giver is sent
 # through a different giver's PAT on the next billable call.
 INVALID_AUTO_MODE_SELECTOR_BODY: str = "Invalid auto-mode selector"

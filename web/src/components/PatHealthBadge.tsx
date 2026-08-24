@@ -5,6 +5,7 @@ const STYLES: Record<PatHealth, { bg: string; fg: string; label: string }> = {
   expired: { bg: 'var(--consume-soft)', fg: 'var(--consume)', label: 'Expired' },
   forbidden: { bg: 'var(--consume-soft)', fg: 'var(--consume)', label: 'Missing permissions' },
   no_entitlement: { bg: 'var(--consume-soft)', fg: 'var(--consume)', label: 'No Copilot access' },
+  no_copilot_permission: { bg: 'var(--consume-soft)', fg: 'var(--consume)', label: 'Missing Copilot Requests' },
   unreachable: { bg: 'var(--surface-2)', fg: 'var(--text-faint)', label: 'Unreachable' },
 };
 

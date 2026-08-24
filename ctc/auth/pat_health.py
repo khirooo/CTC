@@ -6,6 +6,15 @@ module re-checks every stored PAT against GET /copilot_internal/user and
 persists a verdict on the giver_pats row so the profile and admin panel can
 display it.
 
+That endpoint alone is not a sufficient oracle. Copilot's fine-grained
+"Copilot Requests" permission is enforced only by the Copilot API host, so a
+PAT missing it answers /copilot_internal/user with a perfectly healthy 200 and
+is then rejected 401 by every billable call. Such a PAT would sit at "valid"
+forever while the pool advertised its pledge and granted credit nothing could
+spend. When `fetch_copilot_api` is supplied, an otherwise-valid PAT is
+therefore probed a second time against a free read-only Copilot API endpoint,
+and a 401 there is its own definitive dead verdict.
+
 The verdict itself is routing-neutral: attribution is untouched (the proxy
 already fails over at request time). Only DEFINITIVE outcomes overwrite the
 stored status; a network error or GHE 5xx (the whole instance can 502 during an
@@ -35,8 +44,12 @@ VALID = "valid"
 EXPIRED = "expired"                # 401: expired, revoked, or otherwise rejected
 FORBIDDEN = "forbidden"            # 403: token accepted but lacks permission
 NO_ENTITLEMENT = "no_entitlement"  # token fine, but no Copilot premium quota
+# 401 from the Copilot API host while /copilot_internal/user says 200: the PAT
+# is live but lacks the fine-grained "Copilot Requests" permission, so it can
+# read quota yet cannot serve a single request.
+NO_COPILOT_PERMISSION = "no_copilot_permission"
 
-DEFINITIVE = {VALID, EXPIRED, FORBIDDEN, NO_ENTITLEMENT}
+DEFINITIVE = {VALID, EXPIRED, FORBIDDEN, NO_ENTITLEMENT, NO_COPILOT_PERMISSION}
 
 # Definitive verdicts that mean the PAT cannot back credit any more: it can
 # neither be forwarded upstream nor reconciled against GitHub. A giver in this
@@ -45,7 +58,7 @@ DEFINITIVE = {VALID, EXPIRED, FORBIDDEN, NO_ENTITLEMENT}
 # the pool advertised credit nothing could draw). An indefinitive check
 # ("unreachable" — GHE 502s during an outage) is deliberately NOT here: the last
 # definitive verdict survives underneath and keeps deciding.
-DEAD_VERDICTS = frozenset({EXPIRED, FORBIDDEN, NO_ENTITLEMENT})
+DEAD_VERDICTS = frozenset({EXPIRED, FORBIDDEN, NO_ENTITLEMENT, NO_COPILOT_PERMISSION})
 
 
 UNREACHABLE = "unreachable"  # display-only: last check errored; stored verdict kept
@@ -81,17 +94,34 @@ def classify(status: int, body: dict | None) -> str | None:
     return None
 
 
+def classify_copilot_api(status: int) -> str | None:
+    """Map a Copilot API probe response to a verdict that OVERRIDES "valid".
+
+    Only 401 is meaningful: the PAT reached the Copilot API and was refused, and
+    since the caller only probes an otherwise-valid PAT the refusal can only be
+    about the permission. Everything else — 200, an unexpected 4xx, a 5xx, a
+    host that does not serve this endpoint — returns None, leaving the
+    /copilot_internal/user verdict in place. Guessing from any other code would
+    let a Copilot API blip mark a whole fleet of working PATs dead.
+    """
+    return NO_COPILOT_PERMISSION if status == 401 else None
+
+
 class PatHealthChecker:
     """Checks all giver PATs on an interval and persists verdicts.
 
     fetch_raw(pat) -> (status:int, body:dict|None); network errors may raise.
+    fetch_copilot_api(pat) -> status:int; optional second gate, see module
+    docstring. None (the default) keeps the single-endpoint behaviour.
     """
 
     def __init__(self, store, pat_for, fetch_raw, now, interval_s: int = 1200,
-                 engine=None, confirm_delay_s: int = 95, sleep=asyncio.sleep):
+                 engine=None, confirm_delay_s: int = 95, sleep=asyncio.sleep,
+                 fetch_copilot_api=None):
         self.store = store
         self.pat_for = pat_for
         self.fetch_raw = fetch_raw
+        self.fetch_copilot_api = fetch_copilot_api
         self.now = now
         self.interval_s = interval_s
         # Optional accounting engine: when set, the sweep also reconciles each
@@ -115,6 +145,10 @@ class PatHealthChecker:
             self.store.set_pat_health_error(
                 giver_id, f"/copilot_internal/user -> {status}", self.now())
             return None
+        if verdict == VALID:
+            # Only an otherwise-valid PAT is worth a second opinion; a PAT that
+            # already failed /copilot_internal/user needs no confirmation.
+            verdict = await self._copilot_api_verdict(giver_id, pat) or VALID
         self.store.set_pat_health_ok(giver_id, verdict, self.now())
         if verdict in DEAD_VERDICTS and self.engine is not None:
             # The PAT is definitively dead: withdraw its undrawn pledge so the shared
@@ -142,6 +176,24 @@ class PatHealthChecker:
                     cycle_id = self.engine.ensure_active_cycle(self.now()).id
                 self._reconcile_valid(cycle_id, giver_id, body)
         return verdict
+
+    async def _copilot_api_verdict(self, giver_id: str, pat: str) -> str | None:
+        """A dead verdict from the Copilot API gate, or None to keep "valid".
+
+        An unreachable Copilot API host says nothing about the PAT, so a raised
+        exception is swallowed rather than recorded as health_error: the
+        /copilot_internal/user check that just succeeded is the real verdict and
+        must not be downgraded to "unreachable" by a probe failure.
+        """
+        if self.fetch_copilot_api is None:
+            return None
+        try:
+            status = await self.fetch_copilot_api(pat)
+        except Exception:
+            log.warning("copilot-api permission probe failed for giver %s "
+                        "(keeping the /copilot_internal/user verdict)", giver_id)
+            return None
+        return classify_copilot_api(status)
 
     def _retract_dead_pledge(self, cycle_id: str, giver_id: str) -> None:
         # A retraction failure must never lose the health verdict already persisted.
