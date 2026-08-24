@@ -699,6 +699,22 @@ def is_invalid_auto_mode_selector_401(status: int, body: bytes) -> bool:
         return False
 
 
+def is_pat_rejected_401(status: int, body: bytes) -> bool:
+    """True iff a billable 401 means the swapped giver PAT itself was refused.
+
+    The client's own token never reaches upstream — the proxy replaces it with a
+    giver PAT — so a 401 from the Copilot API host is always a statement about
+    that PAT: revoked, expired, or missing the fine-grained "Copilot Requests"
+    permission (which only this host enforces). Every such 401 is retriable via a
+    different giver, so no message matching is done here; the one exclusion is the
+    auto-mode selector 401, which has its own richer recovery (re-bootstrap the
+    session token) that claiming it here would bypass.
+    """
+    if status != 401:
+        return False
+    return not is_invalid_auto_mode_selector_401(status, body)
+
+
 def _patch_json_model_field(body: bytes, new_model: str) -> bytes:
     try:
         payload = json.loads(body)
@@ -1037,12 +1053,14 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                         _ct = resp.headers.get("Content-Type", "")
                         break
                     if (billable and source is not None and attempts < max_attempts
-                            and resp.status == 401
-                            and hdrs.get(contract.COPILOT_SESSION_TOKEN_HEADER, "")):
-                        # Same retry pattern as the 402 failover above, but for the
-                        # auto-mode session token being bound to the wrong giver.
+                            and resp.status == 401):
+                        # Same retry pattern as the 402 failover above, for the two
+                        # recoverable 401s: an auto-mode session token bound to the
+                        # wrong giver (re-bootstrap it against another giver), and a
+                        # PAT upstream refuses outright (move to another giver).
                         peek = await resp.read()
-                        if is_invalid_auto_mode_selector_401(resp.status, peek):
+                        if (hdrs.get(contract.COPILOT_SESSION_TOKEN_HEADER, "")
+                                and is_invalid_auto_mode_selector_401(resp.status, peek)):
                             exclude.add(source.grant_id or source.giver_id)
                             nxt = ATTRIBUTION.select_source(
                                 cycle.id, consumer, health=health, exclude=frozenset(exclude))
@@ -1081,6 +1099,28 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                                             log.warning("[!] failed to pin healed giver from /models/session response: %s", exc)
                                     source = nxt
                                     continue
+                        elif is_pat_rejected_401(resp.status, peek):
+                            # Upstream refused this giver's PAT itself. Retrying it
+                            # is guaranteed to fail — before this branch existed the
+                            # proxy did exactly that for as long as the client kept
+                            # asking — so exclude the giver and re-select.
+                            #
+                            # The stored health verdict is deliberately NOT written
+                            # here: the control-plane sweep owns that column and
+                            # decides on a two-endpoint check, which is stronger
+                            # evidence than one request. The cost of leaving it to
+                            # the sweep is one wasted round trip per request until
+                            # the sweep catches up and the pool drops the giver.
+                            exclude.add(source.grant_id or source.giver_id)
+                            nxt = ATTRIBUTION.select_source(
+                                cycle.id, consumer, health=health,
+                                exclude=frozenset(exclude))
+                            if nxt is not None:
+                                log.warning("[failover] %s PAT rejected upstream (401)"
+                                            " -> retry via %s",
+                                            source.giver_id, nxt.giver_id)
+                                source = nxt
+                                continue
                         _write_buffered(writer, resp, peek, state=relay_state)
                         await writer.drain()
                         _status = resp.status

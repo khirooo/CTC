@@ -86,6 +86,17 @@ async def mock_upstream(test_cert):
             await asyncio.sleep(0.05)
             request.transport.abort()
             return resp
+        if request.path == "/pat-rejected":
+            # 401s every PAT except the one tagged HEALTHY, so a test can drive
+            # the proxy's rejected-PAT failover across givers. The body is the
+            # shape the Copilot API returns for a PAT that reaches it and is
+            # refused — deliberately NOT the auto-mode-selector marker.
+            if "HEALTHY" in (received["auth"] or ""):
+                return web.json_response({"ok": True})
+            return web.Response(
+                status=401,
+                text="checking third-party user token: unauthorized: "
+                     'Personal Access Token does not have "Copilot Requests" permission')
         if request.path == "/empty":
             return web.Response(status=204)
         return web.json_response({"login": "ok", "path": request.path})
