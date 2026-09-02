@@ -30,6 +30,17 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 [ -f docker-compose.yml ] || fail "run this from the repo root (no docker-compose.yml here)"
 [ -f .env ]               || fail ".env not found — nothing to back up the secret key from"
 command -v docker >/dev/null 2>&1 || fail "docker not found"
+
+# Compose ships two ways: the v2 plugin (`docker compose`) and the standalone
+# v1 binary (`docker-compose`). Prefer v2, fall back to v1 — a v1-only host
+# would otherwise fail here with a bare "'compose' is not a docker command".
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE="docker-compose"
+else
+  fail "neither 'docker compose' (v2) nor 'docker-compose' (v1) is available"
+fi
 docker volume inspect "$DB_VOLUME" >/dev/null 2>&1 \
   || fail "volume '$DB_VOLUME' not found. Set CTC_DB_VOLUME=<name> (see: docker volume ls | grep ctcdata)"
 
@@ -43,9 +54,9 @@ trap 'rm -rf "$STAGING"' EXIT
 # which has the ctcdata volume mounted at /data. Safe while the stack is up
 # (atomic snapshot — no torn WAL).
 echo "==> snapshotting /data/ctc.db (online, consistent)…"
-docker compose run --rm --no-deps -v "$STAGING:/out" proxy \
+$COMPOSE run --rm --no-deps -v "$STAGING:/out" proxy \
   python -c "import sqlite3,sys; src=sqlite3.connect('/data/ctc.db'); dst=sqlite3.connect('/out/ctc.db'); src.backup(dst); dst.close(); src.close(); print('  db snapshot ok')" \
-  || fail "DB snapshot failed (is the stack built/running? try: docker compose up -d)"
+  || fail "DB snapshot failed (is the stack built/running? try: $COMPOSE up -d)"
 
 [ -s "$STAGING/ctc.db" ] || fail "snapshot produced an empty DB — aborting"
 
