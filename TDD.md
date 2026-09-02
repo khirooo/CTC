@@ -234,12 +234,12 @@ Copilot "continues with" — that does not happen here.)
 ### 6.1 One-time
 
 ```bash
-# 1. Generate cert covering every GHE host we MITM
-openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes \
-  -subj "/CN=copilot-proxy-ca" \
-  -addext "subjectAltName=DNS:localhost,DNS:api.example.ghe.com,DNS:example.ghe.com,DNS:copilot-api.example.ghe.com,DNS:api.github.com,DNS:github.com,DNS:api.githubcopilot.com,DNS:githubcopilot.com,DNS:api.localhost,IP:127.0.0.1"
+# 1. Generate the CA + the server leaf covering every GHE host we MITM.
+#    Two certs, not one: a CA:TRUE cert is invalid as a server cert and strict
+#    clients reject it (§9.3). scripts/gen-cert.sh does exactly this.
+sh scripts/gen-cert.sh .        # -> cert.pem/key.pem (CA), leafchain.pem/leafkey.pem (server)
 
-# 2. Trust the cert (macOS)
+# 2. Trust the CA — cert.pem, NOT the leaf (macOS)
 sudo security add-trusted-cert -d -r trustRoot \
   -k /Library/Keychains/System.keychain cert.pem
 
@@ -298,8 +298,9 @@ copilot
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `CERT_FILE` | `cert.pem` | Path to proxy TLS cert |
-| `KEY_FILE` | `key.pem` | Path to proxy TLS key |
+| `CERT_FILE` | `leafchain.pem` | Path to the cert chain the proxy **presents** — the `CA:FALSE` leaf followed by its issuing CA. Must not be the CA itself (see §9.3) |
+| `KEY_FILE` | `leafkey.pem` | Path to the leaf's private key |
+| `CA_FILE` | `cert.pem` | Path to the CA clients **trust** (served as `/ctc-ca.pem`). Referenced only for the startup operator hint |
 | `REAL_GHE_HOST` | `api.example.ghe.com` | Real GHE hostname for upstream forwarding |
 | `REAL_PAT` | _(required)_ | Real PAT swapped in for GHE requests |
 | `PORT` | `8080` | Proxy listen port |
@@ -383,7 +384,8 @@ Previously listed as future work, now resolved:
 | File | Purpose |
 |---|---|
 | `proxy.py` | The entire proxy implementation (~800 lines: MITM + multi-tenant attribution/metering/failover) |
-| `cert.pem`, `key.pem` | Self-signed TLS cert + key |
+| `cert.pem`, `key.pem` | The self-signed **CA** + key. Trusted by clients (`/ctc-ca.pem`); signs the leaf. Never presented on the wire |
+| `leaf.pem`, `leafkey.pem`, `leafchain.pem` | The **server** cert (`CA:FALSE`, `EKU=serverAuth`) + key, and the leaf+issuer chain the proxy and Caddy load |
 | `ctc/contract.py` | Single source of truth for host sets, `BILLABLE_PATHS`, the metering field/location, and auth scheme |
 | `ctc/routing/attribution.py` | `select_source` (bucket selection + health/exclude gate) and `debit` (grant-spill) |
 | `ctc/metering/extract.py` | `extract_total_nano_aiu` — per-request charge from JSON/SSE bodies |
@@ -509,12 +511,24 @@ Steps map to the layers below.
   proved copilot bundles its own Node runtime and ignores `NODE_EXTRA_CA_CERTS` and
   `NODE_TLS_REJECT_UNAUTHORIZED=0`** — with only those set it aborts the handshake with
   `CERTIFICATE_UNKNOWN`. Keychain trust is the operative mechanism.
-- **Why load-bearing:** two independent requirements — (a) the cert must be trusted by
-  the client's runtime (keychain, per above), and (b) **the cert's `subjectAltName` must
-  list every host in `MITM_HOSTS`.** Miss either and the TLS handshake dies before any HTTP.
-- **Failure signature:** `[CONNECT] TLS MITM failed (<host>): CERTIFICATE_UNKNOWN` →
-  cert not trusted by the client (keychain step skipped); `ERR_TLS_CERT_ALTNAME_INVALID`
-  / SAN error → a `MITM_HOSTS` host missing from the cert SANs.
+- **Why load-bearing:** three independent requirements — (a) the **CA** must be trusted by
+  the client's runtime (keychain, per above), (b) **the leaf's `subjectAltName` must
+  list every host in `MITM_HOSTS`**, and (c) what we present must be a **`CA:FALSE` leaf**,
+  never the CA. Miss any and the TLS handshake dies before any HTTP.
+- **Failure signature:** `[CONNECT] TLS MITM failed (<host>): CERTIFICATE_UNKNOWN` has
+  **two** causes, and they look identical in our log:
+  1. the CA isn't trusted by the client (keychain step skipped), **or**
+  2. we presented a `CA:TRUE` cert as the server cert. Copilot CLI ≥ 1.0.82 does its
+     HTTPS in Rust (`reqwest`/`rustls` + `rustls-webpki`, visible in
+     `prebuilds/*/runtime.node`) and rejects that with `CaUsedAsEndEntity` → a
+     `certificate_unknown` alert — *even when the cert is trusted*. OpenSSL clients
+     (curl, `requests`) tolerate it, so **`curl` succeeding through the proxy while
+     `copilot` fails is the tell for cause 2, not a network problem.** Copilot's
+     user-facing text is a red herring: `network fetch failed: request failed:
+     error sending request for url (...)` is just reqwest's error format.
+  `ERR_TLS_CERT_ALTNAME_INVALID` / SAN error → a `MITM_HOSTS` host missing from the
+  leaf SANs. Note `rustls-webpki` also enforces SAN matching strictly (`CertNotValidForName`)
+  and ignores CN fallback entirely.
 - **Update signal:** Copilot enforces cert pinning, or changes which trust store its
   bundled runtime reads → MITM breaks for all hosts at once even though SANs are correct.
 - **Don't:** narrow `verify_mode`/`check_hostname` on the *client-facing* context

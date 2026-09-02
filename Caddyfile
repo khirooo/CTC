@@ -21,10 +21,12 @@
 		output stdout
 		format console
 	}
-	# Use the shared self-signed proxy cert (not Caddy's internal CA) so the cert
+	# Use the shared proxy server cert (not Caddy's internal CA) so the CA
 	# `ctc login` trusts also fronts the dashboard — no separate trust, no warning
 	# after install. /certs is the same volume the proxy and gencert write.
-	tls /certs/cert.pem /certs/key.pem
+	# This is the CA:FALSE leaf + its issuer, NOT the CA: serving a CA:TRUE cert
+	# as an end-entity cert is invalid and strict clients reject it (gen-cert.sh).
+	tls /certs/leafchain.pem /certs/leafkey.pem
 
 	# The proxy's CA cert, so `ctc login` can fetch it from https://<domain>/ctc-ca.pem.
 	# Served from the shared cert volume mounted at /certs.

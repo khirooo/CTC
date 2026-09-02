@@ -29,8 +29,15 @@ from ctc.routing import anthropic_bridge
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-CERT_FILE         = os.environ.get("CERT_FILE", "cert.pem")
-KEY_FILE          = os.environ.get("KEY_FILE",  "key.pem")
+# What we PRESENT to the client: a CA:FALSE leaf (chained with its issuer), not
+# the CA itself. rustls-webpki — which Copilot CLI >= 1.0.82 validates with —
+# rejects a CA:TRUE cert used as an end-entity (CaUsedAsEndEntity), so serving
+# the CA directly kills the handshake with a `certificate_unknown` alert.
+CERT_FILE         = os.environ.get("CERT_FILE", "leafchain.pem")
+KEY_FILE          = os.environ.get("KEY_FILE",  "leafkey.pem")
+# What the CLIENT TRUSTS: the CA that signed the leaf above. Referenced only for
+# the operator hint below (clients fetch it from the control plane's /ctc-ca.pem).
+CA_FILE           = os.environ.get("CA_FILE",   "cert.pem")
 REAL_GHE_HOST     = os.environ.get("REAL_GHE_HOST", f"api.{contract.GHE_DOMAIN}")
 REAL_PAT          = os.environ.get("REAL_PAT", "")
 LISTEN_PORT       = int(os.environ.get("PORT", "8080"))
@@ -1360,7 +1367,7 @@ async def main():
     log.info("  Upstream:  https://%s", REAL_GHE_HOST)
     log.info("  Client env vars to set:")
     log.info("    HTTPS_PROXY=http://localhost:%s", LISTEN_PORT)
-    log.info("    NODE_EXTRA_CA_CERTS=%s", os.path.abspath(CERT_FILE))
+    log.info("    NODE_EXTRA_CA_CERTS=%s", os.path.abspath(CA_FILE))
     log.info("=" * 60)
 
     async with srv:

@@ -27,8 +27,13 @@ services:
       CTC_SECRET_KEY: ${CTC_SECRET_KEY}
       GHE_DOMAIN: ${GHE_DOMAIN}
       REAL_GHE_HOST: ${REAL_GHE_HOST}
-      CERT_FILE: /certs/cert.pem
-      KEY_FILE: /certs/key.pem
+      # What the proxy PRESENTS: the CA:FALSE leaf + issuer chain. Serving the CA
+      # itself is invalid as an end-entity cert and Copilot CLI >= 1.0.82
+      # (rustls) rejects it — see scripts/gen-cert.sh.
+      CERT_FILE: /certs/leafchain.pem
+      KEY_FILE: /certs/leafkey.pem
+      # What clients TRUST (served as /ctc-ca.pem); operator hint only.
+      CA_FILE: /certs/cert.pem
       # The port the proxy (CLI target) listens on. The `ctc` launcher connects
       # HTTPS_PROXY here; default 8080. Change via CTC_PROXY_PORT in .env.
       PORT: "${CTC_PROXY_PORT:-8080}"
