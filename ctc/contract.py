@@ -140,3 +140,33 @@ def is_github_ish(host: str) -> bool:
     if h in _SENTINEL_WATCH_EXACT:
         return True
     return any(h == s or h.endswith("." + s) for s in SENTINEL_WATCH_SUFFIXES)
+
+
+# GitHub-ish hosts we blind-tunnel ON PURPOSE, so the bypassed-host sentinel
+# stays quiet about them. Without this, the check fires on every telemetry
+# connection and buries the one signal it exists for: a genuinely NEW Copilot
+# endpoint escaping interception, i.e. AI work we'd serve without metering.
+#
+# Only add a host here once you've confirmed it carries no billable work —
+# telemetry is statistics, and billing comes solely from BILLABLE_HOST on
+# BILLABLE_PATHS. assert_blind_tunnel_allowlist_sane() enforces that below.
+EXPECTED_BLIND_TUNNEL_HOSTS: frozenset[str] = frozenset({
+    f"copilot-telemetry-service.{GHE_DOMAIN}",
+})
+
+
+def assert_blind_tunnel_allowlist_sane() -> None:
+    """Guard against the allowlist silencing a host that actually matters.
+
+    Whitelisting BILLABLE_HOST (or anything we mean to MITM) would turn the
+    sentinel off for exactly the traffic it was written to protect, so treat
+    that as a programming error rather than configuration."""
+    overlap = EXPECTED_BLIND_TUNNEL_HOSTS & (EXPECTED_MITM_HOSTS | {BILLABLE_HOST})
+    if overlap:
+        raise AssertionError(
+            "EXPECTED_BLIND_TUNNEL_HOSTS must not contain hosts we MITM or bill: "
+            + ", ".join(sorted(overlap))
+        )
+
+
+assert_blind_tunnel_allowlist_sane()

@@ -91,8 +91,15 @@ def check_billable_response(status: int, body: bytes | str, content_type: str, p
 def check_bypassed_host(host: str) -> Finding | None:
     """Finding when a GitHub-ish host is about to be blind-tunneled — either
     a known host escaping interception, or a new endpoint we haven't seen before.
-    Any github-ish host on the blind-tunnel path is worth flagging."""
-    if contract.is_github_ish(host):
+
+    Hosts in contract.EXPECTED_BLIND_TUNNEL_HOSTS are exempt: we pass them
+    through deliberately (telemetry), so flagging them fires this check
+    constantly and drowns out the case it's for — an unrecognized Copilot
+    endpoint carrying billable work past the meter."""
+    h = host.lower()
+    if h in contract.EXPECTED_BLIND_TUNNEL_HOSTS:
+        return None
+    if contract.is_github_ish(h):
         return Finding("bypassed_github_host", f"GitHub-ish host blind-tunneled (host={host})")
     return None
 

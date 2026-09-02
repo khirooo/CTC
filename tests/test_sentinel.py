@@ -1,4 +1,4 @@
-from ctc import sentinel
+from ctc import contract, sentinel
 
 # Reuse real shapes (mirrors tests/test_extract.py fixtures).
 JSON_FREE = (
@@ -72,6 +72,31 @@ def test_github_host_bypassed_is_finding():
 
 def test_unrelated_host_bypassed_no_finding():
     assert sentinel.check_bypassed_host("registry.npmjs.org") is None
+
+
+def test_expected_blind_tunnel_host_is_not_a_finding():
+    """Telemetry is blind-tunneled on purpose. Flagging it on every connection
+    buries the real signal (a new endpoint escaping the meter)."""
+    for host in contract.EXPECTED_BLIND_TUNNEL_HOSTS:
+        assert sentinel.check_bypassed_host(host) is None
+        assert sentinel.check_bypassed_host(host.upper()) is None, "must match case-insensitively"
+
+
+def test_allowlist_does_not_silence_unknown_github_hosts():
+    """The exemption must be exact — a new sibling endpoint still trips it."""
+    f = sentinel.check_bypassed_host(f"copilot-newthing.{contract.GHE_DOMAIN}")
+    assert f is not None and f.kind == "bypassed_github_host"
+    # ...and a lookalike that merely *contains* an allowlisted name is not exempt.
+    for host in contract.EXPECTED_BLIND_TUNNEL_HOSTS:
+        assert sentinel.check_bypassed_host(f"evil-{host}") is not None
+
+
+def test_allowlist_never_covers_billable_or_mitm_hosts():
+    """Guard the guard: whitelisting billable traffic would disable metering
+    oversight for exactly the requests that cost credits."""
+    assert contract.BILLABLE_HOST not in contract.EXPECTED_BLIND_TUNNEL_HOSTS
+    assert not (contract.EXPECTED_BLIND_TUNNEL_HOSTS & contract.EXPECTED_MITM_HOSTS)
+    contract.assert_blind_tunnel_allowlist_sane()  # must not raise
 
 
 # --- check_billable_rejection ---
