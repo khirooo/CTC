@@ -194,14 +194,21 @@ req = urllib.request.Request(os.environ["CTC_PRICE_URL"], headers={
     "x-interaction-id": str(uuid.uuid4()),
     "x-initiator": "user",
 })
-opener = urllib.request.build_opener()
+# Handlers must be passed TO build_opener, NOT add_handler'd afterwards.
+# build_opener already installs a default HTTPSHandler (system trust); a second
+# one added later has the same handler_order (500) and loses the _call_chain
+# race, so the CTC CA context was silently ignored and every fetch died with
+# CERTIFICATE_VERIFY_FAILED against the proxy's MITM leaf. Passing an instance
+# of a default class to build_opener REPLACES that default instead.
+handlers = []
 proxy = os.environ.get("CTC_PRICE_PROXY")
 if proxy:
-    opener.add_handler(urllib.request.ProxyHandler({"https": proxy, "http": proxy}))
+    handlers.append(urllib.request.ProxyHandler({"https": proxy, "http": proxy}))
 ca = os.environ.get("CTC_PRICE_CA")
 ctx = ssl.create_default_context(cafile=ca) if ca and os.path.isfile(ca) else None
 if ctx:
-    opener.add_handler(urllib.request.HTTPSHandler(context=ctx))
+    handlers.append(urllib.request.HTTPSHandler(context=ctx))
+opener = urllib.request.build_opener(*handlers)
 
 with opener.open(req, timeout=20) as resp:
     body = json.load(resp)
