@@ -115,6 +115,51 @@ def test_thinking_already_valid_is_preserved():
         assert json.loads(out)["thinking"] == th
 
 
+SONNET_55_MODELS = ("claude-sonnet-5.5", "claude-sonnet-5-5", "claude-sonnet-5-5-20260901", "Claude-Sonnet-5.5")
+
+
+@pytest.mark.parametrize("model", SONNET_55_MODELS)
+def test_thinking_between_tools_passes_through_for_sonnet_55(model):
+    """Sonnet 5.5 rejects {type:"disabled"}; a client-sent between_tools must
+    reach Copilot untouched (and without a needless reserialize)."""
+    body = json.dumps({"model": model, "thinking": {"type": "between_tools"}}).encode()
+    out = anthropic_bridge.transform_request_body(body)
+    assert out == body
+
+
+@pytest.mark.parametrize("model", SONNET_55_MODELS)
+def test_thinking_adaptive_coerced_to_between_tools_for_sonnet_55(model):
+    body = json.dumps({"model": model, "thinking": {"type": "adaptive"}}).encode()
+    out = anthropic_bridge.transform_request_body(body)
+    assert json.loads(out)["thinking"] == {"type": "between_tools"}
+
+
+def test_thinking_disabled_rewritten_to_between_tools_for_sonnet_55():
+    body = json.dumps({"model": "claude-sonnet-5.5", "thinking": {"type": "disabled"}}).encode()
+    out = anthropic_bridge.transform_request_body(body)
+    assert json.loads(out)["thinking"] == {"type": "between_tools"}
+
+
+@pytest.mark.parametrize("model", ("claude-sonnet-5", "claude-opus-4.6", "claude-haiku-4.5", None))
+def test_thinking_between_tools_rewritten_to_disabled_for_other_models(model):
+    body = json.dumps({"model": model, "thinking": {"type": "between_tools"}}).encode()
+    out = anthropic_bridge.transform_request_body(body)
+    assert json.loads(out)["thinking"] == {"type": "disabled"}
+
+
+def test_thinking_enabled_still_honoured_for_sonnet_55():
+    body = json.dumps({"model": "claude-sonnet-5.5", "thinking": {"type": "adaptive"}}).encode()
+    out = anthropic_bridge.transform_request_body(
+        body, thinking_mode="enabled", thinking_budget=4096)
+    assert json.loads(out)["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+
+
+def test_between_tools_models_configurable():
+    body = json.dumps({"model": "claude-opus-6", "thinking": {"type": "adaptive"}}).encode()
+    out = anthropic_bridge.transform_request_body(body, between_tools_models=("claude-opus-6",))
+    assert json.loads(out)["thinking"] == {"type": "between_tools"}
+
+
 def test_thinking_enabled_without_budget_is_floored():
     """LOW1: bare {type:"enabled"} (no budget_tokens) would 400 on Copilot;
     normalize it up to the configured budget (>= 1024)."""

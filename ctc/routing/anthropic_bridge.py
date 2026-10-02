@@ -11,7 +11,7 @@ transforms (see ``TDD.md`` and ``docs/reference/metering-contract.md``):
   2. filter ``anthropic-beta`` to an allowlist (default drop — Copilot 400s on
      unknown beta values; the real Copilot CLI sends none),
   3. strip ``output_config`` (reasoning-effort / structured-output; Copilot 400s),
-  4. coerce ``thinking`` to Copilot's ``{disabled|enabled}`` schema.
+  4. coerce ``thinking`` to Copilot's ``{disabled|between_tools|enabled}`` schema.
 
 Everything here is pure (no I/O, no logging) and unit-testable. Config lives in
 ``ctc/contract.py``. The proxy applies these ONLY on the billable copilot-api
@@ -38,6 +38,16 @@ def _min_budget(budget: object) -> int:
     if isinstance(budget, bool) or not isinstance(budget, int):
         return _MIN_THINKING_BUDGET
     return budget if budget >= _MIN_THINKING_BUDGET else _MIN_THINKING_BUDGET
+
+
+def _off_type(model: object, between_tools_models) -> str:
+    """The thinking "off" value this model accepts: ``between_tools`` for models
+    that reject ``disabled`` (e.g. Sonnet 5.5), ``disabled`` for everything else."""
+    if isinstance(model, str):
+        m = model.lower().replace(".", "-")
+        if any(m.startswith(p) for p in between_tools_models):
+            return "between_tools"
+    return "disabled"
 
 
 def is_bridge_request(upstream_host: str, method: str, path: str) -> bool:
@@ -89,6 +99,7 @@ def transform_request_body(
     strip_fields=None,
     thinking_mode: Optional[str] = None,
     thinking_budget: Optional[int] = None,
+    between_tools_models=None,
 ) -> bytes:
     """Strip Copilot-unsupported top-level fields and coerce ``thinking`` to
     Copilot's accepted schema. Returns the re-serialized body (caller must
@@ -103,6 +114,8 @@ def transform_request_body(
         thinking_mode = contract.ANTHROPIC_THINKING_MODE
     if thinking_budget is None:
         thinking_budget = contract.ANTHROPIC_THINKING_BUDGET
+    if between_tools_models is None:
+        between_tools_models = contract.ANTHROPIC_BETWEEN_TOOLS_MODELS
 
     try:
         obj = json.loads(body or b"")
@@ -118,21 +131,30 @@ def transform_request_body(
             obj.pop(field)
             changed = True
 
-    # Copilot's Anthropic endpoint knows only {type:"disabled"} and
-    # {type:"enabled", budget_tokens:>=1024}. Claude Code sends {type:"adaptive"}
-    # (and may send other future values); coerce anything that isn't already one
-    # of the two accepted shapes.
+    # Copilot's Anthropic endpoint knows only an "off" value and
+    # {type:"enabled", budget_tokens:>=1024}. The off value is model-specific:
+    # {type:"disabled"} for most, {type:"between_tools"} for models that reject
+    # disabled (see _off_type). Claude Code sends {type:"adaptive"} (and may send
+    # other future values); coerce anything that isn't an accepted shape.
     th = obj.get("thinking")
     if isinstance(th, dict):
         th_type = th.get("type")
-        if th_type not in ("disabled", "enabled"):
+        off = _off_type(obj.get("model"), between_tools_models)
+        if th_type in ("disabled", "between_tools"):
+            # Either off value is normalized to the one this model accepts, so a
+            # client-sent between_tools passes through and a disabled sent to a
+            # between_tools-only model doesn't 400.
+            if th_type != off:
+                obj["thinking"] = {"type": off}
+                changed = True
+        elif th_type != "enabled":
             # adaptive / future values -> coerce per configured mode.
             if thinking_mode == "enabled":
                 obj["thinking"] = {"type": "enabled", "budget_tokens": _min_budget(thinking_budget)}
             else:
-                obj["thinking"] = {"type": "disabled"}
+                obj["thinking"] = {"type": off}
             changed = True
-        elif th_type == "enabled":
+        else:
             # Copilot requires budget_tokens >= 1024 for enabled; a bare or
             # too-small budget would 400. Floor it to a valid value.
             budget = th.get("budget_tokens")

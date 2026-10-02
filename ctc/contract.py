@@ -89,6 +89,17 @@ ANTHROPIC_STRIP_BODY_FIELDS: frozenset[str] = frozenset(
 ANTHROPIC_THINKING_MODE: str = os.environ.get("CTC_ANTHROPIC_THINKING", "disabled")
 ANTHROPIC_THINKING_BUDGET: int = int(os.environ.get("CTC_ANTHROPIC_THINKING_BUDGET", "8192"))
 
+# 4b. Models that reject {type:"disabled"} and take {type:"between_tools"} as
+#     their "off" value instead (Copilot 400s: 'To turn thinking off on this
+#     model, send "thinking": {"type": "between_tools"}'). Prefix match after
+#     lowercasing and mapping "." to "-", so "claude-sonnet-5.5" and dated
+#     "claude-sonnet-5-5-YYYYMMDD" ids both match. Extend via
+#     CTC_ANTHROPIC_BETWEEN_TOOLS_MODELS (comma list) as new models need it.
+ANTHROPIC_BETWEEN_TOOLS_MODELS: tuple[str, ...] = tuple(
+    m.strip().lower().replace(".", "-") for m in os.environ.get(
+        "CTC_ANTHROPIC_BETWEEN_TOOLS_MODELS", "claude-sonnet-5-5").split(",") if m.strip()
+)
+
 # Resolves auto_mode.model_hints (e.g. ["auto"]) to a concrete model and
 # issues a copilot-session-token used on the following billable call. Not
 # itself billable/metered, but the session token it returns is bound to
