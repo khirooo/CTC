@@ -1198,17 +1198,31 @@ SWAP_HOSTS = set(contract.SWAP_HOSTS)
 # ---------------------------------------------------------------------------
 # Blind TCP tunnel — copies bytes both ways without inspection
 # ---------------------------------------------------------------------------
+# Bound on reaching a blind-tunnel upstream. Without it, a host the proxy box
+# can't route to (e.g. an internal Jira that only admits corporate source IPs)
+# hangs until the OS gives up, and the client sees a silent stall.
+TUNNEL_CONNECT_TIMEOUT = 10.0
+
+
 async def _blind_tunnel(client_reader, client_writer, host: str, port: int):
+    # Connect upstream BEFORE answering the CONNECT, so an unreachable host is
+    # reported as a 502 the client can read, not a 200 followed by a hang.
     try:
-        up_reader, up_writer = await asyncio.open_connection(host, port)
+        up_reader, up_writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=TUNNEL_CONNECT_TIMEOUT)
     except Exception as exc:
-        log.warning("[TUNNEL]    upstream connect failed (%s:%s): %s", host, port, exc)
+        reason = "timed out" if isinstance(exc, asyncio.TimeoutError) else str(exc)
+        log.warning("[TUNNEL]    upstream connect failed (%s:%s): %s", host, port, reason)
         try:
-            client_writer.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+            client_writer.write(b"HTTP/1.1 502 Bad Gateway\r\nProxy-Agent: copilot-proxy\r\n"
+                                b"Content-Length: 0\r\n\r\n")
             await client_writer.drain()
         except Exception:
             pass
         return
+
+    client_writer.write(b"HTTP/1.1 200 Connection established\r\nProxy-Agent: copilot-proxy\r\n\r\n")
+    await client_writer.drain()
 
     async def pipe(r, w):
         try:
@@ -1270,14 +1284,15 @@ async def _dispatch(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
             log.info("[CONNECT]   %s → %s:%s  [%s]", peer, host, port,
                      "MITM" if do_mitm else "tunnel")
 
-            writer.write(b"HTTP/1.1 200 Connection established\r\nProxy-Agent: copilot-proxy\r\n\r\n")
-            await writer.drain()
-
             if not do_mitm:
                 _safe_sentinel_emit(sentinel.check_bypassed_host, host)
-                # Blind passthrough — works just like no proxy at all
+                # Blind passthrough — works just like no proxy at all. Sends its
+                # own 200 (or 502) once the upstream connect resolves.
                 await _blind_tunnel(reader, writer, tunnel_host, tunnel_port)
                 return
+
+            writer.write(b"HTTP/1.1 200 Connection established\r\nProxy-Agent: copilot-proxy\r\n\r\n")
+            await writer.drain()
 
             # TLS MITM: upgrade this connection to TLS (we impersonate the target)
             loop      = asyncio.get_running_loop()

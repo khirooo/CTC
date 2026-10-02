@@ -84,6 +84,41 @@ async def test_blind_tunnel_passthrough(running_proxy, monkeypatch):
     await srv.wait_closed()
 
 
+async def test_blind_tunnel_unreachable_upstream_returns_502(running_proxy, monkeypatch):
+    # A refused upstream must be reported as 502 — never a 200 followed by junk.
+    monkeypatch.setattr(proxy_mod, "_LOCALHOST_ALIASES", frozenset())
+    dead_port = _free_port()  # nothing listening
+    reader, writer = await asyncio.open_connection("127.0.0.1", running_proxy["port"])
+    writer.write(f"CONNECT 127.0.0.1:{dead_port} HTTP/1.1\r\nHost: x\r\n\r\n".encode())
+    await writer.drain()
+    resp = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+    assert resp.startswith(b"HTTP/1.1 502")
+    writer.close()
+    await writer.wait_closed()
+
+
+async def test_blind_tunnel_hanging_upstream_times_out_with_502(running_proxy, monkeypatch):
+    # An upstream the proxy can't route to (SYNs dropped) must fail fast with a
+    # 502 instead of a 200 and a silent stall.
+    monkeypatch.setattr(proxy_mod, "_LOCALHOST_ALIASES", frozenset())
+    monkeypatch.setattr(proxy_mod, "TUNNEL_CONNECT_TIMEOUT", 0.2)
+    real_open = asyncio.open_connection
+
+    async def open_connection(host, port, *a, **kw):
+        if host == "unroutable.test":
+            await asyncio.sleep(3600)
+        return await real_open(host, port, *a, **kw)
+
+    monkeypatch.setattr(proxy_mod.asyncio, "open_connection", open_connection)
+    reader, writer = await real_open("127.0.0.1", running_proxy["port"])
+    writer.write(b"CONNECT unroutable.test:443 HTTP/1.1\r\nHost: x\r\n\r\n")
+    await writer.drain()
+    resp = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+    assert resp.startswith(b"HTTP/1.1 502")
+    writer.close()
+    await writer.wait_closed()
+
+
 async def test_no_content_response_not_chunked(running_proxy, client_ssl):
     connector = aiohttp.TCPConnector(ssl=client_ssl)
     async with aiohttp.ClientSession(connector=connector) as s:
