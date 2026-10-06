@@ -108,3 +108,47 @@ test_launch_prints_banner() {
   assert_contains "$out" "CTC mode" "prints CTC banner"
   teardown_sandbox
 }
+
+# Writes a minimal login env and a copilot stub that records NO_PROXY/no_proxy.
+_no_proxy_fixture() {
+  cfg="$HOME/.config/ctc"; mkdir -p "$cfg/home"
+  printf 'export HOME="%s/home"\nexport HTTPS_PROXY=http://ctc.local:8080\n' "$cfg" > "$cfg/env"
+  make_stub copilot 'echo "NP=${NO_PROXY:-} np=${no_proxy:-}" > "$HOME/copilot_out"'
+}
+
+test_launch_exports_ctc_no_proxy_hosts() {
+  setup_sandbox; _no_proxy_fixture
+  CTC_NO_PROXY=jira.corp.example,corp.example NO_PROXY= no_proxy= "$CTC_BIN" >/dev/null 2>&1
+  rec="$(cat "$cfg/home/copilot_out")"
+  assert_contains "$rec" "NP=jira.corp.example,corp.example " "NO_PROXY carries CTC_NO_PROXY"
+  assert_contains "$rec" "np=jira.corp.example,corp.example" "no_proxy mirrors it (curl/Go read lowercase)"
+  teardown_sandbox
+}
+
+test_launch_keeps_users_existing_no_proxy() {
+  setup_sandbox; _no_proxy_fixture
+  CTC_NO_PROXY=jira.corp.example NO_PROXY=localhost,127.0.0.1 "$CTC_BIN" >/dev/null 2>&1
+  assert_contains "$(cat "$cfg/home/copilot_out")" "NP=localhost,127.0.0.1,jira.corp.example " \
+    "existing NO_PROXY is kept and extended, not replaced"
+  teardown_sandbox
+}
+
+test_launch_leaves_no_proxy_alone_when_unset() {
+  setup_sandbox; _no_proxy_fixture
+  CTC_NO_PROXY= NO_PROXY=localhost no_proxy= "$CTC_BIN" >/dev/null 2>&1
+  assert_contains "$(cat "$cfg/home/copilot_out")" "NP=localhost np=" "no CTC_NO_PROXY → env untouched"
+  teardown_sandbox
+}
+
+test_no_proxy_build_time_rewrite_bakes_default() {
+  # Mirrors the sed in web/Dockerfile: the served launcher must carry the list
+  # as its default, so teammates get it without setting anything.
+  setup_sandbox
+  baked="$SANDBOX/ctc"; cp "$CTC_BIN" "$baked"
+  sed -i.bak "s/CTC_NO_PROXY:-}/CTC_NO_PROXY:-jira.corp.example}/g" "$baked"
+  assert_contains "$(grep -c 'CTC_NO_PROXY:-jira.corp.example}' "$baked")" "1" "sed anchor matches exactly once"
+  _no_proxy_fixture
+  env -u CTC_NO_PROXY NO_PROXY= no_proxy= bash "$baked" >/dev/null 2>&1
+  assert_contains "$(cat "$cfg/home/copilot_out")" "NP=jira.corp.example " "baked default reaches the agent"
+  teardown_sandbox
+}

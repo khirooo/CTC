@@ -159,6 +159,9 @@ services:
         # Host the CLI reaches the proxy at, when it differs from the (public) web
         # host — e.g. public website, VPN-only proxy. Blank → same as the web host.
         CTC_PROXY_HOST: ${CTC_PROXY_HOST:-}
+        # Hosts the CLI's agent reaches directly instead of through the proxy
+        # (e.g. internal Jira). Comma-separated. Blank → nothing bypassed.
+        CTC_NO_PROXY: ${CTC_NO_PROXY:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]

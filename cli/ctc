@@ -12,8 +12,23 @@ CTC_PROXY_PORT="${CTC_PROXY_PORT:-8080}"
 # GHE_DOMAIN). Defaults to a neutral placeholder so this script carries no
 # organization-specific host name.
 GHE_DOMAIN="${GHE_DOMAIN:-example.ghe.com}"
+# Hosts the launched agent reaches directly instead of through the proxy
+# (comma-separated; a bare domain also covers its subdomains). For internal
+# hosts like Jira that the proxy box can't route to. Rewritten at build time
+# from CTC_NO_PROXY when set.
+CTC_NO_PROXY="${CTC_NO_PROXY:-}"
 
 _config_dir() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/ctc"; }
+
+# Append CTC_NO_PROXY to any NO_PROXY the user already has. Done at launch, not
+# baked into the login env, so a changed list applies without re-running login.
+# Both spellings: curl and Go read no_proxy, others read NO_PROXY.
+_apply_no_proxy() {
+  [ -n "$CTC_NO_PROXY" ] || return 0
+  local cur="${NO_PROXY:-${no_proxy:-}}"
+  NO_PROXY="${cur:+$cur,}$CTC_NO_PROXY"
+  export NO_PROXY no_proxy="$NO_PROXY"
+}
 
 ctc_usage() {
   cat <<'EOF'
@@ -128,6 +143,7 @@ cmd_copilot() {
   real_home="$HOME"                         # capture BEFORE sourcing overrides it
   # shellcheck disable=SC1090
   . "$env"                                  # overrides HOME/XDG_*/GH_HOST/token/proxy
+  _apply_no_proxy
   # Bridge the VS Code IDE-workspace registry so `/ide` can find the running
   # window. The VS Code companion registers workspaces under the real
   # ~/.copilot/ide; the isolated HOME otherwise can't see it (spike 2026-06-22).
@@ -580,6 +596,7 @@ cmd_claude() {
   fi
   # shellcheck disable=SC1090
   . "$env"          # HOME/XDG_*/COPILOT_GITHUB_TOKEN(=CTC token)/HTTPS_PROXY/NODE_EXTRA_CA_CERTS
+  _apply_no_proxy
   export ANTHROPIC_BASE_URL="https://copilot-api.$GHE_DOMAIN"
   # The CTC token flows to copilot-api as Authorization: Bearer; resolve_consumer
   # reads it exactly like the Copilot CLI's fake token.

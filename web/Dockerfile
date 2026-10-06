@@ -50,6 +50,9 @@ ARG CTC_PROXY_PUBLIC_PORT
 # Host the launcher reaches the proxy at, when it differs from the web host (e.g.
 # public website, VPN-only proxy). Empty → launcher falls back to CTC_HOST.
 ARG CTC_PROXY_HOST
+# Hosts the launched agent reaches directly, bypassing the proxy (e.g. an
+# internal Jira the proxy box can't route to). Empty → nothing bypassed.
+ARG CTC_NO_PROXY
 RUN if [ -n "$CTC_DOMAIN" ]; then \
       sed -i "s/ctc\.local/$CTC_DOMAIN/g" /srv/www/install.sh /srv/www/ctc; \
     fi; \
@@ -64,6 +67,9 @@ RUN if [ -n "$CTC_DOMAIN" ]; then \
     fi; \
     if [ -n "$CTC_PROXY_HOST" ]; then \
       sed -i "s/CTC_PROXY_HOST:-\$CTC_HOST/CTC_PROXY_HOST:-$CTC_PROXY_HOST/g" /srv/www/ctc; \
+    fi; \
+    if [ -n "$CTC_NO_PROXY" ]; then \
+      sed -i "s/CTC_NO_PROXY:-}/CTC_NO_PROXY:-$CTC_NO_PROXY}/g" /srv/www/ctc; \
     fi
 # Routing / TLS config.
 COPY Caddyfile /etc/caddy/Caddyfile
