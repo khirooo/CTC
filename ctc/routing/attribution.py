@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass
 
 from ..accounting.engine import AccountingEngine
@@ -172,7 +173,8 @@ class AttributionService:
         return fallback
 
     def debit(self, cycle_id: str, consumer: ConsumerIdentity, source: Source,
-              cost_nano_aiu: int, ts: int) -> None:
+              cost_nano_aiu: int, ts: int, *,
+              run_tag: str | None = None, model: str | None = None) -> None:
         """Record the actual realized cost. Post-hoc: the spend already happened,
         so overshoot is allowed on the final residual record (the pre-gate in
         select_source is the gate).
@@ -183,10 +185,15 @@ class AttributionService:
         any residual is recorded with overshoot on the original source.
         OWN/POOL sources skip the grant loop and fall straight to the residual
         record, matching the previous single-record behavior.
+
+        run_tag/model only label the rows for GET /api/usage; every row this
+        call writes shares one exchange_id so a spilled debit counts as one
+        request. They never affect what is charged or to whom.
         """
         if cost_nano_aiu <= 0:
             return
         residual = cost_nano_aiu
+        tags = {"run_tag": run_tag, "model": model, "exchange_id": uuid.uuid4().hex}
         # 1) the selected source first (grant clamped to its remaining)
         order = []
         if source.bucket == Bucket.GRANT and source.grant_id:
@@ -206,10 +213,10 @@ class AttributionService:
                 continue
             take = min(room, residual)
             self.engine.record_consumption(cycle_id, consumer.user_id, giver_id,
-                Bucket.GRANT, take, grant_id=grant_id, ts=ts, allow_overshoot=False)
+                Bucket.GRANT, take, grant_id=grant_id, ts=ts, allow_overshoot=False, **tags)
             residual -= take
         # 3) anything left (all grants drained, or non-grant source) -> record on the
         # original source with overshoot allowed (spend already happened upstream).
         if residual > 0:
             self.engine.record_consumption(cycle_id, consumer.user_id, source.giver_id,
-                source.bucket, residual, grant_id=source.grant_id, ts=ts, allow_overshoot=True)
+                source.bucket, residual, grant_id=source.grant_id, ts=ts, allow_overshoot=True, **tags)

@@ -57,8 +57,26 @@ gives a correct blended total (earlier turns are never re-priced). A streaming
 turn is logged repeatedly under one `requestId` with a growing output count, so
 it is charged once at the final size.
 
-This is a **client-side projection, not the ledger.** The authoritative charge is
-`copilot_usage.total_nano_aiu`, which only the proxy sees.
+### Real charge vs. projection
+
+The transcript tally above is only a **projection**. What the pool is actually
+charged is what the proxy booked in its ledger (`consumption_events.credits`,
+stored in **nano-AIU**, 1 AIU = 1e9). The statusline shows that figure when it
+can:
+
+- Each `ctc claude` launch mints a run tag and sends it on every request as
+  `X-CTC-Run-Tag` (via `ANTHROPIC_CUSTOM_HEADERS`, appended to any you set).
+  The proxy records it on the ledger row and strips it before forwarding.
+- A background poller calls `GET /api/usage?tag=<tag>` every ~10s with your CTC
+  token and caches the answer in `~/.config/ctc/home/.claude/ledger/<tag>.json`.
+  It exits, and removes the cache, when claude does.
+- A cache under 45s old is shown as-is: `⚡ 3.21 AIU`. Otherwise (no cache, poller
+  dead, control plane unreachable) the statusline shows the projection, marked
+  `⚡ ≈3.21 AIU`. `CTC_LEDGER_POLL=0` turns the poller off.
+
+The scopes differ slightly: the ledger counts this launch, the projection counts
+the transcript, which a `--resume`d session carries over from earlier launches.
+The `(+last turn)` and `⑂ agents` breakdowns always come from the projection.
 
 ### Where the rates come from
 
@@ -81,8 +99,8 @@ it after the promo lapses upstream (2026-08-31).
 
 Only `claude-opus-5` is priced without a catalog entry (Copilot doesn't expose
 it) — from Anthropic list at the same anchor. It, and anything else unlisted
-falling back to its nearest sibling, renders a leading `≈`; the live catalog
-clears the flag for every model it confirms.
+falling back to its nearest sibling, is priced from the nearest catalog entry
+(any projection already renders with a leading `≈`).
 
 Set `CTC_AIU_CEILING=<aiu>` to add a burn bar against a known allowance. To
 inspect price drift by hand (or refresh the baked-in fallback in `cli/ctc`), run

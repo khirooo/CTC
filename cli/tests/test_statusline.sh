@@ -149,8 +149,7 @@ test_statusline_ignores_synthetic_messages() {
   make_stub claude ':'
   "$CTC_BIN" claude >/dev/null 2>&1
 
-  # "<synthetic>" is a local/error message, never billed — it must cost 0 AND
-  # not flag the session as approximately priced.
+  # "<synthetic>" is a local/error message, never billed — it must cost 0.
   t="$SANDBOX/t.jsonl"
   cat > "$t" <<'EOF'
 {"type":"assistant","requestId":"r1","message":{"model":"claude-sonnet-4.6","usage":{"input_tokens":1000,"output_tokens":1000}}}
@@ -159,11 +158,6 @@ EOF
   out="$(printf '{"model":{"display_name":"Sonnet 5"},"workspace":{"current_dir":"%s"},"session_id":"s4","transcript_path":"%s"}' \
         "$SANDBOX" "$t" | HOME="$cfg/home" python3 "$cfg/home/.claude/statusline.py" 2>&1)"
   assert_contains "$out" "1.98 AIU" "synthetic messages add no cost"
-  case "$out" in
-    *"≈"*) echo "  FAIL: synthetic message wrongly flagged the session approximate"; TESTS_FAILED=$((TESTS_FAILED+1));;
-    *) echo "  ok: synthetic message does not flag the session approximate";;
-  esac
-  TESTS_RUN=$((TESTS_RUN+1))
   teardown_sandbox
 }
 
@@ -209,8 +203,7 @@ test_statusline_prefers_live_price_cache() {
   make_stub claude ':'
   "$CTC_BIN" claude >/dev/null 2>&1
 
-  # A live catalog entry overrides the baked-in table AND counts as exact, so
-  # the "≈" (priced from list, not from Copilot) disappears.
+  # A live catalog entry overrides the baked-in table.
   python3 - "$cfg/home/.claude/prices.json" <<'PY'
 import json, sys, time
 json.dump({"fetched": int(time.time()), "source": "test",
@@ -224,11 +217,6 @@ EOF
         "$SANDBOX" "$t" | HOME="$cfg/home" python3 "$cfg/home/.claude/statusline.py" 2>&1)"
   # live rates: 1000*400000 + 1000*2000000 = 2.40 AIU (baked-in sonnet-5 is 1.32)
   assert_contains "$out" "2.40 AIU" "live catalog price wins over the baked-in table"
-  case "$out" in
-    *"≈"*) echo "  FAIL: catalog-confirmed model still flagged approximate"; TESTS_FAILED=$((TESTS_FAILED+1));;
-    *) echo "  ok: catalog-confirmed model is no longer flagged approximate";;
-  esac
-  TESTS_RUN=$((TESTS_RUN+1))
   teardown_sandbox
 }
 
@@ -291,5 +279,119 @@ EOF
         "$SANDBOX" "$t" | HOME="$cfg/home" python3 "$cfg/home/.claude/statusline.py" 2>&1)"
   # gemini rates: 1000*165000 + 1000*990000 = 1.155 -> 1.16 AIU (a mini would be 0.58)
   assert_contains "$out" "1.16 AIU" "unlisted Gemini falls back to Gemini, not to a GPT mini"
+  teardown_sandbox
+}
+
+# ── Ledger readout: the proxy's real charge beats the transcript projection ──
+
+_sl_ledger_render() { # tag session-id -> statusline output for a 1.98 AIU projection
+  t="$SANDBOX/lt.jsonl"
+  cat > "$t" <<'JSONL'
+{"type":"assistant","requestId":"r1","message":{"model":"claude-sonnet-4.6","usage":{"input_tokens":1000,"output_tokens":1000}}}
+JSONL
+  printf '{"model":{"display_name":"Sonnet 5"},"workspace":{"current_dir":"%s"},"session_id":"%s","transcript_path":"%s"}' \
+    "$SANDBOX" "$2" "$t" | HOME="$cfg/home" CTC_RUN_TAG="$1" python3 "$cfg/home/.claude/statusline.py" 2>&1
+}
+
+_sl_write_ledger() { # tag nano_aiu_total
+  mkdir -p "$cfg/home/.claude/ledger"
+  printf '{"tag":"%s","unit":"nano_aiu","requests":3,"nano_aiu_total":%s,"last_ts":1,"by_model":{}}' \
+    "$1" "$2" > "$cfg/home/.claude/ledger/$1.json"
+}
+
+test_statusline_shows_ledger_charge_when_fresh() {
+  setup_sandbox
+  _sl_setup_env
+  make_stub claude ':'
+  "$CTC_BIN" claude >/dev/null 2>&1
+  _sl_write_ledger run-abc 3456000000          # 3.456 AIU booked by the proxy
+  out="$(_sl_ledger_render run-abc LG1)"
+  assert_contains "$out" "⚡ 3.46 AIU" "fresh ledger total shown, unmarked, over the 1.98 projection"
+  case "$out" in
+    *"≈"*) echo "  FAIL: ledger figure wrongly marked approximate"; TESTS_FAILED=$((TESTS_FAILED+1));;
+    *) echo "  ok: ledger figure is not marked approximate";;
+  esac
+  TESTS_RUN=$((TESTS_RUN+1))
+  teardown_sandbox
+}
+
+test_statusline_falls_back_to_projection_without_ledger() {
+  setup_sandbox
+  _sl_setup_env
+  make_stub claude ':'
+  "$CTC_BIN" claude >/dev/null 2>&1
+  assert_contains "$(_sl_ledger_render run-abc LG2)" "⚡ ≈1.98 AIU" "missing ledger cache -> projection, marked ≈"
+  assert_contains "$(_sl_ledger_render "" LG3)" "⚡ ≈1.98 AIU" "no run tag -> projection, marked ≈"
+  teardown_sandbox
+}
+
+test_statusline_falls_back_to_projection_on_stale_ledger() {
+  setup_sandbox
+  _sl_setup_env
+  make_stub claude ':'
+  "$CTC_BIN" claude >/dev/null 2>&1
+  _sl_write_ledger run-abc 3456000000
+  touch -t 202001010000 "$cfg/home/.claude/ledger/run-abc.json"   # poller long dead
+  assert_contains "$(_sl_ledger_render run-abc LG4)" "⚡ ≈1.98 AIU" "stale ledger cache -> projection, marked ≈"
+  echo 'not json {{{' > "$cfg/home/.claude/ledger/run-abc.json"
+  assert_contains "$(_sl_ledger_render run-abc LG5)" "⚡ ≈1.98 AIU" "corrupt ledger cache -> projection, marked ≈"
+  _sl_write_ledger run-other 9000000000
+  cp "$cfg/home/.claude/ledger/run-other.json" "$cfg/home/.claude/ledger/run-abc.json"
+  assert_contains "$(_sl_ledger_render run-abc LG6)" "⚡ ≈1.98 AIU" "a cache for another tag is not trusted"
+  teardown_sandbox
+}
+
+test_launch_tags_claude_traffic_with_a_run_tag() {
+  setup_sandbox
+  _sl_setup_env
+  make_stub claude 'printf "%s\n--\n%s\n" "$CTC_RUN_TAG" "$ANTHROPIC_CUSTOM_HEADERS" > "$HOME/claude_env"'
+  ANTHROPIC_CUSTOM_HEADERS="X-Mine: 1" "$CTC_BIN" claude >/dev/null 2>&1
+  got="$(cat "$cfg/home/claude_env")"
+  tag="$(sed -n 1p "$cfg/home/claude_env")"
+  assert_contains "$tag" "run-" "CTC_RUN_TAG exported to claude (and so to the statusline)"
+  assert_contains "$got" "X-CTC-Run-Tag: $tag" "every request carries the run tag header"
+  assert_contains "$got" "X-Mine: 1" "the user's own custom headers are kept"
+  "$CTC_BIN" claude >/dev/null 2>&1
+  assert_exit "$([ "$(sed -n 1p "$cfg/home/claude_env")" != "$tag" ] && echo 0 || echo 1)" 0 \
+    "each launch gets a fresh tag"
+  teardown_sandbox
+}
+
+test_ledger_poll_writes_cache_while_claude_runs() {
+  setup_sandbox
+  _sl_setup_env
+  port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
+  python3 - "$port" "$SANDBOX/seen" <<'PY' &
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        open(sys.argv[2], "a").write("%s %s\n" % (self.path, self.headers.get("Authorization")))
+        tag = self.path.split("tag=", 1)[1]
+        body = json.dumps({"tag": tag, "unit": "nano_aiu", "requests": 1,
+                           "nano_aiu_total": 5000000000, "last_ts": 1, "by_model": {}}).encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *a): pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PY
+  srv=$!
+  sleep 0.5
+  # claude stub waits for the poller's first write, then snapshots it.
+  make_stub claude 'for i in 1 2 3 4 5 6 7 8 9 10; do
+    f=$(ls "$HOME/.claude/ledger/"*.json 2>/dev/null | head -1); [ -n "$f" ] && break; sleep 0.3; done
+    cp "$f" "$HOME/ledger_seen" 2>/dev/null; true'
+  CTC_LEDGER_POLL=1 CTC_SCHEME=http CTC_HOST="127.0.0.1:$port" "$CTC_BIN" claude >/dev/null 2>&1
+  assert_contains "$(cat "$cfg/home/ledger_seen" 2>/dev/null)" '"nano_aiu_total": 5000000000' \
+    "poller cached the ledger total while claude ran"
+  assert_contains "$(cat "$SANDBOX/seen" 2>/dev/null)" "Bearer github_pat_TESTTOKEN1234" \
+    "poller authenticates with the CTC token"
+  assert_contains "$(cat "$SANDBOX/seen" 2>/dev/null)" "/api/usage?tag=run-" "poller asks for this run's tag"
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    [ -z "$(ls "$cfg/home/.claude/ledger/" 2>/dev/null)" ] && break; sleep 0.5
+  done
+  assert_exit "$([ -z "$(ls "$cfg/home/.claude/ledger/" 2>/dev/null)" ] && echo 0 || echo 1)" 0 \
+    "poller exits and removes its cache once claude is gone"
+  kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null
   teardown_sandbox
 }

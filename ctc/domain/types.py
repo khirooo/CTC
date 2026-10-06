@@ -107,3 +107,7 @@ class Event:
     bucket: Bucket
     grant_id: str | None
     credits: int
+    # Usage tagging, display only (GET /api/usage). Billing never reads these.
+    run_tag: str | None = None
+    model: str | None = None
+    exchange_id: str | None = None

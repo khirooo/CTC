@@ -94,7 +94,7 @@ class _Attribution:
     def pin_source(self, *a, **k):
         pass
 
-    def debit(self, cid, consumer, source, cost, ts):
+    def debit(self, cid, consumer, source, cost, ts, **tags):
         self.debits.append((source.giver_id, cost))
 
     def any_giver_pat(self):

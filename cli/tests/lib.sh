@@ -11,6 +11,7 @@ setup_sandbox() {
   export PATH="$STUBS:$PATH"
   unset XDG_STATE_HOME XDG_CACHE_HOME 2>/dev/null || true
   export CTC_UPDATE_CHECK=0   # no background fetch of the served launcher; tests opt back in
+  export CTC_LEDGER_POLL=0    # no background ledger poll either; tests opt back in
 }
 teardown_sandbox() { rm -rf "$SANDBOX"; }
 

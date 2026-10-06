@@ -112,7 +112,7 @@ class _RecordingAttr:
     def __init__(self):
         self.debits = []
 
-    def debit(self, cid, consumer, source, cost, ts):
+    def debit(self, cid, consumer, source, cost, ts, **tags):
         self.debits.append(cost)
 
 
@@ -196,7 +196,7 @@ class _StubAttribution:
     def pin_source(self, *a, **k):
         pass
 
-    def debit(self, cid, consumer, source, cost, ts):
+    def debit(self, cid, consumer, source, cost, ts, **tags):
         self.debits.append(cost)
 
     def any_giver_pat(self):

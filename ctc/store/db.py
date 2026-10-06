@@ -62,7 +62,10 @@ CREATE TABLE IF NOT EXISTS consumption_events (
   source_giver_id TEXT NOT NULL,
   bucket TEXT NOT NULL,
   grant_id TEXT,
-  credits INTEGER NOT NULL
+  credits INTEGER NOT NULL,
+  run_tag TEXT,
+  model TEXT,
+  exchange_id TEXT
 );
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -135,6 +138,7 @@ CREATE INDEX IF NOT EXISTS ix_events_cycle ON consumption_events (cycle_id);
 CREATE INDEX IF NOT EXISTS ix_events_consumer ON consumption_events (cycle_id, consumer_id);
 CREATE INDEX IF NOT EXISTS ix_events_source ON consumption_events (cycle_id, source_giver_id);
 CREATE INDEX IF NOT EXISTS ix_events_grant ON consumption_events (grant_id);
+CREATE INDEX IF NOT EXISTS ix_events_run_tag ON consumption_events (consumer_id, run_tag);
 CREATE INDEX IF NOT EXISTS ix_grants_request ON grants (request_id);
 CREATE INDEX IF NOT EXISTS ix_grants_donor ON grants (cycle_id, donor_id);
 CREATE INDEX IF NOT EXISTS ix_grants_recipient ON grants (cycle_id, recipient_id);
@@ -187,6 +191,13 @@ def init_db(conn: sqlite3.Connection) -> None:
     for col in ("origin_grant_id", "via_user_id", "contribution_id"):
         if col not in gcols:
             conn.execute(f"ALTER TABLE grants ADD COLUMN {col} TEXT")
+    # Usage tagging (display only, never read by billing): run_tag is the
+    # client-chosen X-CTC-Run-Tag, model the request's model, exchange_id groups
+    # the events one proxied request spilled across. All NULL on older rows.
+    ecols = {r["name"] for r in conn.execute("PRAGMA table_info(consumption_events)")}
+    for col in ("run_tag", "model", "exchange_id"):
+        if col not in ecols:
+            conn.execute(f"ALTER TABLE consumption_events ADD COLUMN {col} TEXT")
     # Normalize legacy inclusive month-end cycles (…T23:59:59 UTC) to the exclusive
     # boundary (first second of the next month) so liveness `now < ends_at` covers
     # the whole final day (P0-1). Idempotent: once bumped, ends_at%86400==0 no longer

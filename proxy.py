@@ -17,7 +17,7 @@ Run:
   REAL_GHE_HOST=api.example.ghe.com REAL_PAT=github_pat_xxx python proxy.py
 """
 
-import asyncio, ssl, os, json, logging, time
+import asyncio, ssl, os, json, logging, re, time
 from typing import Optional, Dict
 import aiohttp
 from ctc.metering.capture import record_exchange, redact_text, redact_headers, close_captures
@@ -291,6 +291,29 @@ def upstream_ssl_context() -> ssl.SSLContext:
 _HOP_BY_HOP = {"host", "authorization", "content-length",
                "transfer-encoding", "connection", "proxy-connection"}
 
+# `ctc claude` tags every request with a per-launch run id so the statusline can
+# read the real ledger charge back (GET /api/usage?tag=). It is ours alone:
+# recorded on the consumption event, never forwarded upstream.
+RUN_TAG_HEADER = "x-ctc-run-tag"
+_RUN_TAG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_CLIENT_ONLY_HEADERS = {RUN_TAG_HEADER}
+
+
+def run_tag_of(hdrs) -> Optional[str]:
+    """The request's run tag, or None when absent or malformed (a bad tag is
+    dropped rather than stored; the request itself is unaffected)."""
+    tag = hdrs.get(RUN_TAG_HEADER, "").strip()
+    return tag if _RUN_TAG_RE.fullmatch(tag) else None
+
+
+def request_model_of(body: bytes) -> Optional[str]:
+    """The JSON body's `model`, for labelling the ledger row. Best-effort."""
+    try:
+        model = json.loads(body or b"{}").get("model")
+    except Exception:
+        return None
+    return model[:128] if isinstance(model, str) and model else None
+
 
 def _compute_accept_encoding() -> str:
     """Encodings we can actually decode for relay + billing. Node/Copilot
@@ -372,7 +395,8 @@ def _now() -> int:
 
 
 def build_upstream_headers(hdrs, upstream_host, original_auth, body_len, real_pat):
-    fwd = {k: v for k, v in hdrs.items() if k not in _HOP_BY_HOP}
+    fwd = {k: v for k, v in hdrs.items()
+           if k not in _HOP_BY_HOP and k not in _CLIENT_ONLY_HEADERS}
     if should_swap(upstream_host) and real_pat:
         fwd["authorization"] = f"Bearer {real_pat}"
     elif original_auth:
@@ -660,7 +684,7 @@ def _fail_client(writer, state: Optional["RelayState"], status_bytes: bytes) -> 
 
 
 def _reconcile_partial_relay(billable, debited, state: Optional["RelayState"],
-                             cycle, consumer, source, path) -> None:
+                             cycle, consumer, source, path, tags=None) -> None:
     """P1-1: a relay that raised (client Ctrl-C mid-SSE, upstream death) skips
     the normal post-relay debit even though upstream may have fully burned the
     giver's quota — leaving the cost to be mis-booked later as a BYPASS on the
@@ -674,7 +698,7 @@ def _reconcile_partial_relay(billable, debited, state: Optional["RelayState"],
     body = bytes(state.body) if state.body is not None else b""
     try:
         cost = extract_total_nano_aiu(body, state.content_type)
-        ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now())
+        ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now(), **(tags or {}))
         log.warning("[reconcile] partial-relay debit: cost=%s path=%s "
                     "(client/upstream dropped mid-stream)", cost, path)
     except Exception as exc:
@@ -859,6 +883,7 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
 
         auth    = hdrs.get("authorization", "")
         session = _tag(auth)
+        run_tag = run_tag_of(hdrs)
 
         # NOTE: We deliberately do NOT mock /user or /copilot_internal/*
         # endpoints. The PAT we swap in is valid for all of them on GHE, and
@@ -1144,7 +1169,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                     _safe_sentinel_emit(sentinel.check_billable_response, _status, full_body or b"", _ct, path.split("?", 1)[0])
                     cost = extract_total_nano_aiu(full_body or b"", _ct)
                     try:
-                        ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now())
+                        ATTRIBUTION.debit(cycle.id, consumer, source, cost, ts=_now(),
+                                          run_tag=run_tag, model=request_model_of(body))
                         debited = True
                     except Exception as exc:  # debit must never break the sent response
                         log.error("[!] debit failed (logged, not surfaced): %s", exc)
@@ -1169,7 +1195,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 break
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
             log.error("[!] Upstream timeout: %s %s", method, path)
-            _reconcile_partial_relay(billable, debited, relay_state, cycle, consumer, source, path)
+            _reconcile_partial_relay(billable, debited, relay_state, cycle, consumer, source, path,
+                                     {"run_tag": run_tag, "model": request_model_of(body)})
             _fail_client(writer, relay_state,
                          b"HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\n\r\n")
             break
@@ -1181,7 +1208,8 @@ async def _serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             # burned the giver's quota upstream, so best-effort debit it now
             # (_reconcile_partial_relay) rather than leaking it into a later BYPASS.
             log.error("[!] Forward error: %s", exc)
-            _reconcile_partial_relay(billable, debited, relay_state, cycle, consumer, source, path)
+            _reconcile_partial_relay(billable, debited, relay_state, cycle, consumer, source, path,
+                                     {"run_tag": run_tag, "model": request_model_of(body)})
             _fail_client(writer, relay_state,
                          b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
             break

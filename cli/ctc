@@ -278,6 +278,45 @@ PYEOF
   return 0
 }
 
+# Poll the proxy ledger for this run's REAL charge while claude runs.
+#
+# Every request of this launch carries X-CTC-Run-Tag (see cmd_claude); the proxy
+# stores the tag on the consumption event, and GET /api/usage?tag= sums them for
+# the caller's own token. Every 10s the total is written to
+# ~/.claude/ledger/<tag>.json, which the statusline reads as the authoritative
+# figure (it never touches the network itself — it renders on every keystroke).
+# Unit: nano-AIU, as stored in consumption_events.credits. Runs in the
+# BACKGROUND, swallows all output, and exits once the claude process ($1, the
+# PID cmd_claude is about to exec into) is gone. CTC_LEDGER_POLL=0 disables it
+# (the statusline then always shows the ≈ projection).
+_start_ledger_poll() {
+  local pid="$1" tag="$2" dir out
+  [ "${CTC_LEDGER_POLL:-1}" != "0" ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  dir="$HOME/.claude/ledger"; out="$dir/$tag.json"
+  mkdir -p "$dir" || return 0
+  (
+    url="$CTC_SCHEME://$CTC_HOST/api/usage?tag=$tag"
+    # Token via stdin config, not argv, so it never shows up in `ps`.
+    fetch() {
+      printf 'header = "Authorization: Bearer %s"\n' "${COPILOT_GITHUB_TOKEN:-}" |
+        curl -fsS --max-time 8 --noproxy '*' "$@" -K - "$url" -o "$out.tmp"
+    }
+    while kill -0 "$pid" 2>/dev/null; do
+      # The dashboard is fronted by the CTC CA's leaf; fall back to system
+      # trust for a deployment on a public cert. Never -k: this sends the token.
+      if fetch --cacert "${NODE_EXTRA_CA_CERTS:-/dev/null}" || fetch; then
+        mv -f "$out.tmp" "$out"         # atomic: the statusline may read concurrently
+      fi
+      for _ in 1 2 3 4 5 6 7 8 9 10; do   # ~10s, but notice claude exiting promptly
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 1
+      done
+    done
+    rm -f "$out" "$out.tmp"
+  ) >/dev/null 2>&1 &
+}
+
 # Install a CTC statusline into the isolated Claude HOME. Prices the session
 # with Copilot's OWN per-model token prices (nano-AIU/token, from
 # `GET /models` on copilot-api — the table tools/price_check.py diffs), so the
@@ -298,8 +337,13 @@ usage from the transcript and price it with Copilot's per-model
 copilot-api.<GHE_DOMAIN> — the same table `tools/price_check.py` diffs against.
 That is the unit the CTC pool is debited in (docs/reference/metering-contract.md).
 
-This is a client-side projection, not the ledger: the authoritative charge is
-`copilot_usage.total_nano_aiu`, which only the proxy sees.
+That tally is only a projection. The authoritative charge is what the proxy
+booked in its ledger (consumption_events.credits, nano-AIU). `ctc claude` tags
+every request with $CTC_RUN_TAG and a background poller writes this run's
+ledger total to ~/.claude/ledger/<tag>.json every ~10s. When that file is fresh
+it is shown as-is; when it is missing or stale the projection is shown, marked ≈.
+Note the scopes differ: the ledger covers this launch, the projection this
+transcript (which a --resume'd session carries over from earlier launches).
 """
 from __future__ import annotations
 
@@ -373,6 +417,10 @@ LIVE = load_live()
 PRICES.update(LIVE)
 DERIVED -= set(LIVE)
 NANO_PER_TOKEN = 1000          # table value x1000 = nano-AIU per token
+NANO_PER_AIU = 1e9
+# The poller rewrites the ledger cache every ~10s; past this it is stale (the
+# poller died, or the control plane is unreachable) and the projection wins.
+LEDGER_TTL = 45
 # 1 AIU lines up with published list prices at $1/110: sonnet 330 AIU/Mtok in
 # = $3/M, opus 550 = $5/M, gpt-5-mini 27/220 = $0.25/$2 per M. Display only.
 USD_PER_AIU = 1.0 / 110.0
@@ -529,6 +577,23 @@ def tally(transcript, session_id):
     return nano / 1e9, sub / 1e9, last / 1e9, exact, ctx
 
 
+def ledger_aiu(tag, now=None):
+    """This run's ledger charge in AIU, or None when the cache is missing,
+    stale, unparseable, or for another tag. Disk read only — never network."""
+    if not tag:
+        return None
+    f = Path.home() / ".claude" / "ledger" / ("%s.json" % tag)
+    try:
+        if (now or time.time()) - f.stat().st_mtime > LEDGER_TTL:
+            return None
+        d = json.loads(f.read_text())
+        if d.get("tag") != tag or d.get("unit") != "nano_aiu":
+            return None
+        return int(d["nano_aiu_total"]) / NANO_PER_AIU
+    except Exception:
+        return None
+
+
 def c(code, s):
     return "\033[%sm%s\033[0m" % (code, s)
 
@@ -575,7 +640,12 @@ def main():
     proj = Path(ws.get("project_dir") or cwd or ".").name
 
     aiu, sub, last, exact, ctx = tally(d.get("transcript_path", ""), d.get("session_id", ""))
-    approx = "" if exact else "≈"
+    # The ledger is the real charge; the transcript tally is only a projection.
+    booked = ledger_aiu(os.environ.get("CTC_RUN_TAG", ""))
+    if booked is not None:
+        aiu, approx = booked, ""
+    else:
+        approx = "≈"
     hue = "32" if aiu < 1 else "33" if aiu < 10 else "38;5;208" if aiu < 50 else "31"
 
     parts = [c("1;38;5;213", "◆ CTC"), c("38;5;110", model.replace("Claude ", ""))]
@@ -649,8 +719,18 @@ cmd_claude() {
     echo "  Install it from https://docs.claude.com/claude-code" >&2
     exit 1
   fi
+  # Tag this run's traffic so the statusline can show the ledger's real charge.
+  # Claude Code's own X-Claude-Code-Session-Id is no use here: it is minted
+  # inside claude (the poller can't know it) and changes on /clear.
+  local tag
+  tag="run-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+  export CTC_RUN_TAG="$tag"
+  ANTHROPIC_CUSTOM_HEADERS="${ANTHROPIC_CUSTOM_HEADERS:+$ANTHROPIC_CUSTOM_HEADERS
+}X-CTC-Run-Tag: $tag"
+  export ANTHROPIC_CUSTOM_HEADERS
   _install_claude_statusline                # AIU cost readout; best-effort
   _refresh_model_prices                     # live price table; background, best-effort
+  _start_ledger_poll "$$" "$tag"            # ledger total; background, best-effort
   # A --model flag beats ANTHROPIC_MODEL inside Claude Code, so show that one.
   local model="$ANTHROPIC_MODEL" prev=""
   for a in "$@"; do

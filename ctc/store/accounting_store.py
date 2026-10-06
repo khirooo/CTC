@@ -214,10 +214,31 @@ class AccountingStore:
     # --- events ---
     def add_event(self, e: Event) -> None:
         self.conn.execute(
-            "INSERT INTO consumption_events (id,cycle_id,ts,consumer_id,source_giver_id,bucket,grant_id,credits) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (e.id, e.cycle_id, e.ts, e.consumer_id, e.source_giver_id, e.bucket.value, e.grant_id, e.credits),
+            "INSERT INTO consumption_events (id,cycle_id,ts,consumer_id,source_giver_id,bucket,grant_id,credits,"
+            "run_tag,model,exchange_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (e.id, e.cycle_id, e.ts, e.consumer_id, e.source_giver_id, e.bucket.value, e.grant_id, e.credits,
+             e.run_tag, e.model, e.exchange_id),
         )
+
+    def usage_by_run_tag(self, consumer_id: str, run_tag: str) -> dict:
+        """Ledger total for one consumer's tagged run, across cycles. Scoped by
+        consumer_id so a tag can never read another user's rows. `credits` is
+        nano-AIU (1 AIU = 1e9). A request = one exchange_id (a debit spilled
+        across several grants writes several rows under one id)."""
+        rows = self.conn.execute(
+            "SELECT model, COUNT(DISTINCT COALESCE(exchange_id, id)) AS n, "
+            "SUM(credits) AS nano, MAX(ts) AS last_ts "
+            "FROM consumption_events WHERE consumer_id=? AND run_tag=? GROUP BY model",
+            (consumer_id, run_tag),
+        ).fetchall()
+        by_model = {(r["model"] or "unknown"): {"requests": int(r["n"]), "nano_aiu": int(r["nano"] or 0)}
+                    for r in rows}
+        return {
+            "requests": sum(m["requests"] for m in by_model.values()),
+            "nano_aiu_total": sum(m["nano_aiu"] for m in by_model.values()),
+            "last_ts": max((int(r["last_ts"]) for r in rows if r["last_ts"] is not None), default=None),
+            "by_model": by_model,
+        }
 
     # --- aggregation primitives ---
     def _sum(self, sql: str, params: tuple) -> int:

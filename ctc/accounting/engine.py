@@ -704,6 +704,10 @@ class AccountingEngine:
         grant_id: str | None = None,
         ts: int = 0,
         allow_overshoot: bool = False,
+        *,
+        run_tag: str | None = None,
+        model: str | None = None,
+        exchange_id: str | None = None,
     ) -> Event:
         if credits <= 0:
             raise InvalidConsumption("credits must be positive")
@@ -735,7 +739,8 @@ class AccountingEngine:
                 raise InvalidConsumption(f"unknown bucket {bucket!r}")
 
             event = Event(uuid.uuid4().hex, cycle_id, ts, consumer_id,
-                          source_giver_id, bucket, grant_id, credits)
+                          source_giver_id, bucket, grant_id, credits,
+                          run_tag=run_tag, model=model, exchange_id=exchange_id)
             self.store.add_event(event)
             self.conn.execute("COMMIT")
             return event

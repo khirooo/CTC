@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from aiohttp import web
@@ -70,6 +71,10 @@ def assert_ghe_domain_consistent(api_base, ghe_domain=None) -> None:
         log.warning("GHE_DOMAIN=%r does not appear in GHE_API_BASE=%r; the PAT-health "
                     "permission probe will call %s — verify that is the right host",
                     ghe_domain, api_base, contract.BILLABLE_HOST)
+
+
+# Same shape the proxy accepts on X-CTC-Run-Tag (proxy.run_tag_of).
+_RUN_TAG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def _sign(secret: str, value: str) -> str:
@@ -310,6 +315,23 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         registry.store.delete_proxy_token(req.match_info["id"], user["id"])
         return web.Response(status=204)
 
+    async def api_usage(req):
+        # Ledger total for one `ctc claude` run, polled by the launcher's
+        # background fetcher. Authenticated by the CTC proxy token (the same
+        # bearer the proxy resolves), not a browser session, and scoped to that
+        # token's user: another consumer's tag reads as an empty run.
+        # Unit: nano-AIU (1 AIU = 1e9), straight from consumption_events.credits.
+        auth = req.headers.get("Authorization", "")
+        token = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+        consumer = registry.resolve(token) if token else None
+        if consumer is None:
+            raise web.HTTPUnauthorized(text="unknown CTC token")
+        tag = req.query.get("tag", "")
+        if not _RUN_TAG_RE.fullmatch(tag):
+            raise web.HTTPBadRequest(text="tag must be 1-64 of [A-Za-z0-9_-]")
+        usage = engine.store.usage_by_run_tag(consumer.user_id, tag)
+        return web.json_response({"tag": tag, "unit": "nano_aiu", **usage})
+
     async def api_onboarding_complete(req):
         user = await current_user(req)
         if not user:
@@ -348,6 +370,7 @@ def make_app(*, store, engine, registry, sessions, oauth=None, http_get_user,
         web.get("/api/proxy-token", api_token_list),
         web.delete("/api/proxy-token/{id}", api_token_delete),
         web.post("/api/onboarding/complete", api_onboarding_complete),
+        web.get("/api/usage", api_usage),
     ])
     return app
 

@@ -53,6 +53,7 @@ async def mock_upstream(test_cert):
 
     async def handler(request):
         received["auth"] = request.headers.get("Authorization")
+        received["headers"] = dict(request.headers)
         received["path"] = request.path
         received["body"] = await request.read()
         if request.path == "/sse":
