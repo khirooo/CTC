@@ -46,8 +46,8 @@ async def test_giver_profile_segments_reconcile_behind_proxy():
         assert p["entitlement"] == 4000 * N
         assert p["used"] == 2800 * N            # (4000-1200) - 0 - 0; pledge doesn't affect used
         assert p["donated"] == 0
-        assert p["pledged"] == 120 * N          # default 10% of 1200 remaining auto-pledged
-        assert p["left"] == (4000 - 2800 - 120) * N   # 1080
+        assert p["pledged"] == 0                # default pledge is 0% → nothing auto-pledged
+        assert p["left"] == (4000 - 2800) * N   # 1200
         assert p["resetDate"] == "2026-07-01"
 
 
@@ -75,8 +75,8 @@ async def test_connect_seeds_entitlement_ceiling_and_books_prior_burn():
         # is attributed to the owner as their own use.
         assert p["totalCredit"] == 4000 * N      # gc.quota == entitlement
         assert p["used"] == 2800 * N
-        assert p["left"] == (4000 - 2800 - 120) * N
-        assert p["pledged"] == 120 * N            # still 10% of remaining (1200)
+        assert p["left"] == (4000 - 2800) * N
+        assert p["pledged"] == 0                  # default pledge is 0%
 
 
 @pytest.mark.asyncio
@@ -215,4 +215,4 @@ async def test_profile_exposes_remaining_segment_fields():
         await cli.post("/api/pat", json={"pat": "github_pat_X"})
         p = await (await cli.get("/api/profile")).json()
         assert p["donatedRemaining"] == 0
-        assert p["pledgedRemaining"] == 120 * N   # full pledge, nothing consumed
+        assert p["pledgedRemaining"] == 0         # default pledge is 0%

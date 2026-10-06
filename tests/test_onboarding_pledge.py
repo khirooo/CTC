@@ -46,8 +46,8 @@ async def test_onboarding_pledge_zero_when_pct_zero():
 
 
 @pytest.mark.asyncio
-async def test_onboarding_seeds_10pct_by_default():
-    # shared_pool_enabled=on so default_pledge_pct (10%) is active.
+async def test_onboarding_seeds_no_pledge_by_default():
+    # shared_pool_enabled=on, no default_pledge_pct override → code default 0%.
     conn = connect(":memory:"); init_db(conn)
     s = SettingsStore(conn); s.set_many({"shared_pool_enabled": "on"}, "admin", 1)
     ec = EffectiveConfig(s)
@@ -57,7 +57,7 @@ async def test_onboarding_seeds_10pct_by_default():
     await validate_and_store_pat(reg, eng, _http_get_user, "c1", "u1", "octo",
                                  "github_pat_X", 10, effective_config=ec)
     gc = eng.store.get_giver_cycle("c1", "u1")
-    assert gc.pledge == 100 * NANO_PER_AIU      # 10% of 1000 remaining
+    assert gc.pledge == 0
 
 
 @pytest.mark.asyncio

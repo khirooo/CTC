@@ -163,8 +163,8 @@ class AccountingEngine:
 
     def _open_month_cycle(self, now: int, prev_cycle_id: str | None) -> Cycle:
         """Insert-or-reactivate the calendar-month cycle for `now` and seed its
-        giver_cycles from the connected PATs (quota = entitlement, prior pledge
-        carried forward from `prev_cycle_id` and clamped to the new quota).
+        giver_cycles from the connected PATs (quota = entitlement, pledge reset to
+        the default pledge — last month's pledge is NOT carried forward).
 
         MUST be called inside an open transaction (BEGIN IMMEDIATE). Rows that
         already exist in the target cycle are left untouched, so this is safe on
@@ -177,18 +177,21 @@ class AccountingEngine:
             # archived row, dormancy edge): reactivate rather than duplicate the id.
             self.conn.execute("UPDATE cycles SET status='active' WHERE id=?", (new.id,))
         # Seed giver_cycles from connected PATs: full entitlement as the new quota
-        # (GitHub resets the real quota at the boundary too), prior pledge carried
-        # forward and clamped. Skip PATs with no usable entitlement and rows that
+        # (GitHub resets the real quota at the boundary too) and a fresh pledge of
+        # default_pledge_pct% of it — every month starts clean; givers re-pledge
+        # explicitly (pledges used to carry over, silently refilling the pool on
+        # the 1st with credit nobody re-offered). Skip PATs with no usable entitlement and rows that
         # already exist in this cycle. Seeding here (not only on the archive path)
         # is what fixes the gap path never seeding givers (P0-1).
         #
-        # The pledge carry is gated on PAT health. `entitlement` is a last-known-good
+        # The default pledge is gated on PAT health. `entitlement` is a last-known-good
         # snapshot that is only refreshed on a VALID verdict and never cleared, so a
-        # dead PAT still passes the `ent > 0` filter with a stale quota — carrying its
-        # pledge advertised pool credit that nothing could draw (the phantom-pool
+        # dead PAT still passes the `ent > 0` filter with a stale quota — pledging
+        # from it advertises pool credit that nothing could draw (the phantom-pool
         # incident). The row is still seeded (giver identity, quota, baseline carry all
         # stay meaningful, and reconnecting re-applies the default pledge) with pledge=0.
         dead = self.dead_pat_givers()
+        pct = getattr(self.config, "default_pledge_pct", 0) or 0
         for row in self.conn.execute("SELECT user_id, entitlement FROM giver_pats"):
             ent = row["entitlement"]
             if not ent or ent <= 0:
@@ -198,7 +201,7 @@ class AccountingEngine:
             quota = int(ent) * NANO_PER_AIU
             prev_gc = (self.store.get_giver_cycle(prev_cycle_id, row["user_id"])
                        if prev_cycle_id else None)
-            pledge = 0 if row["user_id"] in dead else (min(prev_gc.pledge, quota) if prev_gc else 0)
+            pledge = 0 if row["user_id"] in dead else quota * pct // 100
             self.store.upsert_giver_cycle(GiverCycle(new.id, row["user_id"], quota, pledge))
             # Carry the burn baseline forward so early-cycle out-of-band burn isn't
             # swallowed by the lazy first-observation capture (the incident: GitHub

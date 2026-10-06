@@ -1,7 +1,7 @@
 """Automatic cycle rollover: when the active cycle's window has ended,
 ensure_active_cycle archives it, opens the month-of-now cycle, and seeds the new
-cycle's giver_cycles from the connected PATs (quota = entitlement, pledge carried
-forward and clamped). See docs/superpowers/specs/2026-06-27-cycle-rollover-design.md.
+cycle's giver_cycles from the connected PATs (quota = entitlement, pledge reset to
+the default pledge — never carried forward). See docs/superpowers/specs/2026-06-27-cycle-rollover-design.md.
 """
 import datetime
 
@@ -53,7 +53,12 @@ def test_rollover_archives_old_and_opens_month_of_now():
     assert eng.store.get_cycle("cycle-2026-06").status == "archived"
 
 
-def test_rollover_seeds_quota_from_entitlement_and_carries_pledge():
+class _Cfg:
+    def __init__(self, pct):
+        self.default_pledge_pct = pct
+
+
+def test_rollover_does_not_carry_pledge():
     eng = _engine()
     eng.ensure_active_cycle(JUNE)
     _add_pat(eng, "g1", entitlement=100)
@@ -65,23 +70,21 @@ def test_rollover_seeds_quota_from_entitlement_and_carries_pledge():
     gc = eng.store.get_giver_cycle("cycle-2026-07", "g1")
     assert gc is not None
     assert gc.quota == 100 * NANO_PER_AIU      # full entitlement, fresh period
-    assert gc.pledge == 40 * NANO_PER_AIU      # carried forward
+    assert gc.pledge == 0                      # fresh month, default pledge 0
+    assert eng.pool_available("cycle-2026-07") == 0
 
 
-def test_rollover_clamps_carried_pledge_to_new_quota():
-    eng = _engine()
+def test_rollover_applies_default_pledge_pct_not_prior_pledge():
+    conn = connect(":memory:"); init_db(conn)
+    eng = AccountingEngine(AccountingStore(conn), config=_Cfg(25))
     eng.ensure_active_cycle(JUNE)
     _add_pat(eng, "g1", entitlement=100)
     eng.set_quota("cycle-2026-06", "g1", 100 * NANO_PER_AIU)
     eng.set_pledge("cycle-2026-06", "g1", 80 * NANO_PER_AIU)
-    # entitlement drops for next period → new quota is smaller than the old pledge
-    eng.store.conn.execute("UPDATE giver_pats SET entitlement=30 WHERE user_id='g1'")
 
     eng.ensure_active_cycle(JULY)
 
-    gc = eng.store.get_giver_cycle("cycle-2026-07", "g1")
-    assert gc.quota == 30 * NANO_PER_AIU
-    assert gc.pledge == 30 * NANO_PER_AIU       # clamped down from 80
+    assert eng.store.get_giver_cycle("cycle-2026-07", "g1").pledge == 25 * NANO_PER_AIU
 
 
 def test_rollover_seeds_zero_pledge_when_no_prior_pledge():
@@ -325,10 +328,10 @@ def test_init_db_normalizes_legacy_inclusive_ends_at():
     assert row2["ends_at"] == last_sec + 1
 
 
-# --- dead-PAT pledge carry (phantom shared pool) --------------------------------
+# --- dead-PAT default pledge (phantom shared pool) --------------------------------
 # `giver_pats.entitlement` is a last-known-good snapshot that is only refreshed on a
 # VALID health verdict and never cleared, so an expired PAT still passes the
-# `ent > 0` seed filter with a stale quota. Carrying its pledge produced a pool
+# `ent > 0` seed filter with a stale quota. Pledging from it produced a pool
 # advertising 3,103 AIU of capacity that nothing could draw.
 
 def _set_health(eng, user_id, status):
@@ -336,9 +339,10 @@ def _set_health(eng, user_id, status):
                            (status, user_id))
 
 
-def test_rollover_drops_carried_pledge_for_dead_pat():
+def test_rollover_skips_default_pledge_for_dead_pat():
     for status in ("expired", "forbidden", "no_entitlement"):
-        eng = _engine()
+        conn = connect(":memory:"); init_db(conn)
+        eng = AccountingEngine(AccountingStore(conn), config=_Cfg(40))
         eng.ensure_active_cycle(JUNE)
         _add_pat(eng, "g1", entitlement=100)
         eng.set_quota("cycle-2026-06", "g1", 100 * NANO_PER_AIU)
@@ -356,11 +360,12 @@ def test_rollover_drops_carried_pledge_for_dead_pat():
         assert eng.pool_available("cycle-2026-07") == 0, status
 
 
-def test_rollover_carries_pledge_for_valid_and_unknown_health():
+def test_rollover_applies_default_pledge_for_valid_and_unknown_health():
     # "valid" is the normal case; NULL (never checked / legacy row) and a PAT whose
     # last check merely errored (health_error set, verdict kept) are unknown, not
-    # dead — a GHE outage must not silently withdraw everyone's pledge.
-    eng = _engine()
+    # dead — a GHE outage must not silently withhold everyone's default pledge.
+    conn = connect(":memory:"); init_db(conn)
+    eng = AccountingEngine(AccountingStore(conn), config=_Cfg(40))
     eng.ensure_active_cycle(JUNE)
     for uid in ("g1", "g2", "g3"):
         _add_pat(eng, uid, entitlement=100)

@@ -15,9 +15,10 @@ class Config:
     request_expiry_max_hours: int = 24 * 7
     cycle_reset_day: int = 1
     # % of a giver's remaining quota auto-pledged to the shared pool at onboarding
+    # and at each monthly rollover
     # (givers can change it later). Override via CTC_DEFAULT_PLEDGE_PCT or admin settings.
     default_pledge_pct: int = field(
-        default_factory=lambda: int(os.environ.get("CTC_DEFAULT_PLEDGE_PCT", "10")))
+        default_factory=lambda: int(os.environ.get("CTC_DEFAULT_PLEDGE_PCT", "0")))
     # Default chip-in amount (AIU) pre-filled on the marketplace "chip in" action.
     # Override via CTC_DEFAULT_CHIP_IN_AIU or admin settings.
     default_chip_in_aiu: int = field(
