@@ -160,6 +160,48 @@ def test_between_tools_models_configurable():
     assert json.loads(out)["thinking"] == {"type": "between_tools"}
 
 
+OPUS_55_MODELS = ("claude-opus-5.5", "claude-opus-5-5", "claude-opus-5-5-20261001", "Claude-Opus-5.5")
+
+
+@pytest.mark.parametrize("model", OPUS_55_MODELS)
+def test_adaptive_and_output_config_pass_through_for_opus_55(model):
+    """Opus 5.5 400s on disabled/between_tools/enabled and takes only adaptive,
+    with output_config.effort controlling depth — forward both untouched."""
+    body = json.dumps({"model": model, "thinking": {"type": "adaptive"},
+                       "output_config": {"effort": "low"}}).encode()
+    out = anthropic_bridge.transform_request_body(body)
+    assert out == body
+
+
+@pytest.mark.parametrize("th_type", ["disabled", "between_tools", "enabled", "future-mode"])
+def test_non_adaptive_thinking_dropped_for_opus_55(th_type):
+    body = json.dumps({"model": "claude-opus-5.5", "thinking": {"type": th_type},
+                       "messages": []}).encode()
+    out = json.loads(anthropic_bridge.transform_request_body(body))
+    assert "thinking" not in out
+    assert out["messages"] == []
+
+
+def test_opus_55_ignores_global_enabled_mode():
+    body = json.dumps({"model": "claude-opus-5.5", "thinking": {"type": "adaptive"}}).encode()
+    out = anthropic_bridge.transform_request_body(body, thinking_mode="enabled")
+    assert json.loads(out)["thinking"] == {"type": "adaptive"}
+
+
+def test_output_config_still_stripped_for_other_models():
+    body = json.dumps({"model": "claude-opus-5", "thinking": {"type": "adaptive"},
+                       "output_config": {"effort": "low"}}).encode()
+    out = json.loads(anthropic_bridge.transform_request_body(body))
+    assert "output_config" not in out
+    assert out["thinking"] == {"type": "disabled"}
+
+
+def test_adaptive_models_configurable():
+    body = json.dumps({"model": "claude-opus-6", "thinking": {"type": "adaptive"}}).encode()
+    out = anthropic_bridge.transform_request_body(body, adaptive_models=("claude-opus-6",))
+    assert out == body
+
+
 def test_thinking_enabled_without_budget_is_floored():
     """LOW1: bare {type:"enabled"} (no budget_tokens) would 400 on Copilot;
     normalize it up to the configured budget (>= 1024)."""

@@ -100,6 +100,16 @@ ANTHROPIC_BETWEEN_TOOLS_MODELS: tuple[str, ...] = tuple(
         "CTC_ANTHROPIC_BETWEEN_TOOLS_MODELS", "claude-sonnet-5-5").split(",") if m.strip()
 )
 
+# 4c. Models that only take {type:"adaptive"} (Copilot 400s on disabled,
+#     between_tools and enabled: 'Use "thinking.type.adaptive" and
+#     "output_config.effort" to control thinking behavior'). For these the
+#     bridge forwards adaptive and output_config untouched and drops any other
+#     thinking value so the model's default applies. Same matching rules as 4b.
+ANTHROPIC_ADAPTIVE_MODELS: tuple[str, ...] = tuple(
+    m.strip().lower().replace(".", "-") for m in os.environ.get(
+        "CTC_ANTHROPIC_ADAPTIVE_MODELS", "claude-opus-5-5").split(",") if m.strip()
+)
+
 # Resolves auto_mode.model_hints (e.g. ["auto"]) to a concrete model and
 # issues a copilot-session-token used on the following billable call. Not
 # itself billable/metered, but the session token it returns is bound to

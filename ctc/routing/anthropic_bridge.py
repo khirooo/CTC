@@ -11,7 +11,8 @@ transforms (see ``TDD.md`` and ``docs/reference/metering-contract.md``):
   2. filter ``anthropic-beta`` to an allowlist (default drop — Copilot 400s on
      unknown beta values; the real Copilot CLI sends none),
   3. strip ``output_config`` (reasoning-effort / structured-output; Copilot 400s),
-  4. coerce ``thinking`` to Copilot's ``{disabled|between_tools|enabled}`` schema.
+  4. coerce ``thinking`` to Copilot's ``{disabled|between_tools|enabled}`` schema,
+     or pass ``adaptive`` through for models that accept nothing else.
 
 Everything here is pure (no I/O, no logging) and unit-testable. Config lives in
 ``ctc/contract.py``. The proxy applies these ONLY on the billable copilot-api
@@ -40,14 +41,18 @@ def _min_budget(budget: object) -> int:
     return budget if budget >= _MIN_THINKING_BUDGET else _MIN_THINKING_BUDGET
 
 
+def _model_in(model: object, prefixes) -> bool:
+    """Prefix match after lowercasing and mapping "." to "-"."""
+    if not isinstance(model, str):
+        return False
+    m = model.lower().replace(".", "-")
+    return any(m.startswith(p) for p in prefixes)
+
+
 def _off_type(model: object, between_tools_models) -> str:
     """The thinking "off" value this model accepts: ``between_tools`` for models
     that reject ``disabled`` (e.g. Sonnet 5.5), ``disabled`` for everything else."""
-    if isinstance(model, str):
-        m = model.lower().replace(".", "-")
-        if any(m.startswith(p) for p in between_tools_models):
-            return "between_tools"
-    return "disabled"
+    return "between_tools" if _model_in(model, between_tools_models) else "disabled"
 
 
 def is_bridge_request(upstream_host: str, method: str, path: str) -> bool:
@@ -100,13 +105,15 @@ def transform_request_body(
     thinking_mode: Optional[str] = None,
     thinking_budget: Optional[int] = None,
     between_tools_models=None,
+    adaptive_models=None,
 ) -> bytes:
     """Strip Copilot-unsupported top-level fields and coerce ``thinking`` to
     Copilot's accepted schema. Returns the re-serialized body (caller must
     recompute content-length) or the original bytes unchanged if nothing applied
     or the body is not a JSON object.
 
-    Transform 3 (strip output_config) + transform 4 (thinking coercion).
+    Transform 3 (strip output_config) + transform 4 (thinking coercion). Models
+    in ``adaptive_models`` keep ``output_config`` (it is how they set effort).
     """
     if strip_fields is None:
         strip_fields = contract.ANTHROPIC_STRIP_BODY_FIELDS
@@ -116,6 +123,8 @@ def transform_request_body(
         thinking_budget = contract.ANTHROPIC_THINKING_BUDGET
     if between_tools_models is None:
         between_tools_models = contract.ANTHROPIC_BETWEEN_TOOLS_MODELS
+    if adaptive_models is None:
+        adaptive_models = contract.ANTHROPIC_ADAPTIVE_MODELS
 
     try:
         obj = json.loads(body or b"")
@@ -125,8 +134,11 @@ def transform_request_body(
         return body
 
     changed = False
+    adaptive_only = _model_in(obj.get("model"), adaptive_models)
 
     for field in strip_fields:
+        if adaptive_only and field == "output_config":
+            continue
         if field in obj:
             obj.pop(field)
             changed = True
@@ -137,7 +149,14 @@ def transform_request_body(
     # disabled (see _off_type). Claude Code sends {type:"adaptive"} (and may send
     # other future values); coerce anything that isn't an accepted shape.
     th = obj.get("thinking")
-    if isinstance(th, dict):
+    if isinstance(th, dict) and adaptive_only:
+        # Adaptive is the only mode these models take. Anything else is dropped
+        # (not rewritten to adaptive) so a client asking for "off" gets the
+        # model's default rather than thinking it explicitly opted into.
+        if th.get("type") != "adaptive":
+            obj.pop("thinking")
+            changed = True
+    elif isinstance(th, dict):
         th_type = th.get("type")
         off = _off_type(obj.get("model"), between_tools_models)
         if th_type in ("disabled", "between_tools"):
