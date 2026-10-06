@@ -114,3 +114,16 @@ test_menu_eof_exits_clean() {
   assert_exit "$code" 0 "EOF exits the menu cleanly (0)"
   teardown_sandbox
 }
+
+test_claude_banner_shows_model_flag_over_default() {
+  setup_sandbox
+  _menu_setup_env
+  make_stub claude ':'
+  out="$("$CTC_BIN" claude 2>&1)"
+  assert_contains "$out" "model: claude-sonnet-5 " "banner shows the default model without --model"
+  out="$("$CTC_BIN" claude -p hi --model claude-opus-5.5 2>&1)"
+  assert_contains "$out" "model: claude-opus-5.5 " "banner shows --model X"
+  out="$("$CTC_BIN" claude --model=claude-haiku-4.5 2>&1)"
+  assert_contains "$out" "model: claude-haiku-4.5 " "banner shows --model=X"
+  teardown_sandbox
+}

@@ -71,13 +71,13 @@ test_statusline_marks_unlisted_models_as_approximate() {
   make_stub claude ':'
   "$CTC_BIN" claude >/dev/null 2>&1
 
-  # claude-opus-5 is not in Copilot's catalog -> priced off the nearest listed
+  # claude-opus-6 is not in Copilot's catalog -> priced off the nearest listed
   # sibling (claude-opus-4.7) and flagged with a leading "≈".
   t="$SANDBOX/transcript.jsonl"
   cat > "$t" <<'EOF'
-{"type":"assistant","requestId":"r1","message":{"model":"claude-opus-5","usage":{"input_tokens":1000,"output_tokens":1000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+{"type":"assistant","requestId":"r1","message":{"model":"claude-opus-6","usage":{"input_tokens":1000,"output_tokens":1000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 EOF
-  out="$(printf '{"model":{"display_name":"Opus 5"},"workspace":{"current_dir":"%s"},"session_id":"s2","transcript_path":"%s"}' \
+  out="$(printf '{"model":{"display_name":"Opus 6"},"workspace":{"current_dir":"%s"},"session_id":"s2","transcript_path":"%s"}' \
         "$SANDBOX" "$t" | HOME="$cfg/home" python3 "$cfg/home/.claude/statusline.py" 2>&1)"
   # 1000*550000 + 1000*2750000 = 3_300_000_000 nano = 3.30 AIU
   assert_contains "$out" "3.30 AIU" "unlisted opus priced off the nearest listed opus"

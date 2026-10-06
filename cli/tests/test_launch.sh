@@ -152,3 +152,61 @@ test_no_proxy_build_time_rewrite_bakes_default() {
   assert_contains "$(cat "$cfg/home/copilot_out")" "NP=jira.corp.example " "baked default reaches the agent"
   teardown_sandbox
 }
+
+# Login env + a curl stub that "serves" $SANDBOX/served as /ctc at the -o target.
+_update_fixture() {
+  cfg="$HOME/.config/ctc"; mkdir -p "$cfg/home"
+  printf 'export HOME="%s/home"\n' "$cfg" > "$cfg/env"
+  make_stub copilot ':'
+  make_stub curl 'prev=""; for a in "$@"; do if [ "$prev" = "-o" ]; then cat "'"$SANDBOX"'/served" > "$a"; fi; prev="$a"; done'
+}
+
+# The verdict is written by a background job; wait for it (bounded).
+_wait_for_verdict() {
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -f "$cfg/launcher-check" ] && return 0; sleep 0.25
+  done
+}
+
+test_update_check_quiet_when_launcher_matches_server() {
+  setup_sandbox; _update_fixture
+  cp "$CTC_BIN" "$SANDBOX/served"
+  CTC_UPDATE_CHECK=1 "$CTC_BIN" >/dev/null 2>&1; _wait_for_verdict
+  assert_contains "$(sed -n 2p "$cfg/launcher-check")" "ok" "identical served launcher recorded as ok"
+  out="$(CTC_UPDATE_CHECK=1 "$CTC_BIN" 2>&1)"
+  TESTS_RUN=$((TESTS_RUN+1))
+  case "$out" in
+    *"out of date"*) echo "  FAIL: up-to-date launcher warned"; TESTS_FAILED=$((TESTS_FAILED+1));;
+    *) echo "  ok: no warning when the launcher matches the server";;
+  esac
+  teardown_sandbox
+}
+
+test_update_check_warns_on_next_launch_when_server_differs() {
+  setup_sandbox; _update_fixture
+  { cat "$CTC_BIN"; echo "# newer"; } > "$SANDBOX/served"
+  CTC_UPDATE_CHECK=1 "$CTC_BIN" >/dev/null 2>&1; _wait_for_verdict
+  assert_contains "$(sed -n 2p "$cfg/launcher-check")" "stale" "differing served launcher recorded as stale"
+  out="$(CTC_UPDATE_CHECK=1 "$CTC_BIN" 2>&1)"
+  assert_contains "$out" "out of date" "next launch warns the launcher is stale"
+  assert_contains "$out" "/install.sh | sh" "warning says how to update"
+  teardown_sandbox
+}
+
+test_update_check_fetches_at_most_once_a_day() {
+  setup_sandbox; _update_fixture
+  cp "$CTC_BIN" "$SANDBOX/served"
+  printf '%s\nok\n' "$(date +%s)" > "$cfg/launcher-check"
+  CTC_UPDATE_CHECK=1 "$CTC_BIN" >/dev/null 2>&1; sleep 0.5
+  assert_exit "$([ -f "$SANDBOX/curl.log" ] && echo 1 || echo 0)" 0 "fresh verdict -> no fetch"
+  teardown_sandbox
+}
+
+test_update_check_failed_fetch_records_nothing() {
+  setup_sandbox; _update_fixture
+  make_stub curl 'exit 7'
+  CTC_UPDATE_CHECK=1 "$CTC_BIN" >/dev/null 2>&1; code=$?; sleep 0.5
+  assert_exit "$code" 0 "launch still succeeds when the web host is unreachable"
+  assert_exit "$([ -f "$cfg/launcher-check" ] && echo 1 || echo 0)" 0 "no verdict recorded on a failed fetch"
+  teardown_sandbox
+}

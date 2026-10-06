@@ -30,6 +30,37 @@ _apply_no_proxy() {
   export NO_PROXY no_proxy="$NO_PROXY"
 }
 
+# Warn when this launcher differs from the one the server ships. ctc never
+# updates itself, so a stale install silently keeps fixed bugs (a pre-d716855
+# copy failed every price fetch for a month unnoticed). The compare runs in the
+# BACKGROUND at most once a day and only records a verdict; the warning comes
+# from the previous verdict, so a launch never waits on the web host. Called
+# before the login env is sourced: the fetch goes the same way install.sh did.
+# CTC_UPDATE_CHECK=0 disables it.
+_check_launcher_update() {
+  [ "${CTC_UPDATE_CHECK:-1}" != "0" ] || return 0
+  local state last self
+  state="$(_config_dir)/launcher-check"
+  self="${BASH_SOURCE[0]}"
+  if [ "$(sed -n 2p "$state" 2>/dev/null)" = "stale" ]; then
+    echo "ctc: this launcher is out of date (the server has a different one). Update with:" >&2
+    echo "  curl -fsSLk $CTC_SCHEME://$CTC_HOST/install.sh | sh" >&2
+  fi
+  last="$(sed -n 1p "$state" 2>/dev/null || true)"   # no state yet is normal
+  case "$last" in ''|*[!0-9]*) last=0;; esac
+  [ $(( $(date +%s) - last )) -ge 86400 ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  (
+    tmp="$(mktemp)" || exit 0
+    if curl -fsSLk --max-time 10 "$CTC_SCHEME://$CTC_HOST/ctc" -o "$tmp" && [ -s "$tmp" ]; then
+      if cmp -s "$tmp" "$self"; then verdict=ok; else verdict=stale; fi
+      mkdir -p "$(dirname "$state")" &&
+        printf '%s\n%s\n' "$(date +%s)" "$verdict" > "$state.tmp" && mv "$state.tmp" "$state"
+    fi
+    rm -f "$tmp"
+  ) >/dev/null 2>&1 &
+}
+
 ctc_usage() {
   cat <<'EOF'
 CTC — launch GitHub Copilot CLI through the CTC credit proxy.
@@ -140,6 +171,7 @@ cmd_copilot() {
     echo "ctc: not set up yet. Run 'ctc login' first." >&2
     exit 1
   fi
+  _check_launcher_update
   real_home="$HOME"                         # capture BEFORE sourcing overrides it
   # shellcheck disable=SC1090
   . "$env"                                  # overrides HOME/XDG_*/GH_HOST/token/proxy
@@ -284,18 +316,24 @@ from pathlib import Path
 PRICES = {
     # Copilot's live catalog as of 2026-08-18 (operator screenshot of the model
     # picker; ids inferred from display names where not in the 2026-06-20
-    # capture). A live `GET /models` fetch overrides all of this — see
+    # capture), Claude rows re-checked against `GET /models` billing.token_prices
+    # on 2026-10-06. A live `GET /models` fetch overrides all of this — see
     # _refresh_model_prices. Values are Copilot's own token_prices; x1000 = nano-AIU/token.
     "claude-haiku-4.5":       (110,  550,  11, 137),
     "claude-opus-4.5":        (550, 2750,  55, 687),
     "claude-opus-4.6":        (550, 2750,  55, 687),
     "claude-opus-4.7":        (550, 2750,  55, 687),
     "claude-opus-4.8":        (550, 2750,  55, 687),
+    "claude-opus-5":          (550, 2750,  55, 687),
+    # Opus 5.5 is cheaper than Opus 5 on Copilot (440/2200), not the same tier.
+    "claude-opus-5.5":        (440, 2200,  22, 550),
     "claude-sonnet-4.5":      (330, 1650,  33, 412),
     "claude-sonnet-4.6":      (330, 1650,  33, 412),
     # Sonnet 5 bills at Anthropic's $2/$10 intro rate, NOT list $3/$15 — Copilot
-    # passes the promo through. Re-check after it lapses (upstream: 2026-08-31).
+    # passes the promo through. Still 220/1100 on 2026-10-06, past the announced
+    # 2026-08-31 end; the live fetch picks up the change whenever it lands.
     "claude-sonnet-5":        (220, 1100,  22, 275),
+    "claude-sonnet-5.5":      (220, 1100,  22, 275),
     "gemini-3.5-flash":       (165,  990,  16,   0),
     "gpt-5-mini":             ( 27,  220,   2,   0),
     "gpt-5.3-codex":          (192, 1540,  19,   0),
@@ -307,12 +345,10 @@ PRICES = {
     "gpt-5.6-terra":          (220, 1320,  22, 275),
     "mai-code-1-flash":       ( 82,  495,   8,   0),
     "<synthetic>":            (  0,    0,   0,   0),   # local/error message, never billed
-    # Not in Copilot's catalog at all, but `ctc claude` can run on it: priced
-    # from Anthropic list ($5/$25 per Mtok) at the same 1 AIU = $1/110 anchor.
-    "claude-opus-5":          (550, 2750,  55, 687),
 }
 # Priced from list, not from Copilot's catalog — shown with a leading "≈".
-DERIVED = {"claude-opus-5"}
+# Empty while every row above comes from Copilot's own catalog.
+DERIVED = set()
 
 # Live catalog, refreshed once a day by `ctc claude` (see _refresh_model_prices).
 # Anything it confirms overrides the baked-in table and counts as exact. The
@@ -594,6 +630,7 @@ cmd_claude() {
     echo "ctc: not set up yet. Run 'ctc login' first." >&2
     exit 1
   fi
+  _check_launcher_update
   # shellcheck disable=SC1090
   . "$env"          # HOME/XDG_*/COPILOT_GITHUB_TOKEN(=CTC token)/HTTPS_PROXY/NODE_EXTRA_CA_CERTS
   _apply_no_proxy
@@ -614,9 +651,16 @@ cmd_claude() {
   fi
   _install_claude_statusline                # AIU cost readout; best-effort
   _refresh_model_prices                     # live price table; background, best-effort
+  # A --model flag beats ANTHROPIC_MODEL inside Claude Code, so show that one.
+  local model="$ANTHROPIC_MODEL" prev=""
+  for a in "$@"; do
+    case "$a" in --model=*) model="${a#--model=}";; esac
+    [ "$prev" = "--model" ] && model="$a"
+    prev="$a"
+  done
   printf '\033]0;CTC ◆ claude\007' >&2
   echo "◆ CTC mode — Claude Code on the Copilot backend (credits via the donation pool)" >&2
-  echo "  model: $ANTHROPIC_MODEL  (small/fast: $ANTHROPIC_SMALL_FAST_MODEL)" >&2
+  echo "  model: $model  (small/fast: $ANTHROPIC_SMALL_FAST_MODEL)" >&2
   exec claude "$@"
 }
 

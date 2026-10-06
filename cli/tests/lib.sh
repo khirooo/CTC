@@ -10,6 +10,7 @@ setup_sandbox() {
   STUBS="$SANDBOX/stubs"; mkdir -p "$STUBS"
   export PATH="$STUBS:$PATH"
   unset XDG_STATE_HOME XDG_CACHE_HOME 2>/dev/null || true
+  export CTC_UPDATE_CHECK=0   # no background fetch of the served launcher; tests opt back in
 }
 teardown_sandbox() { rm -rf "$SANDBOX"; }
 
