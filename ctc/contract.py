@@ -108,9 +108,12 @@ ANTHROPIC_BETWEEN_TOOLS_MODELS: tuple[str, ...] = tuple(
 #     "output_config.effort" to control thinking behavior'). For these the
 #     bridge forwards adaptive and output_config untouched and drops any other
 #     thinking value so the model's default applies. Same matching rules as 4b.
+#     claude-sonnet-5 also takes enabled/disabled, but Copilot's /models lists
+#     adaptive_thinking + reasoning_effort for it and Claude Code sends adaptive,
+#     so forwarding it keeps ctc claude thinking like native Claude Code does.
 ANTHROPIC_ADAPTIVE_MODELS: tuple[str, ...] = tuple(
     m.strip().lower().replace(".", "-") for m in os.environ.get(
-        "CTC_ANTHROPIC_ADAPTIVE_MODELS", "claude-opus-5-5").split(",") if m.strip()
+        "CTC_ANTHROPIC_ADAPTIVE_MODELS", "claude-opus-5-5,claude-sonnet-5").split(",") if m.strip()
 )
 
 # Resolves auto_mode.model_hints (e.g. ["auto"]) to a concrete model and

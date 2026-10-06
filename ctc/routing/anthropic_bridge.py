@@ -42,11 +42,21 @@ def _min_budget(budget: object) -> int:
 
 
 def _model_in(model: object, prefixes) -> bool:
-    """Prefix match after lowercasing and mapping "." to "-"."""
+    """Prefix match after lowercasing and mapping "." to "-". A short numeric
+    segment right after the prefix is a minor version, i.e. a different model:
+    "claude-sonnet-5" matches "claude-sonnet-5-20260101" but not
+    "claude-sonnet-5-5"."""
     if not isinstance(model, str):
         return False
     m = model.lower().replace(".", "-")
-    return any(m.startswith(p) for p in prefixes)
+    for p in prefixes:
+        if m == p:
+            return True
+        if m.startswith(p + "-"):
+            seg = m[len(p) + 1:].split("-", 1)[0]
+            if not (seg.isdigit() and len(seg) < 8):
+                return True
+    return False
 
 
 def _off_type(model: object, between_tools_models) -> str:

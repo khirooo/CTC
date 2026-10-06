@@ -137,7 +137,7 @@ def test_thinking_disabled_rewritten_to_between_tools_for_sonnet_55():
     assert json.loads(out)["thinking"] == {"type": "between_tools"}
 
 
-@pytest.mark.parametrize("model", ("claude-sonnet-5", "claude-opus-4.6", "claude-haiku-4.5", None))
+@pytest.mark.parametrize("model", ("claude-opus-4.6", "claude-haiku-4.5", None))
 def test_thinking_between_tools_rewritten_to_disabled_for_other_models(model):
     body = json.dumps({"model": model, "thinking": {"type": "between_tools"}}).encode()
     out = anthropic_bridge.transform_request_body(body)
@@ -206,6 +206,28 @@ def test_output_config_still_stripped_for_other_models():
     out = json.loads(anthropic_bridge.transform_request_body(body))
     assert "output_config" not in out
     assert out["thinking"] == {"type": "disabled"}
+
+
+SONNET_5_MODELS = ("claude-sonnet-5", "claude-sonnet-5-20260801", "Claude-Sonnet-5")
+
+
+@pytest.mark.parametrize("model", SONNET_5_MODELS)
+def test_adaptive_and_output_config_pass_through_for_sonnet_5(model):
+    """Copilot lists adaptive_thinking + reasoning_effort for Sonnet 5; forward
+    them so ctc claude thinks like native Claude Code."""
+    body = json.dumps({"model": model, "thinking": {"type": "adaptive", "display": "omitted"},
+                       "output_config": {"effort": "medium"}}).encode()
+    assert anthropic_bridge.transform_request_body(body) == body
+
+
+@pytest.mark.parametrize("model", SONNET_55_MODELS)
+def test_sonnet_5_entry_does_not_match_sonnet_55(model):
+    """The claude-sonnet-5 entry must not swallow Sonnet 5.5 (between_tools)."""
+    body = json.dumps({"model": model, "thinking": {"type": "adaptive"},
+                       "output_config": {"effort": "low"}}).encode()
+    out = json.loads(anthropic_bridge.transform_request_body(body))
+    assert out["thinking"] == {"type": "between_tools"}
+    assert "output_config" not in out
 
 
 def test_adaptive_models_configurable():
