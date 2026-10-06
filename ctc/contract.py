@@ -76,10 +76,13 @@ ANTHROPIC_BETA_ALLOWLIST: frozenset[str] = frozenset(
 
 # 3. Top-level body fields to strip. output_config carries reasoning-effort /
 #    structured-output settings that Copilot rejects ("model does not support
-#    reasoning effort" 400 for e.g. haiku).
+#    reasoning effort" 400 for e.g. haiku). context_management is sent whenever
+#    Claude Code's experimental betas are on; Copilot 400s on it ("Extra inputs
+#    are not permitted"). Stripping it here lets the launcher leave betas on, so
+#    tool search defers tool schemas instead of inlining all of them.
 ANTHROPIC_STRIP_BODY_FIELDS: frozenset[str] = frozenset(
     f.strip() for f in os.environ.get(
-        "CTC_ANTHROPIC_STRIP_FIELDS", "output_config").split(",") if f.strip()
+        "CTC_ANTHROPIC_STRIP_FIELDS", "output_config,context_management").split(",") if f.strip()
 )
 
 # 4. thinking coercion. Claude Code sends thinking:{type:"adaptive"}; Copilot's

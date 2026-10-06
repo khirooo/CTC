@@ -77,9 +77,6 @@ def test_no_beta_header_is_noop():
     assert "anthropic-beta" not in out
 
 
-# --------------------------------------------------------------------------
-# Transform 3: strip output_config
-# --------------------------------------------------------------------------
 def test_output_config_stripped():
     body = json.dumps({
         "model": "claude-haiku-4.5",
@@ -186,6 +183,21 @@ def test_opus_55_ignores_global_enabled_mode():
     body = json.dumps({"model": "claude-opus-5.5", "thinking": {"type": "adaptive"}}).encode()
     out = anthropic_bridge.transform_request_body(body, thinking_mode="enabled")
     assert json.loads(out)["thinking"] == {"type": "adaptive"}
+
+
+def test_context_management_stripped():
+    body = json.dumps({"model": "claude-sonnet-5", "messages": [],
+                       "context_management": {"edits": [{"type": "clear_thinking_20251015"}]}}).encode()
+    obj = json.loads(anthropic_bridge.transform_request_body(body))
+    assert "context_management" not in obj
+
+
+def test_context_management_stripped_for_adaptive_models():
+    body = json.dumps({"model": "claude-opus-5-5", "messages": [], "thinking": {"type": "adaptive"},
+                       "context_management": {"edits": []}}).encode()
+    obj = json.loads(anthropic_bridge.transform_request_body(body))
+    assert "context_management" not in obj
+    assert obj["thinking"] == {"type": "adaptive"}
 
 
 def test_output_config_still_stripped_for_other_models():

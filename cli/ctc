@@ -712,7 +712,13 @@ cmd_claude() {
   # defaults to claude-fable-5 (not hosted by Copilot -> instant 400).
   export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-claude-sonnet-5}"
   export ANTHROPIC_SMALL_FAST_MODEL="${ANTHROPIC_SMALL_FAST_MODEL:-claude-haiku-4.5}"
-  export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+  # Leave experimental betas on: the bridge strips the context_management field
+  # Copilot rejects, and tool search keeps ~20 tool schemas out of every prompt.
+  export ENABLE_TOOL_SEARCH="${ENABLE_TOOL_SEARCH:-true}"
+  # Natively the org policy (policy_limits allow_workflows=false) hides the
+  # Workflow tool; with a custom base URL that policy is never fetched, so
+  # Claude Code would inline its schema (+~8k tokens/request). Match the policy.
+  export CLAUDE_CODE_DISABLE_WORKFLOWS="${CLAUDE_CODE_DISABLE_WORKFLOWS:-1}"
   export CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1
   if ! command -v claude >/dev/null 2>&1; then
     echo "ctc: 'claude' (Anthropic Claude Code CLI) not found on PATH." >&2
