@@ -53,7 +53,7 @@ One VM runs three containers that share one database:
 ```mermaid
 flowchart TB
     subgraph VM["one Linux VM"]
-        Caddy["Caddy :443<br/>HTTPS · web app · /ctc-ca.pem · /install.sh<br/>proxies /api + /auth"]
+        Caddy["Caddy :443<br/>HTTPS · web app · /ctc-ca.pem · /install.sh · /install.ps1<br/>proxies /api + /auth"]
         CP["control-plane :8090<br/>(internal)"]
         PX["proxy :8080<br/>(VPN/internal only)"]
         DB[("shared volume:<br/>ctc.db + cert")]
@@ -278,11 +278,26 @@ Once it's up, a teammate:
 
 1. opens `https://<your-domain>`, logs in with GitLab, and is walked through a
    short **first-run setup** (or later, the Settings → "Set up CLI" panel) that
-   hands them a ready-to-run install one-liner with their token baked in;
+   hands them a ready-to-run install one-liner with their token baked in, for
+   their OS;
 2. runs that one-liner —
-   `curl -fsSL https://<your-domain>/install.sh | sh -s -- --token <their-token>` —
-   which installs `ctc` **and** logs in (downloads + trusts the cert) in one step,
-   then runs `ctc` to use Copilot.
+
+   **macOS:**
+   `curl -fsSL https://<your-domain>/install.sh | sh -s -- --token <their-token>`
+
+   **Windows (PowerShell):**
+   `curl.exe -fsSLko "$env:TEMP\ctc-install.ps1" https://<your-domain>/install.ps1; powershell -NoProfile -File "$env:TEMP\ctc-install.ps1" -Token <their-token>`
+
+   — which installs `ctc` **and** logs in (downloads + trusts the cert — a
+   `sudo` password prompt on macOS, a native certificate-confirmation dialog on
+   Windows, no admin needed) in one step, then runs `ctc` to use Copilot.
+
+Both one-liners hit scripts Caddy serves as static files — `/install.sh` +
+`/ctc` (macOS) and `/install.ps1` + `/ctc.ps1` (Windows). The web image's
+Dockerfile bakes the same deployment values (`CTC_DOMAIN`, `GHE_DOMAIN`,
+`CTC_WEB_SCHEME`, `CTC_PROXY_PUBLIC_PORT`, `CTC_PROXY_HOST`, `CTC_NO_PROXY`)
+into both script pairs at build time, so whichever OS a teammate is on, the
+one-liner they copy from the dashboard already points at the right host.
 
 See [02 · The `ctc` command](02-the-cli-launcher.md) for that side.
 

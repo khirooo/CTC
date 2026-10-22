@@ -441,7 +441,13 @@ export function makeFakeApi(opts?: FakeApiOpts): FakeApi {
       if (!session) throw new Error('Not authenticated');
       const body = (session.userId.replace(/[^a-zA-Z0-9]/g, '') + 'CTC0000000000000000000000000000000000').slice(0, 36);
       proxyTokens = [...proxyTokens, { id: `tok_${++_idCounter}`, fingerprint: body.slice(0, 8), createdAt: Math.floor(getNow() / 1000), revoked: false }];
-      return { token: `github_pat_${body}`, proxyHost: 'ctc.local:8080', installCommand: `curl -fsSLk https://ctc.local/install.sh | sh -s -- --token github_pat_${body}`, caFingerprint: 'AA:BB:CC:DD' };
+      return {
+        token: `github_pat_${body}`,
+        proxyHost: 'ctc.local:8080',
+        installCommand: `curl -fsSLk https://ctc.local/install.sh | sh -s -- --token github_pat_${body}`,
+        installCommandWindows: `curl.exe -fsSLko "$env:TEMP\\ctc-install.ps1" https://ctc.local/install.ps1; powershell -NoProfile -File "$env:TEMP\\ctc-install.ps1" -Token github_pat_${body}`,
+        caFingerprint: 'AA:BB:CC:DD',
+      };
     },
     async listProxyTokens() { return proxyTokens.filter(t => !t.revoked); },
     async revokeProxyToken(id: string) { proxyTokens = proxyTokens.map(t => t.id === id ? { ...t, revoked: true } : t); },

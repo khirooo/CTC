@@ -16,6 +16,11 @@ _(nothing active)_
 
 ## Later / ideas
 
+- **Linux launcher.** `cli/ctc`/`cli/install.sh` (macOS) and `cli/ctc.ps1`/
+  `cli/install.ps1` (Windows) now cover both platforms the install one-liner
+  targets; Linux still has no native launcher — teammates there use the manual
+  setup in `TDD.md` §6.3. A `cli/install.sh` port (cert trust via
+  `update-ca-certificates` instead of the macOS keychain) would close this gap.
 - **Run CTC from inside the Copilot CLI.** Let users drive CTC commands without
   leaving the CLI. Preferred approach: an MCP server (clean, structured) over
   proxy-side text-regex interception. (Partly addressed: the `ctc` launcher now

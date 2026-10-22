@@ -142,7 +142,7 @@ export class HttpCtcApi implements CtcApi {
   getLeaderboard(): Promise<Leaderboard> { return this.getJson('/leaderboard'); }
   getOwnProfile(opts?: { fresh?: boolean }): Promise<OwnProfile> { return this.getJson(opts?.fresh ? '/profile?fresh=1' : '/profile'); }
   getHistory(): Promise<CycleReport[]> { return this.getJson('/history'); }
-  async getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null }> {
+  async getCliCredentials(): Promise<{ token: string; proxyHost: string; installCommand: string; installCommandWindows: string; caFingerprint: string | null }> {
     const minted = await apiFetch(this.base, '/proxy-token', { method: 'POST' });
     const ctcHost = (import.meta.env.VITE_CTC_HOST as string | undefined) ?? 'localhost';
     // Match the scheme the app was actually loaded over: an http-mode deployment
@@ -153,10 +153,17 @@ export class HttpCtcApi implements CtcApi {
     // below instead). Never send -k over plain http, where it invites a MITM'd
     // script swap for no benefit.
     const curlFlags = scheme === 'https' ? '-fsSLk' : '-fsSL';
+    // Windows: curl.exe's -k is the same flag; mirror the macOS rule (https only).
+    // This is deliberately NOT a download cradle (no iex/scriptblock/-ExecutionPolicy
+    // Bypass) — EDR tooling flags in-memory remote-script execution. Instead it
+    // downloads install.ps1 to a file and runs that file, which AMSI/script-block
+    // logging see like any other local script.
+    const curlFlagsWindows = scheme === 'https' ? '-fsSLko' : '-fsSLo';
     return {
       token: minted.token,
       proxyHost: (import.meta.env.VITE_PROXY_HOST as string | undefined) ?? 'localhost:8080',
       installCommand: `curl ${curlFlags} ${scheme}://${ctcHost}/install.sh | sh -s -- --token ${minted.token}`,
+      installCommandWindows: `curl.exe ${curlFlagsWindows} "$env:TEMP\\ctc-install.ps1" ${scheme}://${ctcHost}/install.ps1; powershell -NoProfile -File "$env:TEMP\\ctc-install.ps1" -Token ${minted.token}`,
       caFingerprint: minted.ca_fingerprint ?? null,
     };
   }

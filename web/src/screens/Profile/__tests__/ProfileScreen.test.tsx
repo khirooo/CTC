@@ -66,7 +66,7 @@ function makeApi(overrides?: Partial<Record<string, unknown>>) {
     getSession: vi.fn(async () => giverSession),
     getOwnProfile: vi.fn(async () => giverProfile),
     getSettings: vi.fn(async () => giverSettings),
-    getCliCredentials: vi.fn(async () => ({ token: 'tok', proxyHost: 'localhost:8080', installCommand: 'ctc install', caFingerprint: null })),
+    getCliCredentials: vi.fn(async () => ({ token: 'tok', proxyHost: 'localhost:8080', installCommand: 'ctc install', installCommandWindows: 'ctc install.ps1', caFingerprint: null })),
     listProxyTokens: vi.fn(async () => []),
     ...overrides,
   };
@@ -211,6 +211,29 @@ describe('ProfileScreen CLI setup: mint only on explicit action', () => {
 
     await userEvent.click(btn);
     await waitFor(() => expect(api.getCliCredentials).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows an OS switch defaulting to macOS, and swaps to the Windows command on click', async () => {
+    const api = makeApi();
+    render(
+      <MemoryRouter>
+        <AppProvider api={api as any}>
+          <ProfileScreen />
+        </AppProvider>
+      </MemoryRouter>,
+    );
+    const btn = await screen.findByRole('button', { name: /generate install command/i });
+    await userEvent.click(btn);
+
+    const macTab = await screen.findByRole('tab', { name: /macos/i });
+    const winTab = screen.getByRole('tab', { name: /windows/i });
+    expect(macTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('ctc install')).toBeInTheDocument();
+
+    await userEvent.click(winTab);
+    expect(winTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('ctc install.ps1')).toBeInTheDocument();
+    expect(screen.queryByText('ctc install')).not.toBeInTheDocument();
   });
 
   it('lists only non-revoked tokens as active (revoked rows are kept for history)', async () => {

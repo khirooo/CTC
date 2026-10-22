@@ -136,8 +136,10 @@ it with the slider, then save.
 ### 4. Set up the `ctc` command
 
 To run Copilot through CTC you install a small launcher called `ctc`. On your
-**profile**, open **Set up CLI** and **copy the one-line command** — your personal
-token is already baked in:
+**profile**, open **Set up CLI** and **copy the one-line command** for your OS —
+your personal token is already baked in:
+
+**macOS:**
 
 ```bash
 curl -fsSL https://<ctc-host>/install.sh | sh -s -- --token <your-token>
@@ -146,6 +148,16 @@ curl -fsSL https://<ctc-host>/install.sh | sh -s -- --token <your-token>
 Paste it into your terminal and run it. It installs `ctc`, trusts CTC's
 certificate (you'll be asked for your password once), and logs you in. Copy the
 exact line from your profile rather than typing this — it carries your token.
+
+**Windows (PowerShell):**
+
+```powershell
+curl.exe -fsSLko "$env:TEMP\ctc-install.ps1" https://<ctc-host>/install.ps1; powershell -NoProfile -File "$env:TEMP\ctc-install.ps1" -Token <your-token>
+```
+
+Same idea: it installs `ctc`, trusts CTC's certificate, and logs you in — except
+Windows asks you to **confirm installing the certificate** in a native dialog
+instead of a password prompt, and no admin rights are needed.
 
 ### 5. Use Copilot
 
