@@ -129,7 +129,8 @@ temporary cert, a confirmed **paid** model in `CANARY_MODEL`, and a dedicated
 > path is **macOS-only**. So the canary can't actually run end-to-end yet — it
 > needs that invocation finished (and validated against a real Copilot install)
 > before it's a turnkey monitor. (The always-on **sentinel** already works; only
-> the active canary is pending.)
+> the active canary is pending.) This is independent of the `ctc` launcher's
+> Windows support — the canary stays macOS-only regardless of client OS.
 
 ---
 

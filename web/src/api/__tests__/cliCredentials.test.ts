@@ -42,6 +42,7 @@ describe('getCliCredentials (HttpCtcApi)', () => {
     expect(creds.installCommand).toContain('curl -fsSL ');
     expect(creds.installCommand).not.toContain('-fsSLk');
     expect(creds).toHaveProperty('caFingerprint');
+    expect(creds.installCommandWindows).toContain('install.ps1');
   });
 
   it('installCommand embeds the token as a --token one-liner', async () => {
@@ -65,6 +66,43 @@ describe('getCliCredentials (HttpCtcApi)', () => {
     mockFetch(200, { token: 'github_pat_' + 'E'.repeat(36), ca_fingerprint: null });
     const creds = await api.getCliCredentials();
     expect(creds.installCommand).toContain('curl -fsSLk https://');
+  });
+
+  describe('installCommandWindows', () => {
+    // Falcon/EDR heuristics flag the classic PowerShell "download cradle"
+    // (irm | iex, scriptblock-from-string, -ExecutionPolicy Bypass) as a code
+    // injection IOA. The Windows one-liner must instead download install.ps1
+    // to a file and run that file — see TDD plan "Web app"/"EDR" sections.
+    const FORBIDDEN = [/\biex\b/i, /Invoke-Expression/i, /Bypass/i, /\|\s*powershell/i, /\|\s*iex/i];
+
+    it('downloads to a file and runs it as a file under https, with curl -k (self-signed CA)', async () => {
+      Object.defineProperty(window, 'location', { value: { protocol: 'https:' }, writable: true, configurable: true });
+      const fakeToken = 'github_pat_' + 'F'.repeat(36);
+      mockFetch(200, { token: fakeToken, ca_fingerprint: null });
+      const creds = await api.getCliCredentials();
+      const cmd = creds.installCommandWindows;
+      expect(cmd).toContain('install.ps1');
+      expect(cmd).toContain(`-Token ${fakeToken}`);
+      expect(cmd).toContain('powershell -NoProfile -File');
+      expect(cmd).toContain('curl.exe -fsSLko');
+      expect(cmd).toContain('https://');
+      for (const pattern of FORBIDDEN) expect(cmd).not.toMatch(pattern);
+    });
+
+    it('omits -k under plain http', async () => {
+      Object.defineProperty(window, 'location', { value: { protocol: 'http:' }, writable: true, configurable: true });
+      const fakeToken = 'github_pat_' + 'G'.repeat(36);
+      mockFetch(200, { token: fakeToken, ca_fingerprint: null });
+      const creds = await api.getCliCredentials();
+      const cmd = creds.installCommandWindows;
+      expect(cmd).toContain('install.ps1');
+      expect(cmd).toContain(`-Token ${fakeToken}`);
+      expect(cmd).toContain('powershell -NoProfile -File');
+      expect(cmd).toContain('curl.exe -fsSLo ');
+      expect(cmd).not.toContain('-fsSLko');
+      expect(cmd).toContain('http://');
+      for (const pattern of FORBIDDEN) expect(cmd).not.toMatch(pattern);
+    });
   });
 
   it('calls POST /proxy-token on each invocation (server owns idempotency, not the client)', async () => {

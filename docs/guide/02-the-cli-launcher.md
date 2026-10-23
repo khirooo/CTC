@@ -120,19 +120,75 @@ tells you the command to remove the cert if you ever want to.)
 
 ### Platform note
 
-The launcher is **macOS-only** for now, because the automatic certificate-trust
-step uses the macOS `security` tool. On Linux/Windows you can do the same setup
-by hand — see [`TDD.md`](../../TDD.md) §6.3.
+`cli/ctc` (Bash) is **macOS-only** — its automatic certificate-trust step uses
+the macOS `security` tool. There's also a **native Windows launcher**,
+`cli/ctc.ps1` (+ `cli/install.ps1`), covering the same ground the PowerShell
+way — see below. Linux has neither yet: do the same setup by hand — see
+[`TDD.md`](../../TDD.md) §6.3.
 
-> ### ⚠️ TODO — Windows / cross-platform launcher
-> The mechanism is OS-agnostic (set env vars → trust the CA cert → run
-> `copilot`), but `cli/ctc` is a Bash script and only automates the **macOS**
-> cert trust. A **Windows launcher** (e.g. a PowerShell `ctc.ps1`) needs to do
-> the same three steps the Windows way — env + isolated home under `%APPDATA%`,
-> trust the cert via `Import-Certificate` into the machine Root store (admin),
-> then run `copilot` — and confirm Copilot honours `HTTPS_PROXY` + the trusted
-> cert there. Until then, Windows/Linux users use the manual setup in
-> [`TDD.md`](../../TDD.md) §6.3. (May be subsumed by the planned CLI rework.)
+### Windows
+
+`cli/ctc.ps1` and `cli/install.ps1` are a **native PowerShell port** — zero
+extra dependencies (no Python, WSL, or Git Bash required; built-in Windows
+PowerShell 5.1 is enough, though `pwsh` is used when present). The one-liner
+from the website's "Set up CLI" panel looks like this on Windows:
+
+```powershell
+curl.exe -fsSLko "$env:TEMP\ctc-install.ps1" https://<ctc-host>/install.ps1
+powershell -NoProfile -File "$env:TEMP\ctc-install.ps1" -Token <your-proxy-token>
+```
+
+It downloads the installer **to a file first, then runs it as a file** —
+deliberately not a `curl | iex` download cradle, which is a pattern security
+tools commonly flag. It never passes `-ExecutionPolicy Bypass` either. If your
+effective policy is `Restricted` (the Windows client default), PowerShell itself
+refuses to start the installer with *"running scripts is disabled on this
+system"*; run this once in your own, non-admin PowerShell and re-run the
+one-liner:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+The installer also re-checks the effective policy and prints the same hint
+rather than ever working around it.
+
+**Certificate trust, without admin.** `ctc login` trusts CTC's certificate in
+`Cert:\CurrentUser\Root` by default — Windows shows its native "install this
+certificate?" confirmation dialog, no password or elevation needed. That's a
+deliberate choice over the machine-wide store: it keeps the install one-liner
+from ever needing to elevate (the earlier security guidance for the macOS
+launcher was specifically about **not** having the website's one-liner invoke
+`sudo`/admin — see the plan's EDR assessment). If you need the certificate
+trusted for *all* users on the machine, run `ctc login -Machine` yourself from
+a shell **you've already elevated**; the launcher never self-elevates (no
+`Start-Process -Verb RunAs`).
+
+**Environment.** The same isolation trick applies, translated to Windows
+conventions:
+
+| Variable | Why |
+|---|---|
+| `HTTPS_PROXY=http://<ctc-host>:8080` | Routes Copilot/Claude traffic through the CTC Proxy. |
+| `COPILOT_GITHUB_TOKEN=<your proxy token>` | The throwaway token that identifies you to CTC. |
+| `GH_HOST=example.ghe.com` | Tells Copilot it's talking to the GitHub Enterprise host. |
+| `USERPROFILE=%APPDATA%\ctc\home` (+ `HOME` and `XDG_CONFIG_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME` under it) | The isolation trick on Windows — Node's `os.homedir()` reads `USERPROFILE`, not `HOME`. |
+| `NODE_EXTRA_CA_CERTS=%APPDATA%\ctc\ca.pem` | Extra cert trust for Node-based tools. |
+
+**The `/ide` bridge** works the same way as macOS, substituting a **directory
+junction** (`New-Item -ItemType Junction`, no admin or Developer Mode required)
+for the Unix symlink, bridging `%USERPROFILE%\.copilot\ide` into the isolated
+home.
+
+**Why no shortcuts.** The design deliberately avoids patterns security tooling
+(e.g. CrowdStrike Falcon) commonly scores as malicious: no download cradle, no
+`-ExecutionPolicy Bypass`, no hidden/background PowerShell windows (the
+update-check, price-refresh, and ledger-poll background work all run as
+runspaces *inside* the visible launcher process instead — PowerShell has no
+`exec`, so the launcher stays alive as the agent's parent anyway), no
+`certutil`, no `Unblock-File`, no TLS-validation-callback overrides, and no
+obfuscation (`-EncodedCommand`, base64, string-built commands). A Pester
+hygiene test greps both scripts for these patterns on every change.
 
 **Next:** how logging in and the two kinds of tokens work →
 [03 · Identity & login](03-identity-and-login.md).

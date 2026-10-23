@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { loadSetupState, saveSetupState } from '@/domain/setupState';
-import { TerminalBlock } from '@/components/TerminalBlock';
+import { InstallCommand } from '@/components/InstallCommand';
 
 /**
  * "Finish setting up" card pinned at the top of the dashboard until every
@@ -16,7 +16,7 @@ export function SetupChecklist() {
   const navigate = useNavigate();
   const [state, setState] = useState(() => (session ? loadSetupState(session.userId) : null));
   const [expanded, setExpanded] = useState(false);
-  const [cli, setCli] = useState<{ installCommand: string; caFingerprint: string | null } | null>(null);
+  const [cli, setCli] = useState<{ installCommand: string; installCommandWindows: string; caFingerprint: string | null } | null>(null);
   const [cliError, setCliError] = useState(false);
 
   if (!session || !state || state.checklistDismissed) return null;
@@ -42,7 +42,7 @@ export function SetupChecklist() {
     if (next && !cli) {
       try {
         const creds = await api.getCliCredentials();
-        setCli({ installCommand: creds.installCommand, caFingerprint: creds.caFingerprint });
+        setCli({ installCommand: creds.installCommand, installCommandWindows: creds.installCommandWindows, caFingerprint: creds.caFingerprint });
       } catch {
         setCliError(true);
       }
@@ -108,9 +108,10 @@ export function SetupChecklist() {
               <div style={{ margin: '10px 0 4px 28px' }}>
                 {cli ? (
                   <>
-                    <TerminalBlock
-                      command={cli.installCommand}
-                      caption="Paste in a terminal and press Enter — installs the ctc launcher with your token baked in. Then type ctc to start Copilot."
+                    <InstallCommand
+                      commandMac={cli.installCommand}
+                      commandWindows={cli.installCommandWindows}
+                      captionMac="Paste in a terminal and press Enter — installs the ctc launcher with your token baked in. Then type ctc to start Copilot."
                     />
                     <button type="button" onClick={() => set({ installAck: true })} style={{ ...linkBtn, marginTop: 10 }}>
                       ✓ Mark as done

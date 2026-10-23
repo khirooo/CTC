@@ -7,7 +7,7 @@ import { aiu } from '@/domain/credit';
 import { Card, ColorKey, SecretInput } from '@/components';
 import { ScreenStatus } from '@/components/ScreenStatus';
 import { CreditBar, CreditLegend, PledgePresets, type BarSegment } from '@/components/CreditBar';
-import { TerminalBlock } from '@/components/TerminalBlock';
+import { InstallCommand } from '@/components/InstallCommand';
 import { InfoTip } from '@/components/InfoTip';
 import { PatHelp } from '@/components/PatHelp';
 import { PatHealthBadge } from '@/components/PatHealthBadge';
@@ -89,7 +89,7 @@ export function ProfileScreen() {
   const [patInput, setPatInput] = useState('');
   const [rotating, setRotating] = useState(false);
   const [revoking, setRevoking] = useState(false);
-  const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null } | null>(null);
+  const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; installCommandWindows: string; caFingerprint: string | null } | null>(null);
   const [minting, setMinting] = useState(false);
   const [mintError, setMintError] = useState<string | null>(null);
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
@@ -627,9 +627,10 @@ export function ProfileScreen() {
         </p>
         {cli ? (
           <>
-            <TerminalBlock
-              command={cli.installCommand}
-              caption="Paste in a terminal and press Enter, then type ctc to start Copilot through CTC."
+            <InstallCommand
+              commandMac={cli.installCommand}
+              commandWindows={cli.installCommandWindows}
+              captionMac="Paste in a terminal and press Enter, then type ctc to start Copilot through CTC."
             />
             <p style={{ color: 'var(--text-faint)', fontSize: 11, marginTop: 12 }}>Proxy: {cli.proxyHost}</p>
             {cli.caFingerprint && (

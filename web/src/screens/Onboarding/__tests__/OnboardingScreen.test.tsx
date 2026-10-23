@@ -45,7 +45,7 @@ describe('OnboardingScreen pledge step: used renders backend field', () => {
         markOnboarded: vi.fn().mockResolvedValue(undefined),
         getCliCredentials: vi.fn().mockResolvedValue({
           token: 'tok', proxyHost: 'localhost:8080',
-          installCommand: 'ctc install', caFingerprint: null,
+          installCommand: 'ctc install', installCommandWindows: 'ctc install.ps1', caFingerprint: null,
         }),
       } as any,
     } as any);

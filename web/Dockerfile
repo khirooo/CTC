@@ -6,7 +6,8 @@
 #   VITE_CTC_HOST  = <CTC_DOMAIN>               (host in the CLI install one-liner)
 #   VITE_PROXY_HOST= <CTC_DOMAIN>:8080          (proxy host shown in "Set up CLI")
 #   VITE_GHE_HOST  = https://<GHE_DOMAIN>       (token-creation link in the PAT help)
-#   CTC_DOMAIN     = <CTC_DOMAIN>               (baked into the served ctc/install.sh)
+#   CTC_DOMAIN     = <CTC_DOMAIN>               (baked into the served ctc/install.sh
+#                                                 and ctc.ps1/install.ps1)
 
 # ---- stage 1: build the static site ----
 FROM node:20-slim AS build
@@ -28,10 +29,13 @@ RUN npm run build      # -> /web/dist
 FROM caddy:2-alpine
 # The built SPA.
 COPY --from=build /web/dist /srv/www
-# CLI launcher assets, served so `curl https://<host>/install.sh | sh` and the
-# launcher's `ctc login` cert download work.
+# CLI launcher assets, served so `curl https://<host>/install.sh | sh` (macOS)
+# and the PowerShell one-liner for `install.ps1` (Windows) work, as does the
+# launchers' `ctc login` cert download.
 COPY cli/install.sh /srv/www/install.sh
 COPY cli/ctc /srv/www/ctc
+COPY cli/install.ps1 /srv/www/install.ps1
+COPY cli/ctc.ps1 /srv/www/ctc.ps1
 # Bake the deployment hosts into the served launcher scripts. Their in-repo
 # defaults are placeholders: `ctc.local` (the CTC host) and `example.ghe.com`
 # (the GitHub Enterprise host `ctc login` writes as GH_HOST). Without the
@@ -53,23 +57,37 @@ ARG CTC_PROXY_HOST
 # Hosts the launched agent reaches directly, bypassing the proxy (e.g. an
 # internal Jira the proxy box can't route to). Empty → nothing bypassed.
 ARG CTC_NO_PROXY
+# The bash rewrites below are anchored on bash-syntax defaults
+# (`CTC_SCHEME:-https`, …). ctc.ps1/install.ps1 use PowerShell variable
+# assignments instead (`$CTC_HOST_DEFAULT = 'ctc.local'`, …) as their unique,
+# single-occurrence anchors — same idea, different syntax. `$` is escaped
+# (`\$`) so the shell here passes it through literally to sed instead of trying
+# to expand it. These files are UTF-8-with-BOM, CRLF; sed operates byte-wise
+# and only touches the matched line content, so the BOM (start of file) and
+# every line's trailing \r are left untouched by these substitutions.
 RUN if [ -n "$CTC_DOMAIN" ]; then \
       sed -i "s/ctc\.local/$CTC_DOMAIN/g" /srv/www/install.sh /srv/www/ctc; \
+      sed -i "s/\$CTC_HOST_DEFAULT = 'ctc\.local'/\$CTC_HOST_DEFAULT = '$CTC_DOMAIN'/g" /srv/www/install.ps1 /srv/www/ctc.ps1; \
     fi; \
     if [ -n "$GHE_DOMAIN" ]; then \
       sed -i "s/example\.ghe\.com/$GHE_DOMAIN/g" /srv/www/ctc; \
+      sed -i "s/\$GHE_DOMAIN_DEFAULT = 'example\.ghe\.com'/\$GHE_DOMAIN_DEFAULT = '$GHE_DOMAIN'/g" /srv/www/ctc.ps1; \
     fi; \
     if [ -n "$CTC_WEB_SCHEME" ]; then \
       sed -i "s/CTC_SCHEME:-https/CTC_SCHEME:-$CTC_WEB_SCHEME/g" /srv/www/install.sh /srv/www/ctc; \
+      sed -i "s/\$CTC_SCHEME_DEFAULT = 'https'/\$CTC_SCHEME_DEFAULT = '$CTC_WEB_SCHEME'/g" /srv/www/install.ps1 /srv/www/ctc.ps1; \
     fi; \
     if [ -n "$CTC_PROXY_PUBLIC_PORT" ]; then \
       sed -i "s/CTC_PROXY_PORT:-8080/CTC_PROXY_PORT:-$CTC_PROXY_PUBLIC_PORT/g" /srv/www/ctc; \
+      sed -i "s/\$CTC_PROXY_PORT_DEFAULT = '8080'/\$CTC_PROXY_PORT_DEFAULT = '$CTC_PROXY_PUBLIC_PORT'/g" /srv/www/ctc.ps1; \
     fi; \
     if [ -n "$CTC_PROXY_HOST" ]; then \
       sed -i "s/CTC_PROXY_HOST:-\$CTC_HOST/CTC_PROXY_HOST:-$CTC_PROXY_HOST/g" /srv/www/ctc; \
+      sed -i "s/\$CTC_PROXY_HOST_DEFAULT = ''/\$CTC_PROXY_HOST_DEFAULT = '$CTC_PROXY_HOST'/g" /srv/www/ctc.ps1; \
     fi; \
     if [ -n "$CTC_NO_PROXY" ]; then \
       sed -i "s/CTC_NO_PROXY:-}/CTC_NO_PROXY:-$CTC_NO_PROXY}/g" /srv/www/ctc; \
+      sed -i "s/\$CTC_NO_PROXY_DEFAULT = ''/\$CTC_NO_PROXY_DEFAULT = '$CTC_NO_PROXY'/g" /srv/www/ctc.ps1; \
     fi
 # Routing / TLS config.
 COPY Caddyfile /etc/caddy/Caddyfile

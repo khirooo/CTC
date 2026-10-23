@@ -3,14 +3,26 @@
 Launch GitHub Copilot CLI through the CTC credit proxy without the manual env exports.
 
 ## Install (once)
+
+**macOS:**
+
     curl -fsSLk https://<ctc-host>/install.sh | sh
 
 The `-k` is required on first contact: the CTC host uses a self-signed cert that
 isn't trusted yet. `ctc login` then trusts it and prints the CA's SHA-256
 fingerprint — compare it with the one shown in the dashboard "Set up CLI" panel.
 
+**Windows (PowerShell):**
+
+    curl.exe -fsSLko "$env:TEMP\ctc-install.ps1" https://<ctc-host>/install.ps1
+    powershell -NoProfile -File "$env:TEMP\ctc-install.ps1" -Token <your-token>
+
+No `sudo`/admin: instead of a password prompt, Windows shows a native "install
+certificate?" confirmation dialog for the CA — click yes. The installer never
+elevates itself (no `-Verb RunAs`); see [Windows notes](#windows-notes) below.
+
 ## Set up (once)
-    ctc login        # paste the token from the dashboard "Set up CLI" panel; approves one sudo for cert trust and prints the CA fingerprint
+    ctc login        # paste the token from the dashboard "Set up CLI" panel; trusts the CA (sudo on macOS, a confirmation dialog on Windows) and prints the CA fingerprint
 
 ## Daily
     ctc              # in an interactive terminal, shows a menu to pick your agent:
@@ -30,8 +42,10 @@ Other commands: `ctc status`, `ctc logout`.
 ## Cost readout in Claude Code
 
 `ctc claude` installs a statusline into its **isolated** Claude home
-(`~/.config/ctc/home/.claude/`) — never your personal `~/.claude`. It shows what
-the session is costing the pool:
+(`~/.config/ctc/home/.claude/` on macOS, `%APPDATA%\ctc\home\.claude\` on
+Windows) — never your personal `~/.claude`. It shows what the session is
+costing the pool (paths below are written as the macOS/Unix form; substitute
+the Windows path on that platform):
 
     ◆ CTC ▕ Sonnet 5 ▕ ⎇ main ✎ ▕ ⚡ 3.21 AIU · $0.03 (+0.12) ▕ ⑂ 1.04 agents ▕ ⌁ 61k
 
@@ -126,17 +140,49 @@ window (separate processes). Inline ghost-text completions from the native
 extension aren't part of this flow — see the Copilot-in-VS-Code design doc for
 the planned Phase A.
 
-`/ide` discovers the window through the `~/.copilot/ide` registry. Because `ctc`
-isolates `HOME`, the launcher symlinks just that registry into its isolated home
-so `/ide` works; everything else (token, session, config) stays isolated. If
-`/ide` still says "No active IDE workspaces found", make sure the terminal was
-opened *inside* the workspace folder and that "Auto-connect to matching IDE
-workspace" is enabled in the `/ide` settings.
+`/ide` discovers the window through the `~/.copilot/ide` registry (on Windows,
+`%USERPROFILE%\.copilot\ide`). Because `ctc` isolates the home directory, the
+launcher links just that registry into its isolated home so `/ide` works —
+a symlink on macOS, a directory junction on Windows (`New-Item -ItemType
+Junction`, no admin/Developer Mode needed) — while everything else (token,
+session, config) stays isolated. If `/ide` still says "No active IDE
+workspaces found", make sure the terminal was opened *inside* the workspace
+folder and that "Auto-connect to matching IDE workspace" is enabled in the
+`/ide` settings.
 
-macOS only for now. On other systems use the manual setup in TDD.md §6.3.
-The launcher never modifies the Copilot CLI or the proxy — it sets the isolating
-env (its own HOME under ~/.config/ctc/home) and execs stock `copilot`.
+Supported on macOS and Windows (Linux: manual setup, [TDD.md](../TDD.md) §6.3).
+The launcher never modifies the Copilot CLI or the proxy — it sets the
+isolating env (its own home under `~/.config/ctc/home` on macOS,
+`%APPDATA%\ctc\home` on Windows) and runs stock `copilot`.
+
+## Windows notes
+
+- **Paths.** Settings and the isolated Copilot/Claude home live under
+  `%APPDATA%\ctc`; the `ctc` command itself installs to
+  `%LOCALAPPDATA%\Programs\ctc` (kept off `PATH` as a `.ps1`, exposed as a
+  `ctc.cmd` shim instead — PowerShell doesn't run bare `.ps1` files from PATH
+  the way a Unix shell runs an executable script).
+- **ExecutionPolicy.** If your effective policy is `Restricted` (the Windows
+  client default), neither `install.ps1` nor `ctc.ps1` will run — PowerShell
+  reports *"running scripts is disabled on this system"*. Fix it once, as your
+  own user: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (the
+  installer also re-checks and prints this hint). **Never use
+  `-ExecutionPolicy Bypass`** — it's exactly the pattern EDR tools flag, and
+  this project avoids it everywhere (see `TDD.md`/the plan's EDR assessment).
+- **Cert trust.** `ctc login` trusts CTC's CA in `Cert:\CurrentUser\Root` by
+  default — no admin needed, just the native Windows confirmation dialog.
+  `ctc login -Machine` instead trusts it machine-wide
+  (`Cert:\LocalMachine\Root`) — run it yourself from a shell **you've already
+  elevated**; the launcher never self-elevates.
+- **Statusline.** The Claude Code statusline is a native PowerShell script
+  (`statusline.ps1`) — no Python involved on Windows (the macOS version embeds
+  Python; the Windows port doesn't need it).
+- **Tests.** `pwsh cli/tests/ps/run.ps1` runs the Pester 5 suite locally (not in
+  CI) — installs Pester to `CurrentUser` scope first if missing. Windows-only
+  cases (cert store, junctions) are tagged `Windows`; the rest also run under
+  `pwsh` on macOS/Linux for quick iteration.
 
 ## Tests
     bash cli/tests/run.sh        # unit suite (stubbed, no network)
     CTC_HOST=localhost REAL_TEST_TOKEN=... bash cli/tests/smoke.sh   # real-binary smoke vs a running proxy
+    pwsh cli/tests/ps/run.ps1    # Windows launcher's Pester 5 suite (run locally)

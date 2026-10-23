@@ -150,6 +150,9 @@ describe('HttpCtcApi', () => {
     expect(out.token).toBe('github_pat_REAL');
     expect(typeof out.proxyHost).toBe('string');
     expect(out.installCommand).toContain('install.sh');
+    expect(out.installCommandWindows).toContain('install.ps1');
+    expect(out.installCommandWindows).toContain('-Token github_pat_REAL');
+    expect(out.installCommandWindows).toContain('powershell -NoProfile -File');
   });
 
   it('validatePat POSTs to /pat and maps ghe_login/quota_aiu/entitlement_aiu/remaining_aiu to camelCase', async () => {

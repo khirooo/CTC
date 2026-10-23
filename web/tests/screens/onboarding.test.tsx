@@ -81,6 +81,7 @@ function defaultOnboardingApi(overrides: Record<string, unknown> = {}) {
     getCliCredentials: vi.fn().mockResolvedValue({
       token: 'github_pat_TOK', proxyHost: 'localhost:8080',
       installCommand: 'curl -fsSL https://localhost/install.sh | sh -s -- --token github_pat_TOK',
+      installCommandWindows: 'curl.exe -fsSLko "$env:TEMP\\ctc-install.ps1" https://localhost/install.ps1; powershell -NoProfile -File "$env:TEMP\\ctc-install.ps1" -Token github_pat_TOK',
     }),
     ...overrides,
   };
@@ -100,6 +101,7 @@ describe('OnboardingScreen wizard', () => {
       getCliCredentials: vi.fn().mockResolvedValue({
         token: 'github_pat_TOK', proxyHost: 'localhost:8080',
         installCommand: 'curl -fsSL https://localhost/install.sh | sh -s -- --token github_pat_TOK',
+        installCommandWindows: 'curl.exe -fsSLko "$env:TEMP\\ctc-install.ps1" https://localhost/install.ps1; powershell -NoProfile -File "$env:TEMP\\ctc-install.ps1" -Token github_pat_TOK',
       }),
     };
     stubApp(api);
@@ -122,6 +124,7 @@ describe('OnboardingScreen wizard', () => {
       getCliCredentials: vi.fn().mockResolvedValue({
         token: 'github_pat_TOK', proxyHost: 'localhost:8080',
         installCommand: 'curl -fsSL https://localhost/install.sh | sh -s -- --token github_pat_TOK',
+        installCommandWindows: 'curl.exe -fsSLko "$env:TEMP\\ctc-install.ps1" https://localhost/install.ps1; powershell -NoProfile -File "$env:TEMP\\ctc-install.ps1" -Token github_pat_TOK',
       }),
     };
     stubApp(api);
@@ -136,7 +139,7 @@ describe('OnboardingScreen wizard', () => {
     const api = {
       validatePat: vi.fn(), updateSettings: vi.fn(),
       markOnboarded: vi.fn().mockResolvedValue(undefined),
-      getCliCredentials: vi.fn().mockResolvedValue({ token: 't', proxyHost: 'p', installCommand: 'c' }),
+      getCliCredentials: vi.fn().mockResolvedValue({ token: 't', proxyHost: 'p', installCommand: 'c', installCommandWindows: 'c-win' }),
     };
     stubApp(api);
     renderScreen();
@@ -150,7 +153,7 @@ describe('OnboardingScreen wizard', () => {
     const api = {
       validatePat: vi.fn().mockRejectedValue(new CtcApiError('conflict', 'PAT belongs to bob, not ada', 409)),
       updateSettings: vi.fn(), markOnboarded: vi.fn(),
-      getCliCredentials: vi.fn().mockResolvedValue({ token: 't', proxyHost: 'p', installCommand: 'c' }),
+      getCliCredentials: vi.fn().mockResolvedValue({ token: 't', proxyHost: 'p', installCommand: 'c', installCommandWindows: 'c-win' }),
     };
     stubApp(api);
     renderScreen();
@@ -201,7 +204,7 @@ describe('OnboardingScreen wizard', () => {
       signIn: vi.fn(), signUp: vi.fn(), signOut: vi.fn(),
       completeOnboarding: vi.fn(),
       validatePat: vi.fn(), updateSettings: vi.fn(),
-      getCliCredentials: vi.fn().mockResolvedValue({ token: 't', proxyHost: 'p', installCommand: 'c' }),
+      getCliCredentials: vi.fn().mockResolvedValue({ token: 't', proxyHost: 'p', installCommand: 'c', installCommandWindows: 'c-win' }),
     };
 
     renderWithRealGuard(mockApi);
@@ -227,7 +230,7 @@ describe('OnboardingScreen wizard', () => {
       updateSettings: vi.fn().mockResolvedValue({}),
       markOnboarded: vi.fn().mockResolvedValue(undefined),
       getCliCredentials: vi.fn().mockResolvedValue({
-        token: 't', proxyHost: 'p', installCommand: 'c',
+        token: 't', proxyHost: 'p', installCommand: 'c', installCommandWindows: 'c-win',
       }),
     };
     stubApp(api);
@@ -250,6 +253,7 @@ describe('OnboardingScreen wizard', () => {
       getCliCredentials: vi.fn().mockResolvedValue({
         token: 'github_pat_TOK', proxyHost: 'localhost:8080',
         installCommand: 'curl install',
+        installCommandWindows: 'curl.exe install.ps1',
       }),
     };
     stubApp(api);
@@ -304,6 +308,44 @@ describe('OnboardingScreen wizard', () => {
     expect(screen.getByText('Paste this command and press Enter')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /I ran it — enter CTC/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /I'll do it later/ })).toBeInTheDocument();
+    // macOS/Windows only — Linux isn't a supported CTC platform.
+    expect(screen.getByText(/macOS: Terminal or iTerm/)).toBeInTheDocument();
+    expect(screen.getByText(/Windows: PowerShell/)).toBeInTheDocument();
+    expect(screen.queryByText(/Linux/)).not.toBeInTheDocument();
+  });
+
+  it('install step shows an OS switch that defaults to macOS and swaps the command on Windows', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    );
+    renderOnboarding();
+    fireEvent.click(await screen.findByText('No — join as a Guest'));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+
+    const macTab = await screen.findByRole('tab', { name: /macos/i });
+    const winTab = screen.getByRole('tab', { name: /windows/i });
+    expect(macTab).toHaveAttribute('aria-selected', 'true');
+    expect(winTab).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByText(/--token github_pat_TOK/)).toBeInTheDocument();
+
+    await userEvent.click(winTab);
+    expect(winTab).toHaveAttribute('aria-selected', 'true');
+    expect(macTab).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByText(/-Token github_pat_TOK/)).toBeInTheDocument();
+    expect(screen.queryByText(/--token github_pat_TOK/)).not.toBeInTheDocument();
+  });
+
+  it('install step defaults the OS switch to Windows when the UA reports Windows', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    );
+    renderOnboarding();
+    fireEvent.click(await screen.findByText('No — join as a Guest'));
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+
+    const winTab = await screen.findByRole('tab', { name: /windows/i });
+    expect(winTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/-Token github_pat_TOK/)).toBeInTheDocument();
   });
 
   it('"I ran it" persists installAck=true', async () => {

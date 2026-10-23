@@ -37,6 +37,10 @@ describe('SetupChecklist', () => {
     renderChecklist({ role: 'consumer' });
     fireEvent.click(await screen.findByRole('button', { name: /generate the command/i }));
     await waitFor(() => expect(screen.getByText('Terminal')).toBeInTheDocument());
+    expect(screen.getByRole('tab', { name: /macos/i })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /windows/i }));
+    expect(screen.getByRole('tab', { name: /windows/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/ctc-install\.ps1/)).toBeInTheDocument();
   });
 
   it('"Mark as done" persists and hides the card when everything is done', async () => {

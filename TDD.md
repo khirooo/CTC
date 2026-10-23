@@ -247,6 +247,19 @@ sudo security add-trusted-cert -d -r trustRoot \
 # sudo cp cert.pem /usr/local/share/ca-certificates/copilot-proxy.crt
 # sudo update-ca-certificates
 
+# Windows alternative (PowerShell, no admin — current-user trust; shows the
+# native "install certificate?" confirmation dialog, same mechanism cli/ctc.ps1
+# uses for `ctc login`):
+# $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new("$PWD\cert.pem")
+# $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+# $store.Open('ReadWrite'); $store.Add($cert); $store.Close()
+#
+# Machine-wide instead (needs a shell you've already elevated — never self-elevate):
+# Import-Certificate -FilePath cert.pem -CertStoreLocation Cert:\LocalMachine\Root
+# # SPIKE: to be verified on Windows — whether Copilot's bundled Node runtime
+# # honors CurrentUser\Root the same way it needs the macOS System keychain
+# # (plan risk #1); if not, -Machine (LocalMachine\Root) may be required.
+
 # 3. Install runtime dep
 pip install aiohttp
 
@@ -293,6 +306,28 @@ copilot
 | `COPILOT_GITHUB_TOKEN` | Fake session token (looks like a real PAT) |
 | `HTTPS_PROXY` | Route HTTPS traffic through our proxy |
 | `NODE_EXTRA_CA_CERTS` | Trust hint for plain node/gh — **copilot ignores it**; trust the cert via the System keychain (§6.1 step 2) instead |
+
+#### Windows (PowerShell) — manual equivalent
+
+```powershell
+$tmp = Join-Path $env:TEMP ([guid]::NewGuid())
+New-Item -ItemType Directory -Path $tmp | Out-Null
+$env:USERPROFILE = $tmp           # SPIKE: to be verified on Windows — isolates
+$env:HOME = $tmp                  # Copilot/npm the way HOME+XDG_* do on macOS
+                                   # (plan risk #2: USERPROFILE vs HOME vs APPDATA)
+$env:GITHUB_API_URL = 'https://example.ghe.com/api/v3'
+$env:GH_HOST = 'example.ghe.com'
+$env:COPILOT_GITHUB_TOKEN = 'github_pat_FAKE_must_look_like_a_real_pat_with_correct_length...'
+$env:HTTPS_PROXY = 'http://localhost:8080'
+$env:NODE_EXTRA_CA_CERTS = "$PWD\cert.pem"   # trust hint only — see note above
+copilot
+```
+
+Same caveats as the bash example: isolate the home directory, point Copilot at
+GHE, set the fake token, route through the proxy, and trust the CA via the OS
+store (§6.1) rather than `NODE_EXTRA_CA_CERTS` alone. `cli/ctc.ps1` automates all
+of this (plus `HTTPS_PROXY`/no-proxy merging and the `/ide` junction) — see
+[02 · The `ctc` command](docs/guide/02-the-cli-launcher.md).
 
 #### Proxy-side env vars (operator)
 

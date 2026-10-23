@@ -8,6 +8,7 @@ export { Avatar } from './Avatar';
 export { StatTile } from './StatTile';
 export { InfoTip } from './InfoTip';
 export { TerminalBlock } from './TerminalBlock';
+export { InstallCommand } from './InstallCommand';
 export { Tour } from './Tour';
 export { ColorKey } from './ColorKey';
 export { SecretInput } from './SecretInput';

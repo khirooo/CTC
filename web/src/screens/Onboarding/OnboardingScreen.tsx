@@ -5,7 +5,7 @@ import { CtcApiError } from '@/api/http';
 import { NANO_PER_AIU, aiu } from '@/domain/credit';
 import { saveSetupState } from '@/domain/setupState';
 import { CreditBar, CreditLegend, PledgePresets } from '@/components/CreditBar';
-import { TerminalBlock } from '@/components/TerminalBlock';
+import { InstallCommand } from '@/components/InstallCommand';
 import { PatHelp } from '@/components/PatHelp';
 import { SecretInput } from '@/components/SecretInput';
 import { monoLabel } from '@/theme/styles';
@@ -45,7 +45,7 @@ export function OnboardingScreen() {
   const [pat, setPat] = useState('');
   const [identity, setIdentity] = useState<{ gheLogin: string; quotaAiu: number; entitlementAiu: number; remainingAiu: number; usedNano: number } | null>(null);
   const [pledgedSurplus, setPledgedSurplus] = useState(0);
-  const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; caFingerprint: string | null } | null>(null);
+  const [cli, setCli] = useState<{ token: string; proxyHost: string; installCommand: string; installCommandWindows: string; caFingerprint: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -460,12 +460,13 @@ export function OnboardingScreen() {
             {cli && (
               <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 18 }}>
                 <InstallStep n={1} title="Open a terminal on your laptop">
-                  <p style={stepHint}>macOS: Terminal or iTerm · Windows: PowerShell · Linux: any shell.</p>
+                  <p style={stepHint}>macOS: Terminal or iTerm · Windows: PowerShell.</p>
                 </InstallStep>
                 <InstallStep n={2} title="Paste this command and press Enter">
-                  <TerminalBlock
-                    command={cli.installCommand}
-                    caption="This installs the ctc launcher with your personal token baked in — nothing else to paste. Rotate the token anytime in Profile."
+                  <InstallCommand
+                    commandMac={cli.installCommand}
+                    commandWindows={cli.installCommandWindows}
+                    captionMac="This installs the ctc launcher with your personal token baked in — nothing else to paste. Rotate the token anytime in Profile."
                     style={{ marginTop: 8 }}
                   />
                   {cli.caFingerprint && (
